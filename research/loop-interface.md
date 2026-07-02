@@ -268,3 +268,145 @@ they belong, shrinking `tool-loop.ts` to the effect it actually is.
 - Can lifting tool execution out of `ToolLoopAgent` preserve provider-executed tools (web search,
   code execution) that resolve inside the model stream? Likely yes — they arrive as inline results
   on `messages`, not as `requests` — but this needs a spike.
+
+## Addendum: sketch of the workflow composition
+
+How the API maps onto Workflow DevKit. Everything here is `#execution/`-private; the loop bodies
+and the `Loop`/effects interfaces live in a bundler-safe module (no node built-ins, no logging)
+since they execute inside `"use workflow"` bodies.
+
+### Entrypoints
+
+The two workflow functions become thin composition roots: build the substrate, build the effects,
+run the body, publish the outcome. Nothing else lives at this layer.
+
+```ts
+export async function sessionWorkflow(input: SessionWorkflowInput): Promise<WorkflowEntryResult> {
+  "use workflow";
+
+  const { workflowRunId: sessionId } = getWorkflowMetadata();
+  const loop = createWorkflowSessionLoop({ sessionId, writable: getWritable<Uint8Array>() });
+  const effects = createSessionEffects({ serializedContext: input.serializedContext });
+
+  try {
+    return { output: await runSessionLoop(loop, effects, toSessionRunInput(sessionId, input)) };
+  } catch (error) {
+    await effects.failSession(normalizeSerializableError(error)); // terminal session.failed + callbacks
+    throw error;
+  } finally {
+    await loop.dispose();
+  }
+}
+
+export async function turnWorkflow(rawInput: unknown): Promise<void> {
+  "use workflow";
+
+  const input = migrateTurnWorkflowInput(rawInput);
+  if (isLegacyDriverDispatch(input)) return runLegacyTurnWorkflow(input); // invariant 2
+
+  const loop = createWorkflowTurnLoop({
+    controlToken: input.completionToken,
+    parentWritable: input.stepInput.parentWritable,
+  });
+  const effects = createTurnEffects({ serializedContext: input.stepInput.serializedContext });
+
+  try {
+    const result = await runTurnLoop(loop, effects, toTurnRunInput(input));
+    await publishTurnResultStep({ controlToken: input.completionToken, result });
+  } catch (error) {
+    await publishTurnErrorStep({
+      controlToken: input.completionToken,
+      error: normalizeSerializableError(error),
+    });
+    throw error;
+  } finally {
+    await loop.dispose();
+  }
+}
+```
+
+`dispose()` is composition-owned lifecycle (hook/iterator cleanup), not part of the `Loop`
+interface the bodies see.
+
+### Binding effects to steps
+
+`"use step"` is a compile-time directive with devalue-serializable inputs and outputs, so an
+effect member cannot close over live objects (the deserialized context, the adapter, resolved
+tools). Each member binds to a top-level step function, and the one piece of mutable runtime
+state — the serialized context that adapters and dynamic resolvers mutate — becomes a private
+cursor inside the effects object. This is `TurnExecutionCursor`'s job, kept, but hidden from the
+loop body:
+
+```ts
+export function createTurnEffects(env: { serializedContext: SerializedContext }): TurnEffects {
+  // Replay-safe: memoized step results replay the same cursor transitions
+  // in the same order, so `context` converges identically on every replay.
+  let context = env.serializedContext;
+  const adopt = <O>(result: { output: O; context?: SerializedContext }): O => {
+    context = result.context ?? context;
+    return result.output;
+  };
+
+  return {
+    adapterDeliver: async (input) => adopt(await adapterDeliverStep({ ...input, context })),
+    callModel: async (input) => adopt(await callModelStep({ ...input, context })),
+    executeTool: async (input) => adopt(await executeToolStep({ ...input, context })),
+    dispatchSubagent: async (input) => adopt(await dispatchSubagentStep({ ...input, context })),
+  };
+}
+
+async function callModelStep(
+  input: ModelCallInput & { readonly context: SerializedContext },
+): Promise<{ output: ModelTurn; context: SerializedContext }> {
+  "use step";
+  const ctx = await deserializeContext(input.context);
+  // hydrate bundle + adapter, resolve model/tools, stream events to the writable…
+  return { output: { messages, requests }, context: serializeContext(ctx) };
+}
+```
+
+Step payloads shrink relative to today: `callModelStep` returns the turn's new messages and
+requests, not a full `DurableSessionState` snapshot per step. The full snapshot is written once,
+at the turn result — the run boundary the cross-deployment contract actually needs (invariant 5).
+
+### Mailbox over hooks
+
+`createWorkflowMailbox<T>(token)` wraps `createHook` and carries today's semantics verbatim:
+
+- construction claims ownership (`claimHookOwnership`); a conflict means another replica owns the
+  token and the run bows out, exactly like the turn-inbox claim today;
+- `receive()` advances the hook iterator; the resume side is unchanged — `Runtime.deliver`,
+  auth callbacks, and subagent completions all still call `resumeHook(token, payload)`;
+- `rekey(next)` claims the candidate token, drains reads already committed to the old token,
+  disposes it, and keeps the retired hook in the delivery race — the `SessionDeliveryHook`
+  algorithm moves here unchanged (invariant 3).
+
+### `runTurn` internals (session side)
+
+`TurnControlReceiver`'s protocol survives as the private body of one method:
+
+1. `dispatchTurnStep` — `start(turnWorkflowReference, [input], { deploymentId: "latest" })`.
+2. Open a control mailbox at `${sessionId}:turn-control:${n}`; `n` is a loop-instance counter,
+   deterministic under replay.
+3. Service control payloads privately: `turn-continuation-token` rekeys the session inbox;
+   `turn-delivery-request` races the session inbox against control and forwards through the
+   request/accept/cancel handshake; `turn-result` / `turn-error` terminate.
+4. Dispose the control mailbox; return the `TurnRunResult`.
+
+On the turn side the same handshake is the private body of the turn loop's mailbox: a mid-turn
+`receive()` while descendants are active sends `turn-delivery-request` and resolves on
+accept/cancel. Neither loop body ever sees a control payload kind.
+
+### What the substrate imposes
+
+- **Deterministic bodies.** Loop bodies replay inside `"use workflow"`: no `Date.now()`, no
+  randomness, no I/O outside `loop`/`effects`, and mailbox tokens and dispatch counters derived
+  from replayed state only. This is the rule the proposed guard-invariant would check.
+- **Bundler-safe modules.** Anything imported into a workflow body must survive the workflow
+  bundler — same constraint `workflow-entry.ts` documents today.
+- **Emission split.** `loop.emit` is a step that writes the parent writable and is reserved for
+  loop-level control-plane events (`session.failed`, `subagent.called`); high-frequency stream
+  emission happens inside `callModelStep`, which holds the writer for the duration of the call.
+- **Stable ids and the legacy arm.** `sessionWorkflow`/`turnWorkflow` keep version-stamp-free
+  workflow ids (`STABLE_WORKFLOW_NAMES`) so pinned drivers route across deployments, and the turn
+  entrypoint keeps `runLegacyTurnWorkflow` until pre-change sessions drain.
