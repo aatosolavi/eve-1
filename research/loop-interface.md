@@ -21,10 +21,13 @@ is ferried as `serializedContext` + `DurableSessionState` blobs through every bo
 
 This research proposes a `Loop` interface analogous to `workflow`'s `World`. `World` lets workflow
 core express workflow semantics once while queue/storage/streams stay pluggable. `Loop` does the
-same for eve: the agent loop is written once as straight-line, readable async code, and everything
-durable — step memoization, parking on external input, child runs, the event stream — happens
-behind the interface. The loop should be understandable at a glance; the orchestration substrate
-should be swappable (Workflow DevKit today, in-memory for tests and fast local dev).
+same for eve: the agent loop is written once as straight-line, readable async code over two seams
+— `Loop` for the substrate primitives (parking, child runs, the event stream) and injected effect
+interfaces for everything side-effecting (model call, tool execution, adapter callbacks).
+Durability is a property of the wiring, not the loop's vocabulary: the workflow composition binds
+each effect to a `"use step"` function, the memory composition executes directly. The loop should
+be understandable at a glance; the orchestration substrate should be swappable (Workflow DevKit
+today, in-memory for tests and fast local dev).
 
 ## Current shape
 
@@ -61,20 +64,14 @@ Consequences:
 
 ### The `Loop` interface
 
-`Loop` is the closed effect vocabulary the loop bodies are allowed to use — nothing else in the
-loop may touch durable-execution primitives. Like `World`, it is a narrow contract with multiple
-implementations.
+`Loop` carries only what is inherent to any loop substrate: parking on external input, running a
+turn as a child run, and the event stream. It says nothing about memoization or step boundaries —
+those are how the workflow implementation makes effects durable, not something the loop needs to
+name. Like `World`, it is a narrow contract with multiple implementations.
 
 ```ts
 /** Durable-execution substrate for one agent loop run. */
 export interface Loop {
-  /**
-   * Runs one durable, memoized step. On replay a completed step returns its
-   * recorded result without re-executing. Steps are the only place side
-   * effects (model calls, tool execution, adapter callbacks) may happen.
-   */
-  step<I, O>(step: LoopStepRef<I, O>, input: I): Promise<O>;
-
   /**
    * Starts the per-turn child run on the latest deployment and awaits its
    * terminal result. Session-level bodies only.
@@ -97,11 +94,27 @@ export interface LoopMailbox<T> {
 }
 ```
 
-`LoopStepRef` names a step from a closed registry (`call-model`, `execute-tool`,
-`adapter-deliver`, `create-session`, `dispatch-subagent`, ...). The registry is what makes a
-workflow-backed implementation possible: each ref maps to a real `"use step"` function, so the
-Workflow DevKit compile-time directive constraint is satisfied without the loop bodies knowing it
-exists.
+### Effects
+
+Everything side-effecting the loop performs — the model call, tool execution, adapter callbacks,
+subagent dispatch — is an ordinary injected dependency, not a `Loop` method:
+
+```ts
+/** Side-effecting operations available to the turn loop. */
+export interface TurnEffects {
+  adapterDeliver(input: AdapterDeliverInput): Promise<StepInput | undefined>;
+  callModel(input: ModelCallInput): Promise<ModelTurn>; // { messages, requests }
+  executeTool(input: ToolExecInput): Promise<ToolExecResult>;
+  dispatchSubagent(input: SubagentDispatchInput): Promise<SubagentDispatch>;
+  // ...closed, eve-owned vocabulary; grows by adding members
+}
+```
+
+Durability is a wiring concern, invisible to the loop bodies: the workflow composition root binds
+every member to a `"use step"` function (satisfying the Workflow DevKit compile-time directive
+constraint), so each effect is memoized and replay-safe by construction. The memory composition
+binds the same members to direct implementations. The one rule the bodies must follow is
+determinism: every side effect goes through `effects` or `loop`, nothing else.
 
 ### The loop bodies
 
@@ -109,8 +122,12 @@ Two plain async functions, both deterministic and replayable, both readable top 
 the entire orchestration surface (elided error handling and finalization):
 
 ```ts
-export async function runSessionLoop(loop: Loop, input: SessionRunInput): Promise<unknown> {
-  let session = await loop.step(createSession, input);
+export async function runSessionLoop(
+  loop: Loop,
+  effects: SessionEffects,
+  input: SessionRunInput,
+): Promise<unknown> {
+  let session = await effects.createSession(input);
   const inbox = await loop.mailbox<DeliverPayload>(session.continuationToken);
   let delivery: DeliverPayload | undefined = input.initialDelivery;
 
@@ -122,22 +139,26 @@ export async function runSessionLoop(loop: Loop, input: SessionRunInput): Promis
 
     await inbox.rekey(session.continuationToken);
     delivery = await inbox.receive(); // ← the park
-    delivery = await routeToDescendants(loop, session, delivery);
+    delivery = await routeToDescendants(effects, session, delivery);
   }
 }
 
-export async function runTurnLoop(loop: Loop, input: TurnRunInput): Promise<TurnRunResult> {
+export async function runTurnLoop(
+  loop: Loop,
+  effects: TurnEffects,
+  input: TurnRunInput,
+): Promise<TurnRunResult> {
   let { session } = input;
-  let stepInput = await loop.step(adapterDeliver, { delivery: input.delivery, session });
+  let stepInput = await effects.adapterDeliver({ delivery: input.delivery, session });
 
   while (true) {
-    const { messages, requests } = await loop.step(callModel, { session, stepInput });
+    const { messages, requests } = await effects.callModel({ session, stepInput });
     session = appendHistory(session, messages);
     if (requests.length === 0) return { kind: "done", output: finalOutput(messages), session };
 
-    const approved = await resolveApprovals(loop, session, requests); // HITL park, if any
+    const approved = await resolveApprovals(loop, effects, session, requests); // HITL park, if any
     const results = await Promise.all(
-      approved.map((request) => executeRequest(loop, session, request)),
+      approved.map((request) => executeRequest(loop, effects, session, request)),
     );
     session = appendHistory(session, toToolResults(results));
     stepInput = undefined;
@@ -150,32 +171,32 @@ export async function runTurnLoop(loop: Loop, input: TurnRunInput): Promise<Turn
 ```ts
 switch (request.kind) {
   case "tool-call":
-    return loop.step(executeTool, { request, session });
+    return effects.executeTool({ request, session });
   case "subagent-call":
-    return awaitSubagent(loop, session, request); // mailbox park
+    return awaitSubagent(loop, effects, session, request); // mailbox park
   case "authorization":
-    return awaitAuthorization(loop, session, request);
+    return awaitAuthorization(loop, effects, session, request);
   case "workflow-action":
-    return awaitWorkflowAction(loop, session, request);
+    return awaitWorkflowAction(loop, effects, session, request);
 }
 ```
 
-The key un-inversion: `callModel` becomes a pure step — `(history, tools, options) → { messages,
+The key un-inversion: `callModel` becomes a pure effect — `(history, tools, options) → { messages,
 requests }` — that never executes tools and never parks. Tool execution, HITL, subagent waits, and
 authorization waits are explicit `await`s in the loop, not flags decoded three layers up. The
-model-call recovery pipeline, compaction, and emission stay inside the `callModel` step where they
-belong, shrinking `tool-loop.ts` to the effect it actually is.
+model-call recovery pipeline, compaction, and emission stay inside the `callModel` effect where
+they belong, shrinking `tool-loop.ts` to the effect it actually is.
 
-### Implementations
+### Compositions
 
-- **`WorkflowLoop`** (`#execution/`): `step` maps refs to `"use step"` functions; `mailbox` wraps
-  `createHook` with the existing ownership-claim and rekey-race semantics; `runTurn` wraps
-  `start(turnWorkflowReference, …, { deploymentId: "latest" })` plus the turn-result mailbox;
-  `emit` writes the session's `getWritable()` stream. All of today's hook choreography
+- **Workflow** (`#execution/`): `mailbox` wraps `createHook` with the existing ownership-claim
+  and rekey-race semantics; `runTurn` wraps `start(turnWorkflowReference, …, { deploymentId:
+"latest" })` plus the turn-result mailbox; `emit` writes the session's `getWritable()` stream;
+  each effect member is bound to a `"use step"` function. All of today's hook choreography
   (`SessionDeliveryHook`, `TurnControlReceiver`, `TurnExecutionCursor`, hook-ownership claims)
-  becomes private implementation detail of this class.
-- **`MemoryLoop`** (`#internal/testing/` first, potentially `eve dev` later): `step` executes
-  directly, `mailbox.receive` awaits an in-process queue, `runTurn` calls `runTurnLoop` inline.
+  becomes private implementation detail of this composition.
+- **Memory** (`#internal/testing/` first, potentially `eve dev` later): effects execute directly,
+  `mailbox.receive` awaits an in-process queue, `runTurn` calls `runTurnLoop` inline.
   The whole session loop — including HITL and subagent ordering — becomes unit-testable in
   milliseconds with no bundler, no subprocess, no hooks.
 
@@ -189,7 +210,8 @@ belong, shrinking `tool-loop.ts` to the effect it actually is.
   `NextDriverAction` as the closed cross-deployment contract, with the same evolution rule (new
   optional fields OK, new arms breaking, no destructure-and-rebuild).
 - Delivery ordering guarantees survive: public input arriving while a turn awaits a subagent is
-  still relayed through a request/accept/cancel handshake (inside `WorkflowLoop`), and unconsumed
+  still relayed through a request/accept/cancel handshake (inside the workflow composition), and
+  unconsumed
   deliveries re-buffer ahead of later arrivals.
 
 ## Invariants
@@ -212,32 +234,37 @@ belong, shrinking `tool-loop.ts` to the effect it actually is.
 
 ## What gets deleted or absorbed
 
-| Today                                                                                                         | After                                                     |
-| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | one `TurnRunResult` contract + `LoopMailbox` payloads     |
-| `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to `WorkflowLoop`                                 |
-| Parking flags in `session.state` decoded by `derivePendingState`                                              | explicit request union returned by `callModel`            |
-| Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` loop step; SDK used for the model call only |
-| `serializedContext` + `sessionState` ferried through every step result                                        | loop-local variables; snapshots at run boundaries         |
+| Today                                                                                                         | After                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | one `TurnRunResult` contract + `LoopMailbox` payloads  |
+| `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to the workflow composition                    |
+| Parking flags in `session.state` decoded by `derivePendingState`                                              | explicit request union returned by `callModel`         |
+| Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` effect; SDK used for the model call only |
+| `serializedContext` + `sessionState` ferried through every step result                                        | loop-local variables; snapshots at run boundaries      |
 
 ## Phasing
 
-1. **Extract the seam.** Define `Loop`/`LoopMailbox`/`TurnRunResult`; implement `WorkflowLoop`
-   over the existing steps and hooks; rewrite `workflowEntry`'s driver loop as `runSessionLoop`
-   with behavior pinned by existing integration and scenario tests.
-2. **Un-invert the turn.** Split `tool-loop.ts` into the pure `callModel` step plus loop-level
+1. **Extract the seam.** Define `Loop`/`LoopMailbox`/`TurnRunResult` and the effect interfaces;
+   build the workflow composition over the existing steps and hooks; rewrite `workflowEntry`'s
+   driver loop as `runSessionLoop` with behavior pinned by existing integration and scenario
+   tests.
+2. **Un-invert the turn.** Split `tool-loop.ts` into the pure `callModel` effect plus loop-level
    request execution; rewrite `turnWorkflow` as `runTurnLoop`; keep the legacy-driver arm.
-3. **`MemoryLoop`.** Land the in-process implementation and move HITL/subagent/authorization
-   ordering coverage from scenario tests down to loop-level unit tests.
+3. **Memory composition.** Land the in-process implementation and move
+   HITL/subagent/authorization ordering coverage from scenario tests down to loop-level unit
+   tests.
 
 ## Open questions
 
-- Should `runTurn` be a `Loop` method or itself a `LoopStepRef`? A method keeps the
-  session/turn deployment split explicit; a ref keeps the interface smaller.
-- Does `MemoryLoop` become the `eve dev` fast path (skipping the local workflow store for
-  ephemeral sessions), or stay test-only?
-- Where does compaction live — inside the `callModel` step (today's placement) or as an explicit
-  loop step so it is visible in the turn body?
+- Should `runTurn` live on `Loop` or in `SessionEffects`? On `Loop` the session/turn deployment
+  split stays a substrate concern; as an effect the interface shrinks to mailbox + emit.
+- How is effect durability enforced mechanically? The composition root is the only constructor of
+  the effect interfaces, but a guard-invariant rule (no side-effecting imports in loop-body
+  modules) would make the determinism rule checkable.
+- Does the memory composition become the `eve dev` fast path (skipping the local workflow store
+  for ephemeral sessions), or stay test-only?
+- Where does compaction live — inside the `callModel` effect (today's placement) or as an
+  explicit effect call so it is visible in the turn body?
 - Can lifting tool execution out of `ToolLoopAgent` preserve provider-executed tools (web search,
   code execution) that resolve inside the model stream? Likely yes — they arrive as inline results
   on `messages`, not as `requests` — but this needs a spike.
