@@ -70,20 +70,22 @@ run, is a member of that bundle; nothing about hooks, step boundaries, or memoiz
 the vocabulary.
 
 ```ts
-/** Durable-execution substrate. `create()` mints the effect bundle for one run. */
+/** Durable-execution substrate. `create()` mints the handle for one run. */
 export interface Loop {
-  create(input: LoopCreateInput): LoopEffects;
+  create(input: SessionCreateInput): { effects: LoopEffects; runTurn: TurnRunner };
+  create(input: TurnCreateInput): { effects: LoopEffects };
 }
 
 /** Everything a loop body may do. Members marked "parks" suspend the run durably. */
 export type LoopEffects = {
   // session level
-  createSession(input: SessionCreateInput): Promise<SessionSnapshot>;
+  createSession(input: SessionCreateInput): Promise<SessionState>;
   /**
    * Waits for the next external input addressed to this run and resolves it
-   * through the channel adapter. Parks.
+   * through the channel adapter. Parks. The current token comes from the
+   * `session` the body passes in — no hidden session-level cursor.
    */
-  receiveInput(input: ReceiveInputInput): Promise<StepInput | undefined>;
+  receiveInput(input: { session: SessionState }): Promise<StepInput | undefined>;
 
   // turn level
   generateStream(input: ModelCallInput): Promise<ModelTurn>; // { messages, requests }
@@ -97,15 +99,21 @@ export type LoopEffects = {
   emit(event: HandleMessageStreamEvent): Promise<void>;
 
   // composition-root only — loop bodies never call these
-  failSession(error: SerializableError): Promise<void>;
+  failSession(error: SerializableError): Promise<void>; // session runs
+  publishResult(result: TurnRunResult): Promise<void>; // turn runs
   dispose(): Promise<void>;
 };
 ```
 
+The session-run overload returns the `TurnRunner` alongside the bundle because the two share one
+closure in the workflow composition (the public delivery inbox); the sharing is part of the
+contract, not a composition detail.
+
 Parking is a property of individual members, not a separate primitive: there is no public mailbox
 or token surface. Hook claims, continuation-token rekeying, and delivery races are private to the
-composition's `create()` closure, which also owns all per-run mutable state (the runtime-context
-cursor, dispatch counters).
+composition's `create()` closure. Within a turn run the closure also owns the mutable
+runtime-context cursor; at the session level there is no hidden state cursor at all — the
+cross-run state is explicit (next section).
 
 Durability is likewise a wiring concern, invisible to the loop bodies: the workflow composition
 binds every member to a `"use step"` function (satisfying the Workflow DevKit compile-time
@@ -123,17 +131,38 @@ between the two loop bodies, not an operation a run performs against the outside
 its own injected function:
 
 ```ts
-/** How one turn runs. Provided by the composition root, next to `loop.create()`. */
-export type TurnRunner = (input: TurnRunInput) => Promise<TurnRunResult>;
+/** How one turn runs. Minted by `loop.create()` alongside the session bundle. */
+export type TurnRunner = (input: {
+  delivery?: DeliverPayload;
+  session: SessionState;
+}) => Promise<TurnRunResult>;
+
+/**
+ * The serializable cross-run state, threaded explicitly by the runner:
+ * in via the runner's `session`, out via every `TurnRunResult` arm.
+ * Subsumes today's `DurableSessionState` + serialized runtime context and
+ * inherits the closed-contract evolution rule: new optional fields OK, no
+ * destructure-and-rebuild by the pinned session body.
+ */
+export type SessionState = {
+  /* sessionId, continuationToken, history, state, context, … */
+};
+
+export type TurnRunResult =
+  | { kind: "done"; output: unknown; isError?: boolean; session: SessionState }
+  | { kind: "park"; session: SessionState };
 ```
 
 - workflow: `runTurn` starts `turnWorkflow` on the latest deployment and speaks the turn-control
   protocol until `turn-result` / `turn-error`; it never touches `runTurnLoop`.
-- memory: `runTurn = (input) => runTurnLoop(loop.create({ kind: "turn", … }), input)` — a plain
-  function call.
+- memory: `runTurn = (input) => runTurnLoop(loop.create({ kind: "turn", … }).effects, input)` —
+  a plain function call.
 
-This also keeps the substrate below the bodies in the dependency graph: `LoopEffects` never
-invokes orchestration code.
+State crosses the run boundary only through the runner: the session body holds one `SessionState`
+value, hands it to `runTurn`, and adopts the one that comes back. That makes the cross-deployment
+contract visible in the loop's own code instead of living in a hidden cursor. This also keeps the
+substrate below the bodies in the dependency graph: `LoopEffects` never invokes orchestration
+code.
 
 ### The loop bodies
 
@@ -204,16 +233,17 @@ effect where they belong, shrinking `tool-loop.ts` to the effect it actually is.
 
 ### Compositions
 
-- **Workflow** (`#execution/`): `create()` closes over the per-run hooks and context cursor.
-  Parking members wrap `createHook` with the existing ownership-claim and rekey-race semantics;
-  the `TurnRunner` wraps `start(turnWorkflowReference, …, { deploymentId: "latest" })` plus the
-  turn-control wait; `emit` writes the session's `getWritable()` stream; every other member is
-  bound to a `"use step"` function. All of today's hook choreography (`SessionDeliveryHook`,
-  `TurnControlReceiver`, `TurnExecutionCursor`, hook-ownership claims) becomes private
-  implementation detail of this composition. The addendum below shows the satisfaction in code.
+- **Workflow** (`#execution/`): `create()` closes over the per-run hooks (and, for turn runs,
+  the context cursor). Parking members wrap `createHook` with the existing ownership-claim and
+  rekey-race semantics; the `TurnRunner` wraps `start(turnWorkflowReference, …, { deploymentId:
+"latest" })` plus the turn-control wait; `emit` writes the session's `getWritable()` stream;
+  every other member is bound to a `"use step"` function. All of today's hook choreography
+  (`SessionDeliveryHook`, `TurnControlReceiver`, `TurnExecutionCursor`, hook-ownership claims)
+  becomes private implementation detail of this composition. The addendum below shows the
+  satisfaction in code.
 - **Memory** (`#internal/testing/` first, potentially `eve dev` later): effects execute directly,
-  `receiveInput` awaits an in-process queue, and the `TurnRunner` is
-  `(input) => runTurnLoop(loop.create({ kind: "turn", … }), input)` — a plain function call.
+  `receiveInput` awaits an in-process queue, and the `TurnRunner` hosts `runTurnLoop` inline — a
+  plain function call.
   The whole session loop — including HITL and subagent ordering — becomes unit-testable in
   milliseconds with no bundler, no subprocess, no hooks.
 
@@ -223,9 +253,9 @@ effect where they belong, shrinking `tool-loop.ts` to the effect it actually is.
   stream, continuation-token semantics, HITL request/response shapes, task-vs-conversation park
   rules, and subagent delegation semantics do not change.
 - The two-run shape survives: the session run is pinned to its starting deployment and must stay
-  minimal and frozen; turn runs start on the latest deployment. `TurnRunResult` replaces
-  `NextDriverAction` as the closed cross-deployment contract, with the same evolution rule (new
-  optional fields OK, new arms breaking, no destructure-and-rebuild).
+  minimal and frozen; turn runs start on the latest deployment. `TurnRunResult` +
+  `SessionState` replace `NextDriverAction` as the closed cross-deployment contract, with the
+  same evolution rule (new optional fields OK, new arms breaking, no destructure-and-rebuild).
 - Delivery ordering guarantees survive: public input arriving while a turn awaits a subagent is
   still relayed through a request/accept/cancel handshake (inside the workflow composition), and
   unconsumed
@@ -234,8 +264,9 @@ effect where they belong, shrinking `tool-loop.ts` to the effect it actually is.
 ## Invariants
 
 1. **Frozen session body.** `runSessionLoop` replays on old deployments for the session's entire
-   life. It must stay tiny, dispatch only through the closed `TurnRunResult` contract, and never
-   grow logic that a pinned replica cannot execute.
+   life. It must stay tiny, dispatch only through the closed `TurnRunResult` contract, treat the
+   threaded `SessionState` as opaque (pass by reference, never destructure-and-rebuild), and
+   never grow logic that a pinned replica cannot execute.
 2. **Turn side keeps speaking to legacy drivers.** In-flight sessions started before this change
    have pinned drivers that dispatch `turnWorkflow` and read `NextDriverAction` /
    `TurnControlPayload`. The turn entrypoint keeps a compatibility arm (as `runLegacyTurnWorkflow`
@@ -246,19 +277,20 @@ effect where they belong, shrinking `tool-loop.ts` to the effect it actually is.
 4. **Single stream owner.** The session run owns the public event stream; turns write through the
    parent writable. `effects.emit` (and the stream emission inside `generateStream`) is the only
    write path.
-5. **State at run boundaries, not step boundaries.** Loop-local variables (`session`, `history`)
-   are durable via deterministic replay; `DurableSessionState` snapshots persist only where a run
-   boundary or cross-deployment contract requires them.
+5. **State explicit at run boundaries, private within runs.** The cross-run `SessionState` is
+   threaded visibly by the runner; within a run, loop-local variables are durable via
+   deterministic replay and the context cursor stays inside the bundle. Snapshots persist only
+   where a run boundary or cross-deployment contract requires them.
 
 ## What gets deleted or absorbed
 
-| Today                                                                                                         | After                                                        |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | one `TurnRunResult` contract + composition-private mailboxes |
-| `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to the workflow composition                          |
-| Parking flags in `session.state` decoded by `derivePendingState`                                              | explicit request union returned by `generateStream`          |
-| Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` effect; SDK used for the model call only       |
-| `serializedContext` + `sessionState` ferried through every step result                                        | loop-local variables; snapshots at run boundaries            |
+| Today                                                                                                         | After                                                                   |
+| ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | one `TurnRunResult` contract + composition-private mailboxes            |
+| `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to the workflow composition                                     |
+| Parking flags in `session.state` decoded by `derivePendingState`                                              | explicit request union returned by `generateStream`                     |
+| Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` effect; SDK used for the model call only                  |
+| `serializedContext` + `sessionState` ferried through every step result                                        | one `SessionState` threaded by the runner; private cursor within a turn |
 
 ## Phasing
 
@@ -275,14 +307,8 @@ effect where they belong, shrinking `tool-loop.ts` to the effect it actually is.
 ## Open questions
 
 - Should `LoopEffects` stay one flat bundle, or split into session/turn views so each body can
-  only reach its own members? One bundle is simpler; two views make misuse unrepresentable.
-- Should `Loop.create()` return the `TurnRunner` alongside the session bundle (`create(input): {
-effects, runTurn? }`)? The workflow composition mints them from one closure anyway (they share
-  the delivery inbox); a combined return would make that sharing part of the contract instead of
-  a composition detail.
-- Does session-level `receiveInput` fully subsume rekeying — i.e. can the composition always
-  derive the current token from its context cursor — or do channel-driven token changes
-  (`setContinuationToken`) need an explicit signal on the bundle?
+  only reach its own members? One bundle is simpler; two views make misuse unrepresentable. The
+  overloaded `create()` already returns different handles, so views would be cheap to add.
 - How is effect durability enforced mechanically? `Loop.create()` is the only constructor of the
   bundle, but a guard-invariant rule (no side-effecting imports in loop-body modules) would make
   the determinism rule checkable.
@@ -314,7 +340,8 @@ export async function sessionWorkflow(input: SessionWorkflowInput): Promise<Work
   "use workflow";
 
   const { workflowRunId: sessionId } = getWorkflowMetadata();
-  const { effects, runTurn } = createSessionRun({
+  const { effects, runTurn } = loop.create({
+    kind: "session",
     serializedContext: input.serializedContext,
     sessionId,
     writable: getWritable<Uint8Array>(),
@@ -336,16 +363,16 @@ export async function turnWorkflow(rawInput: unknown): Promise<void> {
   const input = migrateTurnWorkflowInput(rawInput);
   if (isLegacyDriverDispatch(input)) return runLegacyTurnWorkflow(input); // invariant 2
 
-  const effects = createTurnRun({
+  const { effects } = loop.create({
     controlToken: input.completionToken,
+    kind: "turn",
     parentWritable: input.stepInput.parentWritable,
-    serializedContext: input.stepInput.serializedContext,
-    sessionState: input.stepInput.sessionState,
+    session: input.stepInput.session, // SessionState from the dispatching runner
   });
 
   try {
     const result = await runTurnLoop(effects, toTurnRunInput(input)); // ← the body runs HERE
-    await publishTurnResultStep({ controlToken: input.completionToken, result });
+    await effects.publishResult(result); // merges the context slice into result.session
   } catch (error) {
     await publishTurnErrorStep({
       controlToken: input.completionToken,
@@ -358,69 +385,64 @@ export async function turnWorkflow(rawInput: unknown): Promise<void> {
 }
 ```
 
-`createSessionRun` / `createTurnRun` are the composition's private factories behind
-`Loop.create()`; the session factory returns the `TurnRunner` alongside the bundle because the
-two share one closure (see below).
+The session arm of `loop.create()` returns the `TurnRunner` alongside the bundle because the two
+share one closure (see below).
 
 ### The session run: bundle + `TurnRunner` from one closure
 
 `receiveInput` and `runTurn` share private state — the delivery inbox and its buffered payloads —
 because a delivery can arrive while a turn is active and must be relayed or re-buffered without
-loss. That shared closure is exactly today's `workflowEntry` driver state, made local:
+loss. That shared closure is exactly today's `workflowEntry` driver state, made local. Note what
+is **not** here: no state cursor. The cross-run `SessionState` flows in and out of every member
+explicitly, so the closure holds only the inbox and a dispatch counter:
 
 ```ts
 function createSessionRun(env: SessionCreateInput): { effects: LoopEffects; runTurn: TurnRunner } {
-  let context = env.serializedContext; // runtime-context cursor
-  let sessionState: DurableSessionState; // last snapshot-bearing state (cross-run contract)
-
   // Today's SessionDeliveryHook verbatim: hook claim, rekey races,
   // retired-hook draining, buffered deliveries.
   const inbox = createDeliveryInbox();
   let turnSeq = 0; // replay-deterministic
 
-  const adopt = <O>(r: StepOutcome<O>): O => {
-    context = r.context ?? context;
-    sessionState = r.sessionState ?? sessionState;
-    return r.output;
-  };
-
   const effects: LoopEffects = {
     async createSession(input) {
-      const created = adopt(await createSessionStep({ ...input, context }));
-      if (created.continuationToken) await inbox.rekey(created.continuationToken);
-      return created;
+      const session = await createSessionStep({ ...input, context: env.serializedContext });
+      if (session.continuationToken) await inbox.rekey(session.continuationToken);
+      return session; // SessionState — the body threads it from here on
     },
 
-    async receiveInput() {
-      // The session's park: rekey to the token the last turn reported, then
-      // idle on the hook iterator until Runtime.deliver → resumeHook(token).
-      await inbox.rekey(sessionState.continuationToken);
+    async receiveInput({ session }) {
+      // The session's park: rekey to the token carried by the threaded state,
+      // then idle on the hook iterator until Runtime.deliver → resumeHook(token).
+      await inbox.rekey(session.continuationToken);
       const delivery = await inbox.receive();
       // Descendant routing (proxied HITL replies) runs before the payload
       // counts as parent input; a fully-routed delivery yields undefined.
-      return adopt(await routeDeliveryStep({ context, delivery, sessionState }));
+      return routeDeliveryStep({ delivery, session });
     },
 
     emit: (event) => emitEventStep({ event, writable: env.writable }),
-    failSession: (error) => emitTerminalFailureStep({ context, error, writable: env.writable }),
+    failSession: (error) =>
+      emitTerminalFailureStep({ context: env.serializedContext, error, writable: env.writable }),
     dispose: () => inbox.dispose(),
     // generateStream/executeTool/... are turn-level. Invariant 1 keeps them out
     // of the pinned session body; this bundle throws if they are called.
   };
 
   const runTurn: TurnRunner = async (input) => {
-    // 1. One "use step" starts the child on the latest deployment.
+    // 1. One "use step" starts the child on the latest deployment; the threaded
+    //    SessionState is the dispatch payload — passed through opaquely.
     const controlToken = `${env.sessionId}:turn-control:${String(turnSeq++)}`;
-    await dispatchTurnStep({ context, controlToken, delivery: input.delivery, sessionState });
+    await dispatchTurnStep({ controlToken, delivery: input.delivery, session: input.session });
 
     // 2. Service the control hook until terminal — TurnControlReceiver verbatim:
     //    turn-continuation-token → inbox.rekey(token)
     //    turn-delivery-request   → race inbox vs control; forward the delivery
     //                              to the turn's inbox; await accept/cancel
-    //    turn-result/turn-error  → adopt state; return or throw
+    //    turn-result/turn-error  → return the TurnRunResult (carrying the next
+    //                              SessionState) or throw
     const control = createControlReceiver({ controlToken, inbox });
     try {
-      return adopt(await control.waitForResult());
+      return await control.waitForResult();
     } finally {
       await control.dispose();
     }
@@ -436,32 +458,29 @@ The turn bundle owns one private inbox (today's `${completionToken}:inbox` hook)
 auth callbacks, and the session driver all resume it; every parking member is a wait on it:
 
 ```ts
-function createTurnRun(env: TurnCreateInput): LoopEffects {
-  let context = env.serializedContext;
-  let sessionState = env.sessionState;
+function createTurnRun(env: TurnCreateInput): { effects: LoopEffects } {
+  // The only mutable slice inside a turn run: the runtime-context cursor
+  // (adapter state, dynamic resolvers). The domain slice travels in the
+  // `session` the body passes to every member.
+  let context = contextOf(env.session);
+  const adopt = <O>(r: StepOutcome<O>): O => {
+    context = r.context ?? context;
+    return r.output;
+  };
 
   // First wait claims ownership; a conflict means a duplicate dispatch and
   // the run bows out (today's claimHookOwnership semantics).
   const inbox = createTurnInbox(`${env.controlToken}:inbox`);
   let waitSeq = 0; // unique delivery-request ids across waits in this turn
 
-  const adopt = /* same cursor shape as the session run */;
-
-  return {
-    receiveInput: async (input) =>
-      adopt(await resolveDeliveryStep({ ...input, context, sessionState })),
+  const effects: LoopEffects = {
+    receiveInput: async ({ delivery, session }) =>
+      adopt(await resolveDeliveryStep({ context, delivery, session })),
 
     generateStream: async (input) =>
-      adopt(
-        await generateStreamStep({
-          ...input,
-          context,
-          parentWritable: env.parentWritable,
-          sessionState,
-        }),
-      ),
+      adopt(await generateStreamStep({ ...input, context, parentWritable: env.parentWritable })),
 
-    executeTool: async (input) => adopt(await executeToolStep({ ...input, context, sessionState })),
+    executeTool: async (input) => adopt(await executeToolStep({ ...input, context })),
 
     async dispatchSubagent(input) {
       // One step starts the child session (workflowEntryReference, task mode)
@@ -469,7 +488,7 @@ function createTurnRun(env: TurnCreateInput): LoopEffects {
       // subagent-result, servicing proxied HITL requests and the public-
       // delivery handshake in between (today's waitForRuntimeActionResults).
       const dispatched = adopt(
-        await dispatchSubagentStep({ ...input, context, replyTo: inbox.token, sessionState }),
+        await dispatchSubagentStep({ ...input, context, replyTo: inbox.token }),
       );
       return awaitInboxResult(inbox, dispatched.key, {
         nextDeliveryRequestId: () => `${inbox.token}:delivery:${String(waitSeq++)}`,
@@ -479,16 +498,28 @@ function createTurnRun(env: TurnCreateInput): LoopEffects {
     async requestInput(batch) {
       // Emit input.requested through the adapter, then park on the inbox until
       // the session driver relays the responses via the delivery handshake.
-      adopt(await emitInputRequestedStep({ batch, context, sessionState }));
+      adopt(await emitInputRequestedStep({ batch, context }));
       return awaitInboxResponse(inbox, batch);
     },
 
     emit: (event) => emitEventStep({ event, writable: env.parentWritable }),
+
+    // Composition-root: reassembles the explicit SessionState contract at the
+    // run boundary — merges the cursor's final context slice into
+    // result.session before resuming the control hook.
+    publishResult: (result) =>
+      publishTurnResultStep({
+        controlToken: env.controlToken,
+        result: withContextSlice(result, context),
+      }),
+
     failSession: () => {
       throw new Error("session-level effect");
     },
     dispose: () => inbox.dispose(),
   };
+
+  return { effects };
 }
 ```
 
@@ -496,10 +527,10 @@ function createTurnRun(env: TurnCreateInput): LoopEffects {
 
 `"use step"` is a compile-time directive with devalue-serializable inputs and outputs, so an
 effect member cannot close over live objects (the deserialized context, the adapter, resolved
-tools). Each member calls a top-level step function, threading the two cursor values (`context`,
-`sessionState`) in and adopting them back out via `adopt` — `TurnExecutionCursor`'s job, kept,
-but hidden from the loop body. Replay-safe: memoized step results replay the same cursor
-transitions in the same order, so both cursors converge identically on every replay.
+tools). Each member calls a top-level step function, threading the context cursor in and
+adopting it back out via `adopt` — `TurnExecutionCursor`'s job, kept, but hidden from the loop
+body. Replay-safe: memoized step results replay the same cursor transitions in the same order, so
+the cursor converges identically on every replay.
 
 ```ts
 async function generateStreamStep(
