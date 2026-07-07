@@ -106,9 +106,6 @@ export interface Loop {
 
   executeTool(input: ToolExecInput): Promise<ToolExecResult>;
 
-  /** Emits a HITL request batch and awaits the responses. Parks. */
-  requestInput(input: InputRequestBatch): Promise<InputResponse>;
-
   createSession(input: SessionCreateInput): Promise<SessionState>;
 
   /** Emits one control-plane event to the session event stream. */
@@ -124,19 +121,28 @@ export interface Loop {
   special mechanism, it is the session program run as a child.
 
 Because `spawn` returns the child's result, the entire result-publication machinery
-(`NextDriverAction` today, `publishResult` in an earlier draft of this document) disappears from
-the API. The wire envelope `spawn` uses — serialized `(program, input)` in, serialized
-result/error out, `SessionState` inside both — is the closed cross-deployment contract, with the
-usual evolution rule (new optional fields OK, no destructure-and-rebuild).
+(`NextDriverAction` today) disappears from the API. The wire envelope `spawn` uses — serialized
+`(program, input)` in, serialized result/error out, `SessionState` inside both — is the closed
+cross-deployment contract, with the usual evolution rule (new optional fields OK, no
+destructure-and-rebuild).
+
+Deliberately absent: a HITL hook. Waits that need a human end the turn — the turn returns a
+`park` result and the session re-spawns a fresh turn when input arrives, exactly like today. An
+in-turn `await requestInput(…)` was considered and rejected: a turn parked on an approval for a
+week would resume into week-old code, eroding the property that every turn runs the latest
+deployment.
 
 ```ts
 /**
  * The serializable cross-run state, threaded explicitly through `spawn`:
  * in via the program's input, out via its result. Subsumes today's
- * `DurableSessionState` + serialized runtime context.
+ * `DurableSessionState` + serialized runtime context. The runtime-context
+ * slice is opaque to programs — only the hook implementation reads or
+ * writes it, and it is reconciled exclusively at spawn boundaries, so it
+ * cannot diverge from the in-run cursor.
  */
 export type SessionState = {
-  /* sessionId, continuationToken, history, state, context, … */
+  /* sessionId, continuationToken, history, state, context (opaque), … */
 };
 ```
 
@@ -157,6 +163,8 @@ export async function runSession(loop: Loop, input: SessionRunInput): Promise<un
 
       if (result.kind === "done") return result.output;
 
+      // "park": the turn ended awaiting a human. Wait for input, then
+      // re-spawn a fresh turn — on the latest deployment.
       delivery = await loop.receiveInput({ session }); // ← the park
     }
   } catch (error) {
@@ -174,9 +182,13 @@ export async function runTurn(loop: Loop, input: TurnRunInput): Promise<TurnRunR
     session = appendHistory(session, messages);
     if (requests.length === 0) return { kind: "done", output: finalOutput(messages), session };
 
-    const approved = await resolveApprovals(loop, session, requests); // loop.requestInput
+    // Requests that need a human (tool approvals, questions, authorization)
+    // end the turn; input.requested was already emitted by generateStream.
+    const wait = pendingExternalWait(requests);
+    if (wait !== undefined) return { kind: "park", pending: wait, session };
+
     const results = await Promise.all(
-      approved.map((request) => executeRequest(loop, session, request)),
+      requests.map((request) => executeRequest(loop, session, request)),
     );
     session = appendHistory(session, toToolResults(results));
     stepInput = undefined;
@@ -185,8 +197,11 @@ export async function runTurn(loop: Loop, input: TurnRunInput): Promise<TurnRunR
 
 export type TurnRunResult =
   | { kind: "done"; output: unknown; isError?: boolean; session: SessionState }
-  | { kind: "park"; session: SessionState };
+  | { kind: "park"; pending: PendingExternalWait; session: SessionState };
 ```
+
+Elided for brevity: the full `runSession` also fires the session lifecycle callback (today's
+`fireSessionCallbackStep`) on both terminal paths, through an effect hook.
 
 `executeRequest` pattern-matches the closed request union and awaits each arm explicitly:
 
@@ -196,18 +211,17 @@ switch (request.kind) {
     return loop.executeTool({ request, session });
   case "subagent-call":
     return loop.spawn(runSession, toSubagentInput(session, request)); // a subagent IS a session
-  case "authorization":
-    return awaitAuthorization(loop, session, request);
   case "workflow-action":
     return awaitWorkflowAction(loop, session, request);
 }
 ```
 
 The key un-inversion: `generateStream` is a pure hook — `(history, tools, options) → { messages,
-requests }` — that never executes tools and never parks. Tool execution, HITL, subagent waits,
-and authorization waits are explicit `await`s in the program, not flags decoded three layers up.
-The model-call recovery pipeline, compaction, and emission stay inside the `generateStream`
-implementation, shrinking `tool-loop.ts` to the hook it actually is.
+requests }` — that never executes tools and never parks. Tool execution and subagent waits are
+explicit `await`s in the program; human waits are an explicit `park` return carrying what is
+pending — not flags buried in `session.state` and decoded three layers up. The model-call
+recovery pipeline, compaction, and emission stay inside the `generateStream` implementation,
+shrinking `tool-loop.ts` to the hook it actually is.
 
 ### Implementations
 
@@ -263,19 +277,38 @@ implementation, shrinking `tool-loop.ts` to the hook it actually is.
 | `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | the `spawn` envelope + implementation-private mailboxes                  |
 | Turn dispatch and subagent dispatch as separate mechanisms                                                    | one `spawn` hook; a subagent is `spawn(runSession, …)`                   |
 | `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to the workflow implementation                                   |
-| Parking flags in `session.state` decoded by `derivePendingState`                                              | explicit request union returned by `generateStream`                      |
+| Parking flags in `session.state` decoded by `derivePendingState`                                              | request union from `generateStream` + explicit `pending` on the park arm |
 | Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` hook; SDK used for the model call only                     |
 | `serializedContext` + `sessionState` ferried through every step result                                        | one `SessionState` threaded through `spawn`; private cursor within a run |
+
+## Risks
+
+Two assumptions are load-bearing and unverified; both gate phase 2.
+
+1. **Concurrent waits under replay.** `Promise.all` over `executeTool` steps and `spawn` hook
+   waits inside one `"use workflow"` body has no precedent in eve — today tools execute inside a
+   single step precisely to avoid this. Whether Workflow DevKit replay is deterministic under
+   concurrent step scheduling needs a spike before any program relies on it; the fallback is
+   sequential execution, which forfeits the parallel-tool win but nothing else.
+2. **Detached subagents.** `spawn` as specified is strictly awaited, but today's conversation
+   mode lets children outlive the parent turn: `dispatchRuntimeActionsStep` starts children, the
+   parent parks, and results arrive turns later. If awaited `spawn` cannot express this, a second
+   primitive (or a `spawn` variant returning a durable handle) comes back, and the turn/subagent
+   collapse is only partial. This needs a design, not just a note.
 
 ## Phasing
 
 1. **Extract the seam.** Define `Loop`/`LoopProgram`/`SessionState`/`TurnRunResult`, the program
    registry, and the trampoline; implement the workflow hooks over the existing steps and hooks;
-   rewrite `workflowEntry`'s driver loop as `runSession` with behavior pinned by existing
-   integration and scenario tests.
-2. **Un-invert the turn.** Split `tool-loop.ts` into the pure `generateStream` hook plus
-   program-level request execution; rewrite `turnWorkflow` as `runTurn`; collapse subagent
-   dispatch into `spawn`; keep the legacy-driver arm.
+   rewrite `workflowEntry`'s driver loop as `runSession`. Before deleting
+   `session-delivery-hook.ts` and `turn-control-receiver.ts`, port their race coverage (rekey
+   races, retired-hook draining, delivery re-buffering, forwarded-delivery accept/cancel) to
+   implementation-level tests — the scenario suite alone does not pin these semantics. Add the
+   guard-invariant rule for program modules (import allowlist; no side-effecting imports) in the
+   same phase so determinism is mechanically enforced from the first program.
+2. **Un-invert the turn.** Spike the two risks above; then split `tool-loop.ts` into the pure
+   `generateStream` hook plus program-level request execution; rewrite `turnWorkflow` as
+   `runTurn`; collapse subagent dispatch into `spawn`; keep the legacy-driver arm.
 3. **Memory implementation.** Land the in-process hooks and move HITL/subagent/authorization
    ordering coverage from scenario tests down to program-level unit tests.
 
@@ -285,11 +318,8 @@ implementation, shrinking `tool-loop.ts` to the hook it actually is.
   stable registry (name → program). What is the versioning story when a program's input/result
   shape changes while old sessions still spawn it?
 - Does subagent-as-`spawn(runSession)` preserve today's child observability — independent child
-  event streams, `$eve` lineage attributes, detached children surviving the parent turn? The
-  hooks own streams and attributes, so likely yes, but the detached (fire-and-forget with late
-  result) case needs a design: `spawn` as sketched is strictly awaited.
-- How is program determinism enforced mechanically? A guard-invariant rule (no side-effecting
-  imports in program modules) would make the rule checkable.
+  event streams and `$eve` lineage attributes? The hooks own streams and attributes, so likely
+  yes.
 - Does the memory implementation become the `eve dev` fast path (skipping the local workflow
   store for ephemeral sessions), or stay test-only?
 - Where does compaction live — inside the `generateStream` hook (today's placement) or as an
@@ -366,8 +396,8 @@ async function spawn<I, O>(program: LoopProgram<I, O>, input: I): Promise<O> {
 
 The mid-run relay is the one place parent and child hooks cooperate: while a parent is parked in
 `spawn`, public input addressed to the session is relayed to the child (which may be waiting in
-`receiveInput` or `requestInput`) through the request/accept/cancel handshake. All of it is
-private to the hook implementation; neither program ever sees a control payload.
+`receiveInput`) through the request/accept/cancel handshake. All of it is private to the hook
+implementation; neither program ever sees a control payload.
 
 ### The parking hooks
 
@@ -403,10 +433,6 @@ function createWorkflowHooks(env: HookEnv): Loop {
     generateStream: async (input) =>
       adopt(await generateStreamStep({ ...input, context, writable: env.writable })),
     executeTool: async (input) => adopt(await executeToolStep({ ...input, context })),
-    requestInput: async (batch) => {
-      adopt(await emitInputRequestedStep({ batch, context }));
-      return awaitInboxResponse(batch); // park on this run's inbox
-    },
     createSession: async (input) => adopt(await createSessionStep({ ...input, context })),
     emit: (event) => emitEventStep({ event, writable: env.writable }),
   };
@@ -424,17 +450,21 @@ async function generateStreamStep(
 
 The cursor's final value merges into the `SessionState` the program returns — reassembling the
 explicit contract at the run boundary happens inside `spawn`'s result path, not in program code.
+Programs never read or write the context slice (it is opaque, per the `SessionState` contract),
+so the cursor and the threaded value cannot diverge within a run.
 
-Step payloads shrink relative to today: `generateStreamStep` returns the turn's new messages and
-requests, not a full `DurableSessionState` snapshot per step. The full snapshot is written once,
-into the spawn result — the run boundary the cross-deployment contract actually needs
+Step **outputs** shrink relative to today: `generateStreamStep` returns the turn's new messages
+and requests, not a full `DurableSessionState` snapshot per step. Step inputs still carry the
+session (including history) into each model call, as they do today; the full snapshot is written
+once, into the spawn result — the run boundary the cross-deployment contract actually needs
 (invariant 6).
 
 ### What the substrate imposes
 
 - **Deterministic programs.** Programs replay inside `"use workflow"`: no `Date.now()`, no
   randomness, no I/O outside `loop`, and hook tokens and spawn counters derived from replayed
-  state only. This is the rule the proposed guard-invariant would check.
+  state only. Enforced mechanically from phase 1 via the guard-invariant import allowlist on
+  program modules.
 - **Bundler-safe modules.** Anything imported into a program module must survive the workflow
   bundler — same constraint `workflow-entry.ts` documents today.
 - **Emission split.** `loop.emit` is a step that writes the parent writable and is reserved for
