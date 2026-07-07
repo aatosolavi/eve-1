@@ -111,10 +111,10 @@
       "import": "./dist/src/public/tools/defaults.js",
       "default": "./dist/src/public/tools/defaults.js"
     },
-    "./extensions/model": {
-      "types": "./dist/src/public/extensions/model/index.d.ts",
-      "import": "./dist/src/public/extensions/model/index.js",
-      "default": "./dist/src/public/extensions/model/index.js"
+    "./models/openai": {
+      "types": "./dist/src/public/models/openai/index.d.ts",
+      "import": "./dist/src/public/models/openai/index.js",
+      "default": "./dist/src/public/models/openai/index.js"
     },
     "./connections": {
       "types": "./dist/src/public/connections/index.d.ts",

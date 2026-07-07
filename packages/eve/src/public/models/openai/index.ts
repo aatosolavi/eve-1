@@ -4,10 +4,11 @@ import { createCodexSubscriptionModel } from "./codex/model.js";
 const OPENAI_PROVIDER_PREFIX = "openai/";
 
 /**
- * Creates a language model served through the local Codex login
- * (`codex login`), billed to the ChatGPT subscription instead of an API key.
+ * Creates a language model billed to the local ChatGPT subscription instead
+ * of an API key, served through the Codex backend the `codex login` flow
+ * authorizes.
  *
- * Accepts a bare OpenAI model slug (`"gpt-5.5-codex"`) or an
+ * Accepts a bare OpenAI model slug (`"gpt-5.5"`) or an
  * `openai/`-prefixed id; the Codex backend serves OpenAI models only, so any
  * other provider-qualified id is rejected. Model availability is enforced by
  * the Codex backend per account at call time, not at compile time.
@@ -22,7 +23,7 @@ const OPENAI_PROVIDER_PREFIX = "openai/";
  *   model:
  *     process.env.NODE_ENV === "production"
  *       ? "anthropic/claude-sonnet-4.6"
- *       : experimental_codex("gpt-5.5-codex"),
+ *       : experimental_chatgpt("gpt-5.5"),
  *   modelContextWindowTokens: 200_000,
  * });
  * ```
@@ -30,7 +31,7 @@ const OPENAI_PROVIDER_PREFIX = "openai/";
  * Experimental: the Codex backend is not a public API contract and may
  * change or reject subscription-backed access without notice.
  */
-export function experimental_codex(model: string): LanguageModel {
+export function experimental_chatgpt(model: string): LanguageModel {
   const trimmed = model.trim();
   const slug = trimmed.startsWith(OPENAI_PROVIDER_PREFIX)
     ? trimmed.slice(OPENAI_PROVIDER_PREFIX.length)
@@ -38,13 +39,13 @@ export function experimental_codex(model: string): LanguageModel {
 
   if (slug.length === 0) {
     throw new Error(
-      'Expected experimental_codex "model" to name an OpenAI model, for example "gpt-5.5-codex".',
+      'Expected experimental_chatgpt "model" to name an OpenAI model, for example "gpt-5.5".',
     );
   }
 
   if (slug.includes("/")) {
     throw new Error(
-      `experimental_codex serves OpenAI models through the local Codex login; received "${model}".`,
+      `experimental_chatgpt serves OpenAI models through the local ChatGPT login; received "${model}".`,
     );
   }
 

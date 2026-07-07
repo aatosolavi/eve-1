@@ -86,7 +86,7 @@ A few non-`define*` helpers round out the set: `disableTool` and `ExperimentalWo
 | `eve/context`                                               | `defineState`, session and state types                               |
 | `eve/sandbox`                                               | `defineSandbox`, backends                                            |
 | `eve/instrumentation`                                       | `defineInstrumentation`, `isChannel`                                 |
-| `eve/models`                                                | `experimental_codex`                                                 |
+| `eve/models/openai`                                         | `experimental_chatgpt`                                               |
 | `eve/evals`                                                 | `defineEval`, `defineEvalConfig`, `mockModel`, eval types            |
 | `eve/evals/expect`                                          | `includes`, `equals`, `matches`, `similarity`                        |
 | `eve/evals/reporters`                                       | `Braintrust`, `JUnit`, `EvalReporter`                                |
