@@ -286,27 +286,38 @@ shrinking `tool-loop.ts` to the hook it actually is.
 Both gate phase 2. Investigated against the Workflow DevKit runtime source and today's dispatch
 path; each is narrower than it first appears, but real.
 
-1. **Concurrent waits under replay — supported by the engine, unproven at eve's scale.** The
-   DevKit is designed for this: replay matches steps by correlation id (deterministic monotonic
-   ULIDs minted in invocation order), not sequence position; the suspension handler dispatches
-   pending steps as parallel queue invocations; and `awaitEarlierDeliveries` /
-   `pendingDeliveryBarriers` exist specifically to keep `Promise.race` over steps, waits, and
-   hooks aligned with the committed event log. Eve already races hook reads inside a workflow
-   body today (`TurnControlReceiver.serviceDeliveryRequest`). The residuals: (a) programs must
-   order request arrays deterministically before `.map(…)`, since ids are minted in invocation
-   order; (b) cost — today one `turnStep` hosts the model call and all tool executions, while
-   the new design emits one step per tool call plus spawn events, growing the event log that
-   replays on every wake of a long-lived session. The spike is a determinism validation plus an
-   event-log/replay cost measurement, with sequential execution as the cheap fallback.
-2. **Parallel-child demux — a design decision, not an unknown.** Fire-and-forget children that
-   outlive the parent turn exist only on the legacy pinned-driver path (the
+1. **Concurrent waits under replay — supported by the engine, unproven at eve's scale.** No loop
+   semantics change: today the same concurrency exists _inside_ one `turnStep` (the AI SDK
+   executes a step's tool calls as they stream in), invisible to the engine. The refactor lifts
+   it one level, to `Promise.all` over memoized steps — which the DevKit is designed for: replay
+   matches steps by correlation id (deterministic monotonic ULIDs minted in invocation order),
+   not sequence position; the suspension handler dispatches pending steps as parallel queue
+   invocations; and `awaitEarlierDeliveries` / `pendingDeliveryBarriers` exist specifically to
+   keep `Promise.race` over steps, waits, and hooks aligned with the committed event log. Eve
+   already races hook reads inside a workflow body today
+   (`TurnControlReceiver.serviceDeliveryRequest`). What changes is the retry unit, strictly for
+   the better: a step is at-least-once, so today a crash mid-batch re-invokes the whole
+   `turnStep` — the model is called again and completed tools re-execute their side effects —
+   whereas per-tool steps replay `generateStream` from the log and re-run only the tool that
+   didn't finish. The residuals: (a) programs must order request arrays deterministically before
+   `.map(…)`, since ids are minted in invocation order; (b) cost — one step per tool call plus
+   spawn events grows the event log that replays on every wake of a long-lived session. The
+   spike is a determinism validation plus an event-log/replay cost measurement, with sequential
+   execution as the cheap fallback.
+2. **Parallel-child wait topology — decided: one reply channel per spawn.** Fire-and-forget
+   children that outlive the parent turn exist only on the legacy pinned-driver path (the
    `dispatch-runtime-actions` arm); the current turn-owned path already awaits children in-turn
    (`waitForRuntimeActionResults`), which awaited `spawn` matches exactly — including public
    input during a long child run waiting for the turn. What changes is the wait topology: today
-   one central loop services one shared inbox for all children (results, proxied HITL, delivery
-   handshake); `Promise.all` of spawns splits that into independent waiters. Either each spawn
-   gets its own reply channel (child results and proxied HITL ride the spawn's `replyTo` token)
-   or the hooks demultiplex a shared inbox. Pick one in phase 2; legacy compat is invariant 3.
+   one central loop services one shared inbox for all children, correlating payloads by key.
+   Each spawn instead gets its own `replyTo` channel carrying everything child→parent — proxied
+   HITL requests, continuation-token updates, the terminal result — so a channel has exactly one
+   waiter and misattribution is unrepresentable. The shared-inbox alternative was rejected: key
+   correlation on a shared channel is why `resolveRuntimeActionResultsForKeys` and the
+   delivery-request-id uniqueness dance exist today, and concurrent waiters on one iterator
+   would need the `SessionDeliveryHook`-style arbitration this refactor deletes. Public input
+   still arrives on the session's public token and routes to children via proxy routing entries,
+   as `routeDeliverToChildren` does today. Legacy compat is invariant 3.
 
 A corollary worth recording: turn runs already live for the full duration of child sessions —
 which can park on their own HITL for days — so "turns always run fresh code" only ever held for
@@ -400,8 +411,11 @@ async function spawn<I, O>(program: LoopProgram<I, O>, input: I): Promise<O> {
   // input, replyTo }], { deploymentId: "latest" }).
   await spawnStep({ input, program: nameOf(program), replyTo });
 
-  // Wait on the replyTo hook until the child's terminal payload, servicing
-  // intermediate payloads privately — today's TurnControlReceiver, generalized:
+  // Wait on the replyTo channel until the child's terminal payload. One
+  // channel per spawn, one waiter per channel — everything child→parent
+  // rides it, so no payload can be attributed to the wrong wait:
+  //   input-request proxy        → emit input.requested on the parent's
+  //                                channel, record the routing entry
   //   continuation-token updates → rekey the session inbox
   //   delivery-request           → race inbox vs replyTo; forward through the
   //                                request/accept/cancel handshake
@@ -410,10 +424,13 @@ async function spawn<I, O>(program: LoopProgram<I, O>, input: I): Promise<O> {
 }
 ```
 
-The mid-run relay is the one place parent and child hooks cooperate: while a parent is parked in
-`spawn`, public input addressed to the session is relayed to the child (which may be waiting in
-`receiveInput`) through the request/accept/cancel handshake. All of it is private to the hook
-implementation; neither program ever sees a control payload.
+Per-spawn channels retire today's shared-inbox correlation machinery outright:
+`resolveRuntimeActionResultsForKeys` and the delivery-request-id uniqueness scheme exist only
+because many children share one parent token. The mid-run relay is the one place parent and
+child hooks still cooperate: while a parent is parked in `spawn`, public input addressed to the
+session is relayed — to the spawned child through the request/accept/cancel handshake, or to a
+deeper descendant via the proxy routing entries (`routeDeliverToChildren` today). All of it is
+private to the hook implementation; neither program ever sees a control payload.
 
 ### The parking hooks
 
