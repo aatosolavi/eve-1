@@ -283,18 +283,34 @@ shrinking `tool-loop.ts` to the hook it actually is.
 
 ## Risks
 
-Two assumptions are load-bearing and unverified; both gate phase 2.
+Both gate phase 2. Investigated against the Workflow DevKit runtime source and today's dispatch
+path; each is narrower than it first appears, but real.
 
-1. **Concurrent waits under replay.** `Promise.all` over `executeTool` steps and `spawn` hook
-   waits inside one `"use workflow"` body has no precedent in eve — today tools execute inside a
-   single step precisely to avoid this. Whether Workflow DevKit replay is deterministic under
-   concurrent step scheduling needs a spike before any program relies on it; the fallback is
-   sequential execution, which forfeits the parallel-tool win but nothing else.
-2. **Detached subagents.** `spawn` as specified is strictly awaited, but today's conversation
-   mode lets children outlive the parent turn: `dispatchRuntimeActionsStep` starts children, the
-   parent parks, and results arrive turns later. If awaited `spawn` cannot express this, a second
-   primitive (or a `spawn` variant returning a durable handle) comes back, and the turn/subagent
-   collapse is only partial. This needs a design, not just a note.
+1. **Concurrent waits under replay — supported by the engine, unproven at eve's scale.** The
+   DevKit is designed for this: replay matches steps by correlation id (deterministic monotonic
+   ULIDs minted in invocation order), not sequence position; the suspension handler dispatches
+   pending steps as parallel queue invocations; and `awaitEarlierDeliveries` /
+   `pendingDeliveryBarriers` exist specifically to keep `Promise.race` over steps, waits, and
+   hooks aligned with the committed event log. Eve already races hook reads inside a workflow
+   body today (`TurnControlReceiver.serviceDeliveryRequest`). The residuals: (a) programs must
+   order request arrays deterministically before `.map(…)`, since ids are minted in invocation
+   order; (b) cost — today one `turnStep` hosts the model call and all tool executions, while
+   the new design emits one step per tool call plus spawn events, growing the event log that
+   replays on every wake of a long-lived session. The spike is a determinism validation plus an
+   event-log/replay cost measurement, with sequential execution as the cheap fallback.
+2. **Parallel-child demux — a design decision, not an unknown.** Fire-and-forget children that
+   outlive the parent turn exist only on the legacy pinned-driver path (the
+   `dispatch-runtime-actions` arm); the current turn-owned path already awaits children in-turn
+   (`waitForRuntimeActionResults`), which awaited `spawn` matches exactly — including public
+   input during a long child run waiting for the turn. What changes is the wait topology: today
+   one central loop services one shared inbox for all children (results, proxied HITL, delivery
+   handshake); `Promise.all` of spawns splits that into independent waiters. Either each spawn
+   gets its own reply channel (child results and proxied HITL ride the spawn's `replyTo` token)
+   or the hooks demultiplex a shared inbox. Pick one in phase 2; legacy compat is invariant 3.
+
+A corollary worth recording: turn runs already live for the full duration of child sessions —
+which can park on their own HITL for days — so "turns always run fresh code" only ever held for
+direct HITL. The park-vs-await split above preserves exactly today's line, no more.
 
 ## Phasing
 
