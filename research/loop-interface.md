@@ -94,16 +94,24 @@ export interface Loop {
   /**
    * Resolves external input through the channel adapter. With no pending
    * delivery, waits for the next one addressed to this run (token derived
-   * from the `session` the program passes in). Parks.
+   * from the `session` the program passes in). Parks. Attachment staging
+   * happens here: FilePart bytes are written into the session sandbox
+   * (created lazily on first use, identity on `session.sandboxState`) and
+   * replaced with `eve-sandbox:` refs, so history never carries raw bytes.
    */
   receiveInput(input: {
     delivery?: DeliverPayload;
     session: SessionState;
   }): Promise<StepInput | undefined>;
 
-  /** One model call: never executes tools, never parks. */
+  /**
+   * One model call: never executes tools, never parks. Owns per-call prompt
+   * composition, toolset assembly, compaction, sandbox hydration, and the
+   * event-stream relay — in a fixed order documented below.
+   */
   generateStream(input: ModelCallInput): Promise<ModelTurn>; // { messages, requests }
 
+  /** Sandbox-backed tools execute inside the session sandbox. */
   executeTool(input: ToolExecInput): Promise<ToolExecResult>;
 
   createSession(input: SessionCreateInput): Promise<SessionState>;
@@ -175,9 +183,12 @@ export async function runSession(loop: Loop, input: SessionRunInput): Promise<un
 
 export async function runTurn(loop: Loop, input: TurnRunInput): Promise<TurnRunResult> {
   let { session } = input;
+  // Adapter deliver + attachment staging into the sandbox (bytes → refs).
   let stepInput = await loop.receiveInput({ delivery: input.delivery, session });
 
   while (true) {
+    // Emission, prompt composition, toolset assembly, compaction, and sandbox
+    // hydration happen inside, in the fixed order documented below.
     const { messages, requests } = await loop.generateStream({ session, stepInput });
     session = appendHistory(session, messages);
     if (requests.length === 0) return { kind: "done", output: finalOutput(messages), session };
@@ -222,6 +233,38 @@ explicit `await`s in the program; human waits are an explicit `park` return carr
 pending — not flags buried in `session.state` and decoded three layers up. The model-call
 recovery pipeline, compaction, and emission stay inside the `generateStream` implementation,
 shrinking `tool-loop.ts` to the hook it actually is.
+
+### Inside `generateStream`: emission, prompt, and sandbox order
+
+The hook hides mechanism, not sequence. The order below is today's `tool-loop.ts` order, kept
+verbatim — several of these points are load-bearing:
+
+1. **`turn.started` preamble** (first call of a turn only). Every emitted event follows the same
+   two-stage path: adapter handler transform first, then the durable-stream write.
+2. **Compaction check** — before the model call, so compacted messages flow into the history the
+   program keeps; emits `compaction.requested` / `compaction.completed`.
+3. **`step.started`** — deliberately emitted **before** toolset assembly: dynamic tool resolvers
+   subscribed to `step.started` can add or replace tools for this very call.
+4. **Toolset assembly** — authored tools + provider tools + dynamic tools + framework tools
+   (`final-output` when a schema is in effect) + sandbox host tools, with approval wrappers.
+5. **System prompt composition.** The base prompt (agent instructions + the available-skills
+   section) is composed once at bundle resolution (`runtime/prompt/compose.ts`) and re-stamped
+   from the **current deployment** every turn — never read back from history. Per-call additions
+   layer on top: dynamic instruction messages, pending skill announcements, prompt-cache
+   breakpoints. The final request assembly — instructions + messages + tools into a provider
+   payload — happens inside the AI SDK.
+6. **Sandbox hydration** — `eve-sandbox:` refs in history are hydrated to inline bytes for this
+   call only; history stays ref-only. (The write side happened at `receiveInput` staging; the
+   sandbox itself is created lazily on first use and its identity rides `session.sandboxState`.)
+7. **The stream** — model output relayed event-by-event through the adapter to the durable
+   stream as it arrives; provider-executed tools (web search, code execution) resolve inline
+   here as messages, not as `requests`.
+8. **Request extraction + step epilogue** — tool calls, subagent calls, and human waits are
+   projected into the closed request union; `turn.completed` is emitted by the program's terminal
+   path.
+
+Everything after this point — executing the requests — is the program's job, and its events
+(`action.started` / `action.result`) are emitted by `executeTool` / `spawn` as they run.
 
 ### Implementations
 
