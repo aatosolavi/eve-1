@@ -4,7 +4,13 @@ import type { ChannelAdapter, ChannelAdapterContext } from "#channel/adapter.js"
 import type { DeliverPayload, SubagentInputRequestHookPayload } from "#channel/types.js";
 import { ContextContainer } from "#context/container.js";
 import { ContextKey } from "#context/key.js";
-import { AuthKey, ContinuationTokenKey, ModeKey, SessionIdKey } from "#context/keys.js";
+import {
+  AuthKey,
+  ChannelRequestIdKey,
+  ContinuationTokenKey,
+  ModeKey,
+  SessionIdKey,
+} from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { setPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
@@ -18,15 +24,22 @@ import {
   DURABLE_SESSION_VERSION,
   type DurableSessionState,
   projectSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#execution/durable-session-state.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import { createTurnWorkflowInput } from "#execution/durable-session-migrations/turn-workflow.js";
 import { projectToDurableSession } from "#execution/session.js";
 import { createExecutionNodeStep } from "#execution/node-step.js";
 import { dispatchRuntimeActionsStep } from "#execution/dispatch-runtime-actions-step.js";
 import {
+  executeTurnStepOperation,
+  type TurnStepEventPublication,
+  type TurnStepOperationInput,
+} from "#execution/turn-step-operation.js";
+import { createMessageReceivedEvent, createTurnStartedEvent } from "#protocol/message.js";
+import {
   dispatchTurnStep,
   emitTerminalSessionFailureStep,
+  recordWorkflowBenchmarkParkAcceptedStep,
   resolveEffectiveOutputSchema,
   runProxyInputRequestStep,
   turnStep,
@@ -37,11 +50,29 @@ import {
   workflowEntryReference,
 } from "#execution/workflow-runtime.js";
 
+const telemetryMocks = vi.hoisted(() => ({
+  createLoopBenchmarkRecorder: vi.fn(),
+  recordLoopBenchmarkInterval: vi.fn(
+    async (_recorder: unknown, _name: string, run: () => Promise<unknown>) => await run(),
+  ),
+  scheduleLoopBenchmarkRecorderFlush: vi.fn(),
+}));
+const workflowMetadataMocks = vi.hoisted(() => ({
+  getStepMetadata: vi.fn(),
+}));
+
+vi.mock("./durable-session-state.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./durable-session-state.js")>();
+  return {
+    ...actual,
+    createDurableSessionState: vi.fn(),
+  };
+});
+
 vi.mock("./durable-session-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./durable-session-store.js")>();
   return {
     ...actual,
-    createDurableSessionState: vi.fn(),
     readDurableSession: vi.fn(),
   };
 });
@@ -84,7 +115,7 @@ function createStubSessionState(overrides: Partial<DurableSessionState> = {}): D
 const DEFAULT_WORKFLOW_STREAM_NAMESPACE = "__default__";
 const getRunMock = vi.fn();
 const startMock = vi.fn();
-const workflowWritesByNamespace = new Map<string, unknown[]>();
+const workflowWritesByNamespace = new Map<string, Uint8Array[]>();
 
 function createTestWritable(
   namespace = DEFAULT_WORKFLOW_STREAM_NAMESPACE,
@@ -112,6 +143,9 @@ vi.mock("#compiled/@workflow/core/runtime.js", () => ({
   start: (...args: unknown[]) => startMock(...args),
 }));
 
+vi.mock("#internal/loop-benchmark/runtime-telemetry.js", () => telemetryMocks);
+vi.mock("#compiled/@workflow/core/index.js", () => workflowMetadataMocks);
+
 const ThreadKey = new ContextKey<string>("test.workflow.thread");
 const TestTurnAgent = {
   id: "test-agent",
@@ -136,6 +170,28 @@ const threadContextAdapter: ChannelAdapter = {
   },
 };
 
+function createCompiledBundle(adapter: ChannelAdapter = threadContextAdapter) {
+  return {
+    adapterRegistry: {
+      adaptersByKind: new Map([[adapter.kind, adapter]]),
+    },
+    compiledArtifactsSource: {},
+    graph: {
+      nodesByNodeId: new Map(),
+      root: {
+        sandboxRegistry: { sandbox: null },
+        turnAgent: TestTurnAgent,
+      },
+    },
+    moduleMap: { nodes: {} },
+    hookRegistry: createEmptyHookRegistry(),
+    resolvedAgent: { config: {} },
+    subagentRegistry: {},
+    toolRegistry: {},
+    turnAgent: TestTurnAgent,
+  } as never;
+}
+
 function createStubSession(overrides: Partial<HarnessSession> = {}): HarnessSession {
   return {
     agent: { modelReference: { id: "test" }, system: "", tools: [] },
@@ -150,24 +206,7 @@ function createStubSession(overrides: Partial<HarnessSession> = {}): HarnessSess
 function createSerializedContext(): Record<string, unknown> {
   const ctx = new ContextContainer();
   ctx.set(AuthKey, null);
-  ctx.set(BundleKey, {
-    adapterRegistry: {
-      adaptersByKind: new Map([[threadContextAdapter.kind, threadContextAdapter]]),
-    },
-    compiledArtifactsSource: {} as never,
-    graph: {
-      nodesByNodeId: new Map(),
-      root: {
-        sandboxRegistry: { sandbox: null },
-        turnAgent: TestTurnAgent,
-      },
-    },
-    hookRegistry: createEmptyHookRegistry(),
-    resolvedAgent: { config: {} },
-    subagentRegistry: {},
-    toolRegistry: {},
-    turnAgent: TestTurnAgent,
-  } as never);
+  ctx.set(BundleKey, createCompiledBundle());
   ctx.set(ChannelKey, threadContextAdapter);
   ctx.set(ContinuationTokenKey, "http:thread-context");
   ctx.set(ModeKey, "conversation");
@@ -178,10 +217,16 @@ function createSerializedContext(): Record<string, unknown> {
 afterEach(() => {
   getRunMock.mockReset();
   startMock.mockReset();
+  vi.mocked(getCompiledRuntimeAgentBundle).mockReset();
+  telemetryMocks.createLoopBenchmarkRecorder.mockReset();
+  telemetryMocks.recordLoopBenchmarkInterval.mockClear();
+  telemetryMocks.scheduleLoopBenchmarkRecorderFlush.mockReset();
+  workflowMetadataMocks.getStepMetadata.mockReset();
   workflowWritesByNamespace.clear();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("dispatchTurnStep", () => {
@@ -592,12 +637,207 @@ describe("dispatchRuntimeActionsStep", () => {
 });
 
 describe("turnStep", () => {
+  it("records the common turn operation and event publication layers", async () => {
+    const recorder = {};
+    workflowMetadataMocks.getStepMetadata.mockReturnValue({ attempt: 3, stepId: "step-turn" });
+    telemetryMocks.createLoopBenchmarkRecorder.mockReturnValue(recorder);
+    const session = createStubSession();
+    installSessionStoreMocks([session]);
+    vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue(createCompiledBundle());
+    vi.mocked(createExecutionNodeStep).mockImplementation(({ handleEvent }) => {
+      return async (current): Promise<StepResult> => {
+        await handleEvent?.(createTurnStartedEvent({ sequence: 0, turnId: "turn-telemetry" }));
+        return { next: null, session: current };
+      };
+    });
+    const serializedContext = createSerializedContext();
+    serializedContext[ChannelRequestIdKey.name] = "sample-workflow";
+
+    await turnStep({
+      input: { kind: "deliver", payloads: [{ message: "hello" }] },
+      parentWritable: createTestWritable(),
+      serializedContext,
+      sessionState: createStubSessionState(),
+    });
+
+    expect(telemetryMocks.recordLoopBenchmarkInterval.mock.calls.map((call) => call[1])).toEqual(
+      expect.arrayContaining(["turn.step.operation", "event.publish"]),
+    );
+    expect(telemetryMocks.createLoopBenchmarkRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attempt: "sess-test:workflow-turn-step:0:0:step-turn:attempt:3",
+      }),
+    );
+  });
+
+  it("records only acceptance marks after the Workflow body has rekeyed", async () => {
+    const recorder = { mark: vi.fn() };
+    telemetryMocks.createLoopBenchmarkRecorder.mockReturnValue(recorder);
+
+    await recordWorkflowBenchmarkParkAcceptedStep({ sampleId: "sample-workflow" });
+
+    expect(recorder.mark.mock.calls.map((call) => call[0])).toEqual([
+      "session.rekey.accepted",
+      "runtime.park.accepted",
+    ]);
+    expect(telemetryMocks.recordLoopBenchmarkInterval).not.toHaveBeenCalledWith(
+      recorder,
+      "session.rekey",
+      expect.any(Function),
+    );
+  });
+
+  it("does not await the JSONL flush after recording park acceptance", async () => {
+    const recorder = { mark: vi.fn() };
+    const flush = Promise.withResolvers<void>();
+    telemetryMocks.createLoopBenchmarkRecorder.mockReturnValue(recorder);
+    telemetryMocks.scheduleLoopBenchmarkRecorderFlush.mockReturnValue(flush.promise);
+
+    const operation = recordWorkflowBenchmarkParkAcceptedStep({
+      sampleId: "sample-workflow",
+    });
+    let operationSettled = false;
+    void operation.then(() => {
+      operationSettled = true;
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(telemetryMocks.scheduleLoopBenchmarkRecorderFlush).toHaveBeenCalledOnce();
+        expect(operationSettled).toBe(true);
+      });
+    } finally {
+      flush.resolve();
+      await operation;
+    }
+  });
+
+  it("matches the direct operation result and decoded event sequence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+
+    const session = createStubSession({
+      continuationToken: "http:turn-step-parity",
+      sessionId: "turn-step-parity",
+    });
+    const durableSession = projectToDurableSession(session);
+    installSessionStoreMocks([session]);
+    vi.mocked(readDurableSession).mockResolvedValue(durableSession);
+
+    const compiledBundle = createCompiledBundle();
+    vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue(compiledBundle);
+
+    vi.mocked(createExecutionNodeStep).mockImplementation(({ handleEvent }) => {
+      return async (current): Promise<StepResult> => {
+        await handleEvent?.(createTurnStartedEvent({ sequence: 0, turnId: "turn-parity" }));
+        await handleEvent?.(
+          createMessageReceivedEvent({
+            message: "hello from parity",
+            sequence: 1,
+            turnId: "turn-parity",
+          }),
+        );
+        return { next: null, session: current };
+      };
+    });
+
+    const sessionState = createStubSessionState({
+      continuationToken: session.continuationToken,
+      sessionId: session.sessionId,
+    });
+    const operationInput: Pick<
+      TurnStepOperationInput,
+      "input" | "serializedContext" | "sessionState"
+    > = {
+      input: {
+        kind: "deliver",
+        payloads: [{ message: "seed:alpha" }],
+      },
+      serializedContext: createSerializedContext(),
+      sessionState,
+    };
+    const publications: TurnStepEventPublication[] = [];
+
+    const direct = await executeTurnStepOperation({
+      ...operationInput,
+      callbackBaseUrl: undefined,
+      createEventSink: () => ({
+        async write(publication) {
+          publications.push(publication);
+        },
+      }),
+      durableSession,
+    });
+
+    const parentWritable = createTestWritable();
+    const wrapped = await turnStep({
+      ...operationInput,
+      parentWritable,
+    });
+
+    const decode = (encoded: Uint8Array): unknown =>
+      JSON.parse(new TextDecoder().decode(encoded).trim());
+    const wrappedEvents = (
+      workflowWritesByNamespace.get(DEFAULT_WORKFLOW_STREAM_NAMESPACE) ?? []
+    ).map(decode);
+
+    expect(wrapped).toEqual(direct);
+    expect(publications.map((publication) => publication.emissionOrdinal)).toEqual([0, 1]);
+    expect(publications.map((publication) => decode(publication.encoded))).toEqual(
+      publications.map((publication) => publication.event),
+    );
+    expect(wrappedEvents).toEqual(publications.map((publication) => publication.event));
+    expect(parentWritable.locked).toBe(false);
+  });
+
+  it("does not open the workflow writer when the adapter handles delivery inline", async () => {
+    const inlineHandledAdapter: ChannelAdapter = {
+      kind: "inline-handled",
+      deliver() {
+        return undefined;
+      },
+    };
+    const compiledBundle = createCompiledBundle(inlineHandledAdapter);
+    vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue(compiledBundle);
+
+    const ctx = new ContextContainer();
+    ctx.set(AuthKey, null);
+    ctx.set(BundleKey, compiledBundle);
+    ctx.set(ChannelKey, inlineHandledAdapter);
+    ctx.set(ContinuationTokenKey, "http:inline-handled");
+    ctx.set(ModeKey, "conversation");
+    ctx.set(SessionIdKey, "inline-handled-session");
+
+    const session = createStubSession({
+      continuationToken: "http:inline-handled",
+      sessionId: "inline-handled-session",
+    });
+    installSessionStoreMocks([session]);
+    const parentWritable = createTestWritable();
+    const getWriter = vi.spyOn(parentWritable, "getWriter");
+
+    const result = await turnStep({
+      input: { kind: "deliver", payloads: [{ message: "handled" }] },
+      parentWritable,
+      serializedContext: serializeContext(ctx),
+      sessionState: createStubSessionState({
+        continuationToken: session.continuationToken,
+        sessionId: session.sessionId,
+      }),
+    });
+
+    expect(result.action).toBe("park");
+    expect(getWriter).not.toHaveBeenCalled();
+    expect(workflowWritesByNamespace.get(DEFAULT_WORKFLOW_STREAM_NAMESPACE)).toBeUndefined();
+  });
+
   it("reads the durable session from normalized turn-step input", async () => {
     const session = createStubSession({
       continuationToken: "http:turn-step",
       sessionId: "turn-step-session",
     });
     installSessionStoreMocks([session]);
+    vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue(createCompiledBundle());
     vi.mocked(createExecutionNodeStep).mockImplementation(() => {
       return async (session): Promise<StepResult> => ({
         next: { done: true, output: "ok" },

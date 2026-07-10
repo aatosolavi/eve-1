@@ -1,20 +1,27 @@
-import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
-import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import {
-  createDurableSessionState,
-  type DurableSessionState,
-} from "#execution/durable-session-store.js";
-import { createSession } from "#execution/session.js";
-import type { JsonObject } from "#shared/json.js";
+  createSessionOperation,
+  type CreateSessionOperationInput,
+  type CreateSessionOperationResult,
+} from "#execution/session-operation.js";
+import { getStepMetadata } from "#compiled/@workflow/core/index.js";
+import {
+  createLoopBenchmarkRecorder,
+  recordLoopBenchmarkInterval,
+  scheduleLoopBenchmarkRecorderFlush,
+} from "#internal/loop-benchmark/runtime-telemetry.js";
+
+export interface CreateSessionStepInput extends CreateSessionOperationInput {
+  readonly benchmarkSampleId?: string;
+}
 
 /**
  * Result returned by {@link createSessionStep}.
  *
- * Exposes the projected {@link DurableSessionState} the driver needs to
- * drive the turn loop.
+ * Exposes the projected durable session state the driver needs to drive
+ * the turn loop.
  */
 export interface CreateSessionStepResult {
-  readonly state: DurableSessionState;
+  readonly state: CreateSessionOperationResult["state"];
 }
 
 /**
@@ -23,40 +30,43 @@ export interface CreateSessionStepResult {
  * `nodeId` targets a subagent node in the compiled graph; omitted for
  * the root agent.
  */
-export async function createSessionStep(input: {
-  readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
-  readonly continuationToken: string;
-  readonly outputSchema?: JsonObject;
-  readonly nodeId?: string;
-  readonly rootSessionId?: string;
-  readonly sessionId: string;
-  readonly subagentDepth?: number;
-  readonly subagentMaxDepth?: number;
-}): Promise<CreateSessionStepResult> {
+export async function createSessionStep(
+  input: CreateSessionStepInput,
+): Promise<CreateSessionStepResult> {
   "use step";
 
-  const bundle = await getCompiledRuntimeAgentBundle({
-    compiledArtifactsSource: input.compiledArtifactsSource,
-    nodeId: input.nodeId,
+  const { benchmarkSampleId, ...operationInput } = input;
+  const attempt = readWorkflowStepAttempt(`${input.sessionId}:workflow-create-session`);
+  const telemetry = createLoopBenchmarkRecorder({
+    actor: "worker",
+    attempt,
+    hostRole: "worker",
+    runtime: "workflow",
+    sampleId: benchmarkSampleId,
   });
 
-  const session = createSession({
-    compactionOverrides: {
-      thresholdPercent: bundle.resolvedAgent.config.compaction?.thresholdPercent,
-    },
-    continuationToken: input.continuationToken,
-    limits: {
-      maxInputTokensPerSession: bundle.resolvedAgent.config.limits?.maxInputTokensPerSession,
-      maxOutputTokensPerSession: bundle.resolvedAgent.config.limits?.maxOutputTokensPerSession,
-    },
-    outputSchema: input.outputSchema,
-    rootSessionId: input.rootSessionId,
-    sessionId: input.sessionId,
-    subagentDepth: input.subagentDepth,
-    subagentMaxDepth:
-      input.subagentMaxDepth ?? bundle.resolvedAgent.config.limits?.maxSubagentDepth,
-    turnAgent: bundle.turnAgent,
-  });
+  try {
+    const result =
+      telemetry === undefined
+        ? await createSessionOperation(operationInput)
+        : await recordLoopBenchmarkInterval(
+            telemetry,
+            "session.create.operation",
+            async () => await createSessionOperation(operationInput),
+          );
+    scheduleLoopBenchmarkRecorderFlush(telemetry);
+    return result;
+  } catch (error) {
+    scheduleLoopBenchmarkRecorderFlush(telemetry);
+    throw error;
+  }
+}
 
-  return { state: createDurableSessionState({ session }) };
+function readWorkflowStepAttempt(fallback: string): string {
+  try {
+    const metadata = getStepMetadata();
+    return `${fallback}:${metadata.stepId}:attempt:${String(metadata.attempt)}`;
+  } catch {
+    return fallback;
+  }
 }

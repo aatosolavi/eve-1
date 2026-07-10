@@ -1,5 +1,5 @@
 import type { H3Event } from "nitro";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CHANNEL_SENTINEL, type CompiledChannel } from "#channel/compiled-channel.js";
 import type { RouteHandlerArgs } from "#channel/routes.js";
@@ -13,6 +13,7 @@ import {
   dispatchChannelWebSocketRequest,
 } from "#internal/nitro/routes/channel-dispatch.js";
 import { resolveNitroChannelRuntimeBundle } from "#internal/nitro/routes/runtime-stack.js";
+import { LOOP_BENCHMARK_SAMPLE_ID_HEADER } from "#internal/loop-benchmark/config.js";
 
 vi.mock("#internal/nitro/routes/runtime-stack.js", () => ({
   resolveNitroChannelRuntimeBundle: vi.fn(),
@@ -25,6 +26,10 @@ vi.mock("#internal/vercel/project-link.js", () => ({
 const mockedResolveNitroChannelRuntimeBundle = vi.mocked(resolveNitroChannelRuntimeBundle);
 const mockedReadVercelProjectLink = vi.mocked(readVercelProjectLink);
 const runtime = {} as Runtime;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -307,6 +312,53 @@ describe("dispatchChannelRequest", () => {
 
     expect(response.status).toBe(200);
     expect(vi.mocked(runtimeForTest.deliver).mock.calls[0]?.[0].requestId).toBeUndefined();
+  });
+
+  it("uses the client sample id as request correlation for benchmark targets", async () => {
+    vi.stubEnv("EVE_LOOP_BENCHMARK_RUNTIME", "workflow");
+    const runtimeForTest: Runtime = {
+      deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
+      getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
+      run: vi.fn(),
+    };
+
+    mockedResolveNitroChannelRuntimeBundle.mockResolvedValue({
+      channels: [
+        {
+          handler: async (_req, args) => {
+            await args.send("hello", {
+              auth: null,
+              continuationToken: "route-token",
+            });
+            return new Response("ok");
+          },
+          fetch: async () => new Response("ok"),
+          adapter: { kind: "channel:webhook" },
+          logicalPath: "agent/channels/webhook.ts",
+          method: "POST",
+          name: "webhook",
+          sourceId: "channel-webhook",
+          sourceKind: "module",
+          urlPath: "/webhook",
+        } satisfies ResolvedChannelDefinition,
+      ],
+      runtime: runtimeForTest,
+    });
+
+    const response = await dispatchChannelRequest(
+      createEvent({
+        headers: {
+          [LOOP_BENCHMARK_SAMPLE_ID_HEADER]: "sample-42",
+          "x-vercel-id": "iad1::platform-request",
+        },
+        waitUntil: vi.fn(),
+      }),
+      "POST /webhook",
+      {} as never,
+    );
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(runtimeForTest.deliver).mock.calls[0]?.[0].requestId).toBe("sample-42");
   });
 
   it("does not mutate route-owned run and deliver inputs", async () => {

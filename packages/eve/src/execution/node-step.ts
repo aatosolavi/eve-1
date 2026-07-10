@@ -1,6 +1,6 @@
 import { jsonSchema, type FlexibleSchema, type LanguageModel } from "ai";
 
-import type { Runtime, SessionCapabilities } from "#channel/types.js";
+import type { SessionCapabilities } from "#channel/types.js";
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import { createToolLoopHarness } from "#harness/tool-loop.js";
 import type { HandleEventFn, HarnessToolMap, StepFn } from "#harness/types.js";
@@ -12,7 +12,6 @@ import {
   resolveRuntimeModelReference,
   type RuntimeModelResolutionScope,
 } from "#runtime/agent/resolve-model.js";
-import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import type { ResolvedRuntimeAgentNode } from "#runtime/graph.js";
 
 import type { PreparedRuntimeTool } from "#runtime/sessions/turn.js";
@@ -32,17 +31,6 @@ const BUILT_IN_AGENT_TOOL_DESCRIPTION = [
 ].join(" ");
 
 /**
- * Factory that creates a {@link Runtime} for the given compiled
- * artifacts source and optional node id. Matches the signature of
- * `createWorkflowRuntime`, so callers pass the constructor directly —
- * no wrapper needed.
- */
-export type CreateRuntime = (config: {
-  readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
-  readonly nodeId?: string;
-}) => Runtime;
-
-/**
  * Input for building a harness step for one resolved runtime node.
  */
 export interface CreateExecutionNodeStepInput {
@@ -53,11 +41,6 @@ export interface CreateExecutionNodeStepInput {
    * current run.
    */
   readonly capabilities?: SessionCapabilities;
-  /**
-   * Runtime constructor used by the subagent tool executor to start
-   * delegated child runs on the same workflow runtime as the parent.
-   */
-  readonly createRuntime: CreateRuntime;
   readonly handleEvent?: HandleEventFn;
   readonly mode: RunMode;
   readonly modelResolutionScope: RuntimeModelResolutionScope;

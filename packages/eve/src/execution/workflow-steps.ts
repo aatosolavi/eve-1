@@ -1,465 +1,170 @@
 import { buildAdapterContext } from "#channel/adapter-context.js";
-import { callAdapterEventHandler, defaultDeliverResult } from "#channel/adapter.js";
+import { getStepMetadata } from "#compiled/@workflow/core/index.js";
+import { callAdapterEventHandler } from "#channel/adapter.js";
 import type {
   DeliverPayload,
   SessionAuthContext,
   SubagentInputRequestHookPayload,
 } from "#channel/types.js";
-import { dispatchStreamEventHooks } from "#context/hook-lifecycle.js";
-import { dispatchDynamicInstructionEvent } from "#context/dynamic-instruction-lifecycle.js";
-import { dispatchDynamicSkillEvent } from "#context/dynamic-skill-lifecycle.js";
-import { dispatchDynamicToolEvent } from "#context/dynamic-tool-lifecycle.js";
-import { AuthKey, CapabilitiesKey, ContinuationTokenKey, ModeKey } from "#context/keys.js";
+import { ModeKey } from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
-import { runStep, withContextScope } from "#context/run-step.js";
+import { withContextScope } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
-import { getHarnessEmissionState } from "#harness/emission.js";
 import { setChannelContext } from "#execution/channel-context.js";
-import { hasPendingInputBatch } from "#harness/input-requests.js";
-import { coalesceTurnInputs } from "#harness/messages.js";
 import { upsertProxyInputRequests } from "#harness/proxy-input-requests.js";
-import {
-  getRuntimeActionKeysFromWorkflowInterrupt,
-  isWorkflowRuntimeActionInterrupt,
-} from "#harness/workflow-runtime-action-state.js";
-import { getPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state.js";
-import { getPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
-import type { HarnessSession, StepInput, StepResult } from "#harness/types.js";
-import type { JsonObject } from "#shared/json.js";
-import type { RunMode } from "#shared/run-mode.js";
-import { getRuntimeActionRequestKey } from "#runtime/actions/keys.js";
+import type { HarnessSession } from "#harness/types.js";
 import { createLogger, formatError } from "#internal/logging.js";
 import {
-  createAuthorizationCompletedEvent,
   createSessionFailedEvent,
   encodeMessageStreamEvent,
   type HandleMessageStreamEvent,
   timestampHandleMessageStreamEvent,
 } from "#protocol/message.js";
-import {
-  CallbackBaseUrlKey,
-  clearPendingAuthorization,
-  getPendingAuthorization,
-  PendingAuthorizationResultKey,
-  type AuthorizationResult,
-} from "#harness/authorization.js";
 import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url.js";
-import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
-import type { AuthorizationCallback } from "#runtime/connections/types.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#execution/durable-session-state.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createTurnWorkflowInput,
   type TurnStepInput,
   type TurnWorkflowDispatchInput,
 } from "#execution/durable-session-migrations/turn-workflow.js";
-import { createExecutionNodeStep } from "#execution/node-step.js";
 import { emitProxiedInputRequest, routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
-import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
-import { buildTurnAttributes, readRootSessionId } from "#execution/eve-workflow-attributes.js";
-import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
+import { hydrateDurableSession } from "#execution/session.js";
 import {
-  createWorkflowRuntime,
-  startWorkflowPreferLatest,
-  turnWorkflowReference,
-} from "#execution/workflow-runtime.js";
+  executeTurnStepOperation,
+  reconcileSessionContinuationToken,
+  type DurableStepResult,
+} from "#execution/turn-step-operation.js";
+import {
+  buildTurnAttributes,
+  readChannelRequestId,
+  readRootSessionId,
+} from "#execution/eve-workflow-attributes.js";
+import {
+  createLoopBenchmarkRecorder,
+  recordLoopBenchmarkInterval,
+  scheduleLoopBenchmarkRecorderFlush,
+} from "#internal/loop-benchmark/runtime-telemetry.js";
+import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
+import { startWorkflowPreferLatest, turnWorkflowReference } from "#execution/workflow-runtime.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
 
-/**
- * Result of one durable harness step, consumed by the turn workflow.
- *
- * `park` carries `hasPendingInputBatch`, `hasPendingAuthorization`, and
- * `pendingRuntimeActionKeys` so the turn workflow can pick the right
- * {@link import("#execution/next-driver-action.js").NextDriverAction}
- * arm without re-reading the session.
- */
-export type DurableStepResult =
-  | {
-      readonly action: "continue" | "done";
-      readonly output?: unknown;
-      readonly isError?: boolean;
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    }
-  | {
-      readonly action: "park";
-      readonly authorizationNames?: readonly string[];
-      readonly hasPendingAuthorization: boolean;
-      readonly hasPendingInputBatch: boolean;
-      readonly pendingRuntimeActionKeys?: readonly string[];
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    }
-  | {
-      readonly action: "dispatch-workflow-runtime-actions";
-      readonly pendingRuntimeActionKeys: readonly string[];
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    };
-
 export type { TurnStepInput };
+export {
+  reconcileSessionContinuationToken,
+  resolveEffectiveOutputSchema,
+  type DurableStepResult,
+} from "#execution/turn-step-operation.js";
 
-/**
- * Runs one atomic harness step inside a durable `"use step"` boundary.
- */
+/** Runs one atomic harness step inside a durable `"use step"` boundary. */
 export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResult> {
   "use step";
 
-  let input = rawInput;
+  const sampleId = readChannelRequestId(rawInput.serializedContext);
+  const attempt = readWorkflowStepAttempt(
+    `${rawInput.sessionState.sessionId}:workflow-turn-step:${String(rawInput.sessionState.emissionState.sequence)}:${String(rawInput.sessionState.emissionState.stepIndex)}`,
+  );
+  const telemetry = createLoopBenchmarkRecorder({
+    actor: "worker",
+    attempt,
+    hostRole: "worker",
+    runtime: "workflow",
+    sampleId,
+  });
+  const durableSession = await readDurableSession(rawInput.sessionState);
+  const callbackBaseUrl = await resolveTurnStepCallbackBaseUrl();
+  let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
 
-  let durableSession = await readDurableSession(input.sessionState);
-  const ctx = await deserializeContext(input.serializedContext);
-  const adapter = ctx.require(ChannelKey);
-  const bundle = ctx.require(BundleKey);
+  try {
+    const operation = async () =>
+      await executeTurnStepOperation({
+        callbackBaseUrl,
+        createEventSink() {
+          const openedWriter = rawInput.parentWritable.getWriter();
+          writer = openedWriter;
+          return {
+            async write(publication) {
+              if (telemetry === undefined) {
+                await openedWriter.write(publication.encoded);
+                return;
+              }
+              await recordLoopBenchmarkInterval(telemetry, "event.publish", async () => {
+                await openedWriter.write(publication.encoded);
+              });
+            },
+          };
+        },
+        durableSession,
+        input: rawInput.input,
+        serializedContext: rawInput.serializedContext,
+        sessionState: rawInput.sessionState,
+      });
 
+    const result =
+      telemetry === undefined
+        ? await operation()
+        : await recordLoopBenchmarkInterval(telemetry, "turn.step.operation", operation);
+
+    if (writer !== undefined) {
+      if (result.action === "done") {
+        await writer.close();
+      } else {
+        writer.releaseLock();
+      }
+    }
+
+    scheduleLoopBenchmarkRecorderFlush(telemetry);
+    return result;
+  } catch (error) {
+    scheduleLoopBenchmarkRecorderFlush(telemetry);
+    throw error;
+  }
+}
+
+/** Records that the Workflow driver has accepted and rekeyed one parked turn. */
+export async function recordWorkflowBenchmarkParkAcceptedStep(input: {
+  readonly sampleId: string;
+}): Promise<void> {
+  "use step";
+
+  const attempt = readWorkflowStepAttempt(`${input.sampleId}:workflow-park-accepted`);
+  const telemetry = createLoopBenchmarkRecorder({
+    actor: "session",
+    attempt,
+    hostRole: "worker",
+    runtime: "workflow",
+    sampleId: input.sampleId,
+  });
+  telemetry?.mark("session.rekey.accepted");
+  telemetry?.mark("runtime.park.accepted");
+  scheduleLoopBenchmarkRecorderFlush(telemetry);
+}
+
+function readWorkflowStepAttempt(fallback: string): string {
+  try {
+    const metadata = getStepMetadata();
+    return `${fallback}:${metadata.stepId}:attempt:${String(metadata.attempt)}`;
+  } catch {
+    return fallback;
+  }
+}
+
+async function resolveTurnStepCallbackBaseUrl(): Promise<string | undefined> {
   // Populate the callback base URL so getHookUrl() works during tool
   // execution, preferring eve's active local origin over metadata fallback.
   try {
     const { getWorkflowMetadata } = await import("#compiled/@workflow/core/index.js");
     const metadata = getWorkflowMetadata();
-    if (typeof metadata.url === "string") {
-      ctx.set(CallbackBaseUrlKey, resolveWorkflowCallbackBaseUrl(metadata.url));
-    }
+    return typeof metadata.url === "string"
+      ? resolveWorkflowCallbackBaseUrl(metadata.url)
+      : undefined;
   } catch {
     // Outside a workflow context (e.g. tests) — getHookUrl will return undefined.
+    return undefined;
   }
-
-  // Authorization callback. If the delivery carries an
-  // `authorizationCallback` and there's a pending authorization on
-  // session state, extract it, build AuthorizationResult entries, and
-  // populate PendingAuthorizationResultKey so tools can complete auth.
-  // Strip the callback from the delivery so the adapter doesn't see it.
-  // Completion event names are collected here; emission happens after
-  // the `emit` function is created below.
-  const pendingAuth = getPendingAuthorization(durableSession.state);
-  let completedAuths:
-    | Array<{ name: string; authorization: ConnectionAuthorizationChallenge }>
-    | undefined;
-  if (pendingAuth && input.input?.kind === "deliver") {
-    const authResults: Array<{ name: string } & AuthorizationResult> = [];
-    const completed: Array<{ name: string; authorization: ConnectionAuthorizationChallenge }> = [];
-    const remainingPayloads: DeliverPayload[] = [];
-    for (const payload of input.input.payloads) {
-      const cb = payload["authorizationCallback"] as
-        | { connectionName: string; callback: AuthorizationCallback }
-        | undefined;
-      if (cb) {
-        const challenge = pendingAuth.challenges.find((c) => c.name === cb.connectionName);
-        if (challenge) {
-          authResults.push({
-            name: challenge.name,
-            resume: challenge.resume,
-            callback: cb.callback,
-            hookUrl: challenge.hookUrl,
-          });
-          completed.push({ name: challenge.name, authorization: challenge.challenge });
-        }
-      } else {
-        remainingPayloads.push(payload);
-      }
-    }
-    if (authResults.length > 0) {
-      ctx.set(PendingAuthorizationResultKey, authResults);
-      durableSession = {
-        ...durableSession,
-        state: clearPendingAuthorization(
-          durableSession.state,
-          authResults.map((result) => result.name),
-        ),
-      };
-      completedAuths = completed;
-      input =
-        remainingPayloads.length > 0
-          ? { ...input, input: { ...input.input, payloads: remainingPayloads } }
-          : { ...input, input: undefined };
-    }
-  }
-
-  // Apply deliver-time auth ferried via `resumeHook` (initial-turn
-  // input has no auth; it was seeded by buildRunContext).
-  if (input.input?.kind === "deliver" && input.input.auth !== undefined) {
-    ctx.set(AuthKey, input.input.auth ?? null);
-  }
-
-  const initialSession = hydrateDurableSession({
-    compactionOverrides: {
-      thresholdPercent: bundle.resolvedAgent.config.compaction?.thresholdPercent,
-    },
-    durable: durableSession,
-    turnAgent: bundle.turnAgent,
-  });
-
-  const adapterCtx = buildAdapterContext(adapter, ctx);
-
-  // Run the adapter's deliver hook for each queued payload and
-  // coalesce the resulting StepInput values.
-  let resolved: StepInput | undefined;
-  if (input.input?.kind === "deliver") {
-    const results: StepInput[] = [];
-    for (const payload of input.input.payloads) {
-      const result = adapter.deliver
-        ? await adapter.deliver(payload, adapterCtx)
-        : defaultDeliverResult(payload);
-
-      if (result !== undefined && result !== null) {
-        results.push(result);
-      }
-    }
-    resolved = results.length === 0 ? undefined : results.reduce(coalesceTurnInputs);
-  } else if (input.input?.kind === "runtime-action-result") {
-    resolved = { runtimeActionResults: input.input.results };
-  }
-
-  // Pin adapter-state mutations back onto ctx so they survive the
-  // step boundary.
-  if (input.input?.kind === "deliver") {
-    const updatedAdapter = { ...adapter, state: { ...adapterCtx.state } };
-    setChannelContext(ctx, updatedAdapter);
-  }
-
-  // Adapter handled the delivery inline (e.g. a Slack interaction
-  // that only edits a message). Re-park without a model turn; skip
-  // the snapshot write when the session itself is unchanged.
-  if (input.input?.kind === "deliver" && resolved === undefined) {
-    const rekeyed = reconcileSessionContinuationToken(ctx, initialSession);
-    const nextSerializedContext = serializeContext(ctx);
-    const nextState =
-      rekeyed === initialSession
-        ? input.sessionState
-        : createDurableSessionState({ session: rekeyed });
-
-    return {
-      action: "park",
-      ...derivePendingState(rekeyed),
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
-    };
-  }
-
-  const writer = input.parentWritable.getWriter();
-  const hookRegistry = bundle.hookRegistry;
-  const dynamicInstructionsResolvers = bundle.resolvedAgent.dynamicInstructionsResolvers ?? [];
-  const dynamicSkillResolvers = bundle.resolvedAgent.dynamicSkillResolvers ?? [];
-  const dynamicToolResolvers = bundle.resolvedAgent.dynamicToolResolvers ?? [];
-
-  const emit = async (event: HandleMessageStreamEvent): Promise<HandleMessageStreamEvent> => {
-    const toEmit = await callAdapterEventHandler(adapter, event, adapterCtx);
-    setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
-    await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(toEmit)));
-    return toEmit;
-  };
-
-  const handleEvent = async (
-    event: HandleMessageStreamEvent,
-    messages?: readonly import("ai").ModelMessage[],
-  ): Promise<void> => {
-    const emitted = await emit(event);
-    await dispatchStreamEventHooks({ ctx, registry: hookRegistry, event: emitted });
-    await dispatchDynamicToolEvent({
-      ctx,
-      resolvers: dynamicToolResolvers,
-      event: emitted,
-      messages: messages ?? [],
-    });
-    await dispatchDynamicSkillEvent({
-      ctx,
-      resolvers: dynamicSkillResolvers,
-      event: emitted,
-      messages: messages ?? [],
-    });
-    await dispatchDynamicInstructionEvent({
-      ctx,
-      resolvers: dynamicInstructionsResolvers,
-      event: emitted,
-      messages: messages ?? [],
-    });
-  };
-
-  const mode = ctx.require(ModeKey);
-
-  let stepResult = await runStep(ctx, initialSession, async (enrichedSession) => {
-    const schemaSession = resolveEffectiveOutputSchema({
-      agentOutputSchema: bundle.turnAgent.outputSchema,
-      input: resolved,
-      mode,
-      session: enrichedSession,
-    });
-    if (completedAuths) {
-      const emissionState = getHarnessEmissionState(schemaSession.state);
-      for (const { name, authorization } of completedAuths) {
-        await handleEvent(
-          createAuthorizationCompletedEvent({
-            authorization,
-            name,
-            outcome: "authorized",
-            sequence: emissionState.sequence,
-            stepIndex: emissionState.stepIndex,
-            turnId: emissionState.turnId,
-          }),
-        );
-      }
-    }
-
-    const capabilities = ctx.get(CapabilitiesKey);
-
-    const runHarnessStep = async (
-      lifecycleSession: HarnessSession,
-      stepInput: StepInput | undefined,
-    ): Promise<StepResult> => {
-      const refreshedSession = refreshSessionFromTurnAgent({
-        compactionOverrides: {
-          thresholdPercent: bundle.resolvedAgent.config.compaction?.thresholdPercent,
-        },
-        session: lifecycleSession,
-        turnAgent: bundle.turnAgent,
-      });
-
-      const step = createExecutionNodeStep({
-        capabilities,
-        createRuntime: createWorkflowRuntime,
-        handleEvent,
-        mode,
-        modelResolutionScope: {
-          moduleMap: bundle.moduleMap,
-          nodeId: bundle.nodeId,
-        },
-        node: bundle.graph.root,
-      });
-      return step(refreshedSession, stepInput);
-    };
-
-    return runHarnessStep(schemaSession, resolved);
-  });
-
-  // Re-stamp the in-memory session's continuation token in case a
-  // handler called `setContinuationToken(...)` (eg. Slack auto-anchor).
-  const rekeyed = reconcileSessionContinuationToken(ctx, stepResult.session);
-  const nextSerializedContext = serializeContext(ctx);
-  stepResult = { ...stepResult, session: rekeyed };
-
-  const nextState = createDurableSessionState({ session: stepResult.session });
-
-  if (
-    stepResult.next !== null &&
-    typeof stepResult.next === "object" &&
-    "done" in stepResult.next
-  ) {
-    await writer.close();
-    return {
-      action: "done",
-      output: stepResult.next.output,
-      isError: stepResult.next.isError,
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
-    };
-  }
-
-  if (stepResult.next === null) {
-    writer.releaseLock();
-
-    const workflowInterrupt = getPendingWorkflowInterrupt(stepResult.session.state);
-    if (
-      workflowInterrupt !== undefined &&
-      isWorkflowRuntimeActionInterrupt(workflowInterrupt.interrupt)
-    ) {
-      return {
-        action: "dispatch-workflow-runtime-actions",
-        pendingRuntimeActionKeys: getRuntimeActionKeysFromWorkflowInterrupt(
-          workflowInterrupt.interrupt,
-        ),
-        serializedContext: nextSerializedContext,
-        sessionState: nextState,
-      };
-    }
-
-    return {
-      action: "park",
-      ...derivePendingState(stepResult.session),
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
-    };
-  }
-
-  writer.releaseLock();
-  return {
-    action: "continue",
-    serializedContext: nextSerializedContext,
-    sessionState: nextState,
-  };
-}
-
-/**
- * Derives the pending-state fields the turn workflow needs to choose
- * the right `NextDriverAction` arm at the park boundary.
- */
-function derivePendingState(session: HarnessSession): {
-  readonly authorizationNames?: readonly string[];
-  readonly hasPendingAuthorization: boolean;
-  readonly hasPendingInputBatch: boolean;
-  readonly pendingRuntimeActionKeys?: readonly string[];
-} {
-  const batch = getPendingRuntimeActionBatch(session.state);
-  const pendingAuth = getPendingAuthorization(session.state);
-  const base = {
-    authorizationNames: pendingAuth?.challenges.map((c) => c.name),
-    hasPendingAuthorization: pendingAuth !== undefined,
-    hasPendingInputBatch: hasPendingInputBatch(session.state),
-  };
-  if (batch !== undefined) {
-    return {
-      ...base,
-      pendingRuntimeActionKeys: batch.actions.map((action) => getRuntimeActionRequestKey(action)),
-    };
-  }
-  return base;
-}
-
-/**
- * Re-stamps `session.continuationToken` from `ContinuationTokenKey`
- * after channels call `setContinuationToken(...)`. Idempotent when the
- * token is unchanged.
- */
-export function reconcileSessionContinuationToken(
-  ctx: Awaited<ReturnType<typeof deserializeContext>>,
-  session: HarnessSession,
-): HarnessSession {
-  const next = ctx.get(ContinuationTokenKey);
-  if (next === undefined || next === session.continuationToken) return session;
-  return { ...session, continuationToken: next };
-}
-
-/**
- * Resolves the single output schema in effect for this turn, decoupling schema
- * enforcement from {@link RunMode}: downstream the harness reads
- * `session.outputSchema` unconditionally and never re-derives it from mode.
- *
- * A run-scoped (client-supplied) schema on the turn's {@link StepInput} always
- * wins. With no run-scoped schema, a task run adopts the agent's declared
- * return schema — its function-output contract, which only applies when the
- * agent is invoked as a function (subagent / schedule / job), i.e. task mode.
- * A conversation run with no run-scoped schema enforces nothing. Continuation
- * steps (no new `StepInput`) preserve whatever is already in effect.
- */
-export function resolveEffectiveOutputSchema(input: {
-  readonly agentOutputSchema: JsonObject | undefined;
-  readonly input: StepInput | undefined;
-  readonly mode: RunMode;
-  readonly session: HarnessSession;
-}): HarnessSession {
-  const { agentOutputSchema, input: stepInput, mode, session } = input;
-
-  if (stepInput?.outputSchema !== undefined) {
-    return { ...session, outputSchema: stepInput.outputSchema };
-  }
-
-  if (mode === "task" && session.outputSchema === undefined && agentOutputSchema !== undefined) {
-    return { ...session, outputSchema: agentOutputSchema };
-  }
-
-  return session;
 }
 
 const log = createLogger("execution.workflow-entry");

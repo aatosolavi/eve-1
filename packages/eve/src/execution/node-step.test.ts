@@ -1,6 +1,5 @@
 import { ToolLoopAgent } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Runtime } from "#channel/types.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
 import { AuthKey, InitiatorAuthKey, SessionIdKey, SessionKey } from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
@@ -208,16 +207,6 @@ function createTestNode(
   };
 }
 
-function createNoopRuntime(): Runtime {
-  return {
-    deliver: vi.fn(),
-    run: vi.fn().mockRejectedValue(new Error("runtime.run should not be called in this test")),
-    getEventStream: vi
-      .fn()
-      .mockRejectedValue(new Error("runtime.getEventStream should not be called in this test")),
-  };
-}
-
 describe("createNodeHarnessTools", () => {
   it("guides the model to split large tasks across parallel recursive agent calls", () => {
     const agentTool = createNodeHarnessTools({ node: createTestNode() }).get("agent");
@@ -261,7 +250,6 @@ describe("createExecutionNodeStep", () => {
       nodeId: undefined,
     };
     const step = createExecutionNodeStep({
-      createRuntime: () => createNoopRuntime(),
       mode: "task",
       modelResolutionScope,
       node: rootNode,
@@ -304,8 +292,6 @@ describe("createExecutionNodeStep", () => {
   it("records visible subagent tools as pending runtime actions", async () => {
     setupMockAgentForToolCall("child-agent", { task: "Delegate this." });
 
-    const createRuntime = vi.fn();
-
     const testCompiledArtifactsSource = createBundledRuntimeCompiledArtifactsSource();
     const rootNode = createTestNode(
       createTestTurnAgent({
@@ -323,7 +309,6 @@ describe("createExecutionNodeStep", () => {
       }),
     );
     const step = createExecutionNodeStep({
-      createRuntime,
       mode: "task",
       modelResolutionScope: {
         moduleMap: { nodes: {} },
@@ -358,7 +343,6 @@ describe("createExecutionNodeStep", () => {
     );
 
     expect(result.next).toBeNull();
-    expect(createRuntime).not.toHaveBeenCalled();
     expect(getPendingRuntimeActionBatch(result.session.state)).toEqual({
       actions: [
         {
