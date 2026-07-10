@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import { createCodexSubscriptionModel } from "./codex/model.js";
+import { createCodexSubscriptionModel } from "./chatgpt/model.js";
 
 const OPENAI_PROVIDER_PREFIX = "openai/";
 
