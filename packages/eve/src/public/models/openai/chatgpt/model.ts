@@ -10,7 +10,7 @@ const CODEX_LOCAL_AUTH_API_KEY = "codex-local-auth";
 
 /** Configures the Codex model selected by the local Codex login. */
 export interface CodexModelOptions {
-  /** Codex model ID passed to the OpenAI Responses API, for example `gpt-5.2-codex`. */
+  /** OpenAI model ID passed to the Codex Responses endpoint, for example `gpt-5.6-sol`. */
   readonly model: string;
 }
 

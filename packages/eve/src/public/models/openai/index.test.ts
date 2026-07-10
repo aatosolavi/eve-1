@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { experimental_chatgpt } from "./index.js";
 
 describe("experimental_chatgpt", () => {
+  it("defaults to gpt-5.6-sol", () => {
+    const model = experimental_chatgpt();
+
+    if (typeof model === "string") throw new Error("expected a model instance");
+    expect(model.modelId).toBe("gpt-5.6-sol");
+  });
+
   it("creates a Codex-served model from a bare OpenAI slug", () => {
     const model = experimental_chatgpt("gpt-5.5");
 
