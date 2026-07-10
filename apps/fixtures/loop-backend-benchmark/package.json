@@ -1,0 +1,32 @@
+{
+  "name": "loop-backend-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "benchmark:compile": "tsc -p tsconfig.runner.json",
+    "benchmark:hosted": "pnpm --silent run benchmark:compile 1>&2 && node dist/benchmark/runner/cli.js hosted",
+    "benchmark:local": "pnpm --silent run build 1>&2 && pnpm --silent run benchmark:compile 1>&2 && node dist/benchmark/runner/cli.js local",
+    "benchmark:sandbox": "pnpm --silent run benchmark:compile 1>&2 && node --env-file-if-exists=.env.local dist/benchmark/runner/cli.js sandbox",
+    "dev": "eve dev",
+    "build": "node scripts/build.mjs",
+    "start": "eve start",
+    "info": "eve info",
+    "test": "vitest run src",
+    "test:driver": "vitest run src/driver",
+    "test:runner": "vitest run src/runner",
+    "test:unit": "pnpm run test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@vercel/sandbox": "catalog:",
+    "eve": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.20.1",
+    "@temporalio/worker": "1.20.1",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
