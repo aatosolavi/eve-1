@@ -6,6 +6,7 @@ import { createValidEvents, TEST_NONCE, TEST_VERIFICATION } from "./test-events.
 
 const SAMPLE_ID = "sample-01";
 const SERVER_AT = "2026-07-10T12:00:00.000Z";
+const VERCEL_OIDC_TOKEN = "vercel-oidc-test-token";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -17,8 +18,15 @@ describe("runBenchmarkSample", () => {
     let clock = 0;
     vi.spyOn(performance, "now").mockImplementation(() => clock++);
     const seenHeaders: Array<string | null> = [];
+    const seenAuthorizationHeaders: Array<string | null> = [];
+    const seenRedirects: Array<"error" | "follow" | "manual" | undefined> = [];
+    const seenTrustedOidcHeaders: Array<string | null> = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      seenHeaders.push(new Headers(init?.headers).get("x-eve-benchmark-sample-id"));
+      const headers = new Headers(init?.headers);
+      seenHeaders.push(headers.get("x-eve-benchmark-sample-id"));
+      seenAuthorizationHeaders.push(headers.get("authorization"));
+      seenRedirects.push(init?.redirect);
+      seenTrustedOidcHeaders.push(headers.get("x-vercel-trusted-oidc-idp-token"));
 
       if (init?.method === "POST") {
         expect(requestUrl(input)).toBe("https://benchmark.example/eve/v1/session");
@@ -36,13 +44,16 @@ describe("runBenchmarkSample", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runBenchmarkSample({
-      nonce: TEST_NONCE,
-      runtimeKind: "inline",
-      sampleId: SAMPLE_ID,
-      targetKind: "vercel",
-      targetUrl: "https://benchmark.example",
-    });
+    const result = await runBenchmarkSample(
+      {
+        nonce: TEST_NONCE,
+        runtimeKind: "inline",
+        sampleId: SAMPLE_ID,
+        targetKind: "vercel",
+        targetUrl: "https://benchmark.example",
+      },
+      { vercelOidcToken: VERCEL_OIDC_TOKEN },
+    );
 
     expect(result.outcome).toBe("valid");
     if (result.outcome !== "valid") return;
@@ -104,6 +115,13 @@ describe("runBenchmarkSample", () => {
         (result.measurements.stopStepCompletedToSessionWaitingEventReceivedMs ?? 0),
     ).toBe(result.measurements.sessionWaitingEventReceivedMs);
     expect(seenHeaders).toEqual([SAMPLE_ID, SAMPLE_ID]);
+    expect(seenAuthorizationHeaders).toEqual([
+      `Bearer ${VERCEL_OIDC_TOKEN}`,
+      `Bearer ${VERCEL_OIDC_TOKEN}`,
+    ]);
+    expect(seenRedirects).toEqual(["error", "error"]);
+    expect(seenTrustedOidcHeaders).toEqual([VERCEL_OIDC_TOKEN, VERCEL_OIDC_TOKEN]);
+    expect(JSON.stringify(result)).not.toContain(VERCEL_OIDC_TOKEN);
   });
 
   it("returns an invalid result when a completed transcript violates the contract", async () => {
@@ -244,13 +262,16 @@ describe("runBenchmarkSample", () => {
       }),
     );
 
-    const result = await runBenchmarkSample({
-      nonce: TEST_NONCE,
-      runtimeKind: "temporal",
-      sampleId: SAMPLE_ID,
-      targetKind: "local",
-      targetUrl: "http://127.0.0.1:3100",
-    });
+    const result = await runBenchmarkSample(
+      {
+        nonce: TEST_NONCE,
+        runtimeKind: "temporal",
+        sampleId: SAMPLE_ID,
+        targetKind: "vercel",
+        targetUrl: "https://temporal.sandbox.example",
+      },
+      { vercelOidcToken: VERCEL_OIDC_TOKEN },
+    );
 
     expect(result.outcome).toBe("failed");
     if (result.outcome !== "failed") return;
@@ -259,6 +280,7 @@ describe("runBenchmarkSample", () => {
       name: "TypeError",
     });
     expect(result.measurements.postAckMs).toBeNull();
+    expect(JSON.stringify(result)).not.toContain(VERCEL_OIDC_TOKEN);
   });
 });
 

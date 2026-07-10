@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import type { BenchmarkRuntimeUrls } from "./types.js";
 import {
   BENCHMARK_MODEL_KIND_ENV,
@@ -20,6 +22,12 @@ const VERCEL_OIDC_TOKEN_ENV = "VERCEL_OIDC_TOKEN";
 export type SandboxModelCredential =
   | { readonly name: typeof AI_GATEWAY_API_KEY_ENV; readonly value: string }
   | { readonly name: typeof VERCEL_OIDC_TOKEN_ENV; readonly value: string };
+
+interface SandboxVercelOidc {
+  readonly environment: string;
+  readonly projectId: string;
+  readonly token: string;
+}
 
 const URL_ENVIRONMENT_VARIABLES = {
   inline: "EVE_LOOP_BENCHMARK_INLINE_URL",
@@ -51,6 +59,7 @@ export type ParsedRunnerConfig =
       readonly measuredBlocks: number;
       readonly mode: "sandbox";
       readonly seed: number;
+      readonly vercelOidc: SandboxVercelOidc;
       readonly warmupBlocks: number;
     } & (
       | {
@@ -123,6 +132,7 @@ export function parseRunnerConfig(input: {
       gitRevision: parseGitRevision(flags.gitRevision ?? input.environment[GIT_REVISION_ENV]),
       gitUrl: parseGitUrl(flags.gitUrl ?? input.environment[GIT_URL_ENV] ?? DEFAULT_GIT_URL),
       mode: "sandbox" as const,
+      vercelOidc: parseSandboxVercelOidc(input.environment[VERCEL_OIDC_TOKEN_ENV]),
     };
     const sandboxConfig =
       common.modelKind === "live"
@@ -290,6 +300,51 @@ function parseOptionalText(raw: string | undefined, name: string): string | unde
 
 function parseOptionalCredential(raw: string | undefined): string | undefined {
   return raw === undefined || raw.trim().length === 0 ? undefined : raw;
+}
+
+function parseSandboxVercelOidc(raw: string | undefined): SandboxVercelOidc {
+  const token = parseOptionalCredential(raw)?.trim();
+  if (token === undefined) {
+    throw new Error(
+      `Set ${VERCEL_OIDC_TOKEN_ENV} in the environment to authenticate the Vercel Sandbox and its eve routes.`,
+    );
+  }
+
+  const claims = decodeJwtPayload(token);
+  const projectId = readNonemptyString(claims, "project_id");
+  const environment = readNonemptyString(claims, "environment");
+  if (projectId === undefined || environment === undefined) {
+    throw new Error(
+      `${VERCEL_OIDC_TOKEN_ENV} must be a JWT with non-empty project_id and environment claims.`,
+    );
+  }
+  return { environment, projectId, token };
+}
+
+function decodeJwtPayload(token: string): Readonly<Record<string, unknown>> | null {
+  const segments = token.split(".");
+  if (segments.length !== 3 || segments[1] === undefined || segments[1].length === 0) {
+    return null;
+  }
+
+  try {
+    const value: unknown = JSON.parse(Buffer.from(segments[1], "base64url").toString("utf8"));
+    return typeof value === "object" && value !== null
+      ? (value as Readonly<Record<string, unknown>>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readNonemptyString(
+  record: Readonly<Record<string, unknown>> | null,
+  key: string,
+): string | undefined {
+  const value = record?.[key];
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length === 0 ? undefined : normalized;
 }
 
 function parseModelCredential(

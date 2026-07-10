@@ -96,7 +96,9 @@ benchmark samples. The matrix itself remains serial.
 The selected commit must be a full 40-character SHA reachable from the Git
 source. The default source is the public
 `https://github.com/vercel/eve.git` repository. The deterministic lane does not
-need a model credential:
+need a model credential. Both lanes require `VERCEL_OIDC_TOKEN` for Sandbox
+creation and authenticated requests to the public eve routes. The script loads
+that token from `.env.local` when the file exists:
 
 ```sh
 export EVE_LOOP_BENCHMARK_GIT_REVISION="$(git rev-parse HEAD)"
@@ -127,12 +129,17 @@ For the live lane, the model credential may be either `AI_GATEWAY_API_KEY` or
 three servers, and forwards the selected live credential under its original
 environment name. The deterministic lane forwards no model credential.
 
-Model credentials and `EVE_LOOP_BENCHMARK_GIT_TOKEN` are environment-only. The
-command has no flags for secrets, so they do not enter the process argument
-list. The script loads `.env.local` when that file exists. Separately, the
-Vercel Sandbox SDK needs `VERCEL_OIDC_TOKEN`, or `VERCEL_TOKEN` together with
-`VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID`. SDK authentication is not forwarded
-to deterministic benchmark servers as model authentication.
+`VERCEL_OIDC_TOKEN`, model credentials, and `EVE_LOOP_BENCHMARK_GIT_TOKEN` are
+environment-only. The command has no flags for secrets, so they do not enter
+the process argument list. The runner uses the OIDC token for both the Sandbox
+SDK and the eve client's `Authorization` and trusted-OIDC headers. It does not
+place that token in the deterministic build or server environment, nor in
+setup, sample, or summary records. The runner decodes the token's `project_id`
+and `environment` claims to bind the Sandbox servers to the expected Vercel
+project; eve still verifies the token's signature, issuer, audience, and
+claims on each request. In the live lane only, the same token may also be
+selected and forwarded as the model credential when `AI_GATEWAY_API_KEY` is
+absent.
 
 The first output line is a `setup` record. It identifies the model kind,
 `vercel-sandbox` topology, exact Git revision, Sandbox name and available

@@ -149,6 +149,7 @@ export class SandboxRuntimeServerGroup implements SandboxRuntimeServerGroupHandl
     }
 
     this.#secrets = [
+      config.vercelOidc.token,
       ...(config.modelCredential === undefined ? [] : [config.modelCredential.value]),
       ...(config.gitToken === undefined ? [] : [config.gitToken]),
     ];
@@ -214,6 +215,8 @@ export class SandboxRuntimeServerGroup implements SandboxRuntimeServerGroupHandl
             EVE_LOOP_BENCHMARK_RECORD_PATH: RUNTIME_RECORD_PATHS[runtimeKind],
             EVE_LOOP_BENCHMARK_RUNTIME: runtimeKind,
             EVE_LOOP_BENCHMARK_TARGET: "vercel",
+            VERCEL_PROJECT_ID: config.vercelOidc.projectId,
+            VERCEL_TARGET_ENV: config.vercelOidc.environment,
             WORKFLOW_LOCAL_DATA_DIR: RUNTIME_WORKFLOW_DATA_DIRS[runtimeKind],
           },
         });

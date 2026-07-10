@@ -19,10 +19,15 @@ import { BENCHMARK_SAMPLE_HEADER } from "./types.js";
 
 export async function runBenchmarkSample(
   input: RunBenchmarkSampleInput,
+  options: { readonly vercelOidcToken?: string } = {},
 ): Promise<BenchmarkSampleResult> {
   const client = new Client({
+    ...(options.vercelOidcToken === undefined
+      ? {}
+      : { auth: { vercelOidc: { token: options.vercelOidcToken } } }),
     headers: { [BENCHMARK_SAMPLE_HEADER]: input.sampleId },
     host: input.targetUrl,
+    redirect: "error",
   });
   const session = client.session();
   const reducer = defaultMessageReducer();

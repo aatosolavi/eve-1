@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { parseRunnerConfig } from "./config.js";
 
 const FULL_COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
+const TEST_VERCEL_ENVIRONMENT = "development";
+const TEST_VERCEL_OIDC_TOKEN = testVercelOidcToken({
+  environment: TEST_VERCEL_ENVIRONMENT,
+  project_id: "prj_benchmark",
+});
+const TEST_VERCEL_PROJECT_ID = "prj_benchmark";
 
 describe("parseRunnerConfig", () => {
   it("applies the local defaults", () => {
@@ -61,11 +67,11 @@ describe("parseRunnerConfig", () => {
     });
   });
 
-  it("parses the deterministic Sandbox lane without a model credential", () => {
+  it("parses the deterministic Sandbox lane with target auth but no model credential", () => {
     expect(
       parseRunnerConfig({
         argv: ["--git-revision", FULL_COMMIT_SHA.toUpperCase()],
-        environment: {},
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
         mode: "sandbox",
       }),
     ).toEqual({
@@ -75,6 +81,11 @@ describe("parseRunnerConfig", () => {
       modelKind: "deterministic",
       mode: "sandbox",
       seed: 1,
+      vercelOidc: {
+        environment: TEST_VERCEL_ENVIRONMENT,
+        projectId: TEST_VERCEL_PROJECT_ID,
+        token: TEST_VERCEL_OIDC_TOKEN,
+      },
       warmupBlocks: 3,
     });
   });
@@ -85,12 +96,12 @@ describe("parseRunnerConfig", () => {
         argv: ["--git-revision", FULL_COMMIT_SHA],
         environment: {
           EVE_LOOP_BENCHMARK_MODEL_KIND: "live",
-          VERCEL_OIDC_TOKEN: "oidc-test-token",
+          VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN,
         },
         mode: "sandbox",
       }),
     ).toMatchObject({
-      modelCredential: { name: "VERCEL_OIDC_TOKEN", value: "oidc-test-token" },
+      modelCredential: { name: "VERCEL_OIDC_TOKEN", value: TEST_VERCEL_OIDC_TOKEN },
       modelKind: "live",
     });
   });
@@ -98,11 +109,18 @@ describe("parseRunnerConfig", () => {
   it("does not forward an SDK OIDC token as a deterministic model credential", () => {
     const config = parseRunnerConfig({
       argv: ["--git-revision", FULL_COMMIT_SHA],
-      environment: { VERCEL_OIDC_TOKEN: "sdk-auth-only" },
+      environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
       mode: "sandbox",
     });
 
-    expect(config).toMatchObject({ modelKind: "deterministic" });
+    expect(config).toMatchObject({
+      modelKind: "deterministic",
+      vercelOidc: {
+        environment: TEST_VERCEL_ENVIRONMENT,
+        projectId: TEST_VERCEL_PROJECT_ID,
+        token: TEST_VERCEL_OIDC_TOKEN,
+      },
+    });
     expect(config).not.toHaveProperty("modelCredential");
   });
 
@@ -119,6 +137,7 @@ describe("parseRunnerConfig", () => {
         ],
         environment: {
           EVE_LOOP_BENCHMARK_GIT_TOKEN: "git-test-token",
+          VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN,
         },
         mode: "sandbox",
       }),
@@ -157,8 +176,8 @@ describe("parseRunnerConfig", () => {
     },
     {
       argv: ["--git-revision", FULL_COMMIT_SHA],
-      environment: { EVE_LOOP_BENCHMARK_MODEL_KIND: "live" },
-      message: "AI_GATEWAY_API_KEY",
+      environment: {},
+      message: "VERCEL_OIDC_TOKEN",
     },
     {
       argv: ["--git-revision", FULL_COMMIT_SHA, "--git-username", "benchmark-bot"],
@@ -235,6 +254,20 @@ describe("parseRunnerConfig", () => {
     );
   });
 
+  it.each([
+    { token: "not-a-jwt" },
+    { token: testVercelOidcToken({ environment: TEST_VERCEL_ENVIRONMENT }) },
+    { token: testVercelOidcToken({ project_id: TEST_VERCEL_PROJECT_ID }) },
+  ])("rejects a Sandbox OIDC token without project binding claims", ({ token }) => {
+    expect(() =>
+      parseRunnerConfig({
+        argv: ["--git-revision", FULL_COMMIT_SHA],
+        environment: { VERCEL_OIDC_TOKEN: token },
+        mode: "sandbox",
+      }),
+    ).toThrow("project_id and environment claims");
+  });
+
   it("rejects an invalid model kind in every mode", () => {
     expect(() =>
       parseRunnerConfig({
@@ -245,3 +278,11 @@ describe("parseRunnerConfig", () => {
     ).toThrow('EVE_LOOP_BENCHMARK_MODEL_KIND must be "deterministic" or "live"');
   });
 });
+
+function testVercelOidcToken(payload: Readonly<Record<string, string>>): string {
+  return [
+    Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url"),
+    Buffer.from(JSON.stringify(payload)).toString("base64url"),
+    "test-signature",
+  ].join(".");
+}

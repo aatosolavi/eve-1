@@ -78,6 +78,8 @@ describe("SandboxRuntimeServerGroup", () => {
         EVE_LOOP_BENCHMARK_RECORD_PATH: "/tmp/eve-loop-benchmark-inline.jsonl",
         EVE_LOOP_BENCHMARK_RUNTIME: "inline",
         EVE_LOOP_BENCHMARK_TARGET: "vercel",
+        VERCEL_PROJECT_ID: "prj_benchmark",
+        VERCEL_TARGET_ENV: "development",
         WORKFLOW_LOCAL_DATA_DIR: "/tmp/eve-loop-benchmark-inline-workflow-data",
       },
       {
@@ -86,6 +88,8 @@ describe("SandboxRuntimeServerGroup", () => {
         EVE_LOOP_BENCHMARK_RECORD_PATH: "/tmp/eve-loop-benchmark-workflow.jsonl",
         EVE_LOOP_BENCHMARK_RUNTIME: "workflow",
         EVE_LOOP_BENCHMARK_TARGET: "vercel",
+        VERCEL_PROJECT_ID: "prj_benchmark",
+        VERCEL_TARGET_ENV: "development",
         WORKFLOW_LOCAL_DATA_DIR: "/tmp/eve-loop-benchmark-workflow-workflow-data",
       },
       {
@@ -94,6 +98,8 @@ describe("SandboxRuntimeServerGroup", () => {
         EVE_LOOP_BENCHMARK_RECORD_PATH: "/tmp/eve-loop-benchmark-temporal.jsonl",
         EVE_LOOP_BENCHMARK_RUNTIME: "temporal",
         EVE_LOOP_BENCHMARK_TARGET: "vercel",
+        VERCEL_PROJECT_ID: "prj_benchmark",
+        VERCEL_TARGET_ENV: "development",
         WORKFLOW_LOCAL_DATA_DIR: "/tmp/eve-loop-benchmark-temporal-workflow-data",
       },
     ]);
@@ -183,6 +189,11 @@ describe("SandboxRuntimeServerGroup", () => {
       modelKind: "deterministic",
       mode: "sandbox",
       seed: 7,
+      vercelOidc: {
+        environment: "development",
+        projectId: "prj_benchmark",
+        token: "oidc-test-token",
+      },
       warmupBlocks: 1,
     });
 
@@ -194,6 +205,7 @@ describe("SandboxRuntimeServerGroup", () => {
     ]);
     expect(JSON.stringify(commands)).not.toContain("AI_GATEWAY_API_KEY");
     expect(JSON.stringify(commands)).not.toContain("VERCEL_OIDC_TOKEN");
+    expect(JSON.stringify(commands)).not.toContain("oidc-test-token");
   });
 
   it("stops the Sandbox when setup fails", async () => {
@@ -253,10 +265,13 @@ describe("SandboxRuntimeServerGroup", () => {
   it("redacts configured credentials from setup failures", async () => {
     const aiCredential = "gateway-sensitive-value";
     const gitCredential = "git-sensitive-value";
+    const routeCredential = "route-sensitive-value";
     const diagnostics: string[] = [];
     const group = new SandboxRuntimeServerGroup({
       async createSandbox() {
-        throw new Error(`create failed with ${aiCredential} and ${gitCredential}`);
+        throw new Error(
+          `create failed with ${aiCredential}, ${gitCredential}, and ${routeCredential}`,
+        );
       },
       fetch: vi.fn(),
       now: () => 0,
@@ -273,6 +288,11 @@ describe("SandboxRuntimeServerGroup", () => {
         modelCredential: { name: "AI_GATEWAY_API_KEY", value: aiCredential },
         gitToken: gitCredential,
         gitUsername: "benchmark-bot",
+        vercelOidc: {
+          environment: "development",
+          projectId: "prj_benchmark",
+          token: routeCredential,
+        },
       });
     } catch (error) {
       failure = error;
@@ -281,8 +301,10 @@ describe("SandboxRuntimeServerGroup", () => {
     expect(String(failure)).toContain("[redacted]");
     expect(String(failure)).not.toContain(aiCredential);
     expect(String(failure)).not.toContain(gitCredential);
+    expect(String(failure)).not.toContain(routeCredential);
     expect(diagnostics.join("\n")).not.toContain(aiCredential);
     expect(diagnostics.join("\n")).not.toContain(gitCredential);
+    expect(diagnostics.join("\n")).not.toContain(routeCredential);
   });
 });
 
@@ -298,6 +320,11 @@ function sandboxConfig(): Extract<ParsedRunnerConfig, { readonly mode: "sandbox"
     modelKind: "live",
     mode: "sandbox",
     seed: 7,
+    vercelOidc: {
+      environment: "development",
+      projectId: "prj_benchmark",
+      token: "oidc-test-token",
+    },
     warmupBlocks: 1,
   };
 }

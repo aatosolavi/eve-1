@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { runBenchmarkSample, type BenchmarkRuntimeKind } from "../driver/index.js";
 import type { BenchmarkModelKind } from "../model-kind.js";
 import type { BenchmarkSummaryRecord } from "./types.js";
 import type { ParsedRunnerConfig } from "./config.js";
@@ -12,7 +13,6 @@ import {
   type SandboxSetupRecord,
 } from "./sandbox-servers.js";
 import { readServerTelemetry } from "./server-telemetry.js";
-import type { BenchmarkRuntimeKind } from "../driver/index.js";
 import type { BenchmarkRuntimeUrls } from "./types.js";
 
 type LocalRunnerConfig = Extract<ParsedRunnerConfig, { readonly mode: "local" }>;
@@ -148,6 +148,8 @@ export async function runSandboxBenchmarkCommand(
         collectServerTelemetry: createServerTelemetryCollector(async (runtimeKind) => {
           return (await dependencies.serverGroup.readRecordFile(runtimeKind)) ?? undefined;
         }),
+        runSample: async (input) =>
+          await runBenchmarkSample(input, { vercelOidcToken: config.vercelOidc.token }),
       },
     );
   } finally {

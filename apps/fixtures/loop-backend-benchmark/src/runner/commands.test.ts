@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   runHostedBenchmarkCommand,
@@ -7,8 +7,13 @@ import {
   type LocalSetupRecord,
 } from "./commands.js";
 import { LocalRuntimeServerGroup } from "./local-servers.js";
+import { runBenchmarkMatrix } from "./matrix.js";
 import type { SandboxRuntimeServerGroupHandle, SandboxSetupRecord } from "./sandbox-servers.js";
 import type { BenchmarkMatrixConfig, BenchmarkSummaryRecord } from "./types.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("runLocalBenchmarkCommand", () => {
   it("stops every local server after a successful matrix", async () => {
@@ -112,12 +117,39 @@ describe("runSandboxBenchmarkCommand", () => {
   it("writes setup metadata before running the shared Vercel matrix", async () => {
     const callOrder: string[] = [];
     const records: SandboxSetupRecord[] = [];
+    const requestHeaders: Headers[] = [];
+    const requestRedirects: Array<"error" | "follow" | "manual" | undefined> = [];
     const stop = vi.fn(async () => undefined);
     const serverGroup = fakeSandboxGroup(stop);
-    const runMatrix = vi.fn(async (config: BenchmarkMatrixConfig) => {
-      callOrder.push("matrix");
-      return summary(config);
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (_input, init) => {
+        requestHeaders.push(new Headers(init?.headers));
+        requestRedirects.push(init?.redirect);
+        return init?.method === "POST"
+          ? Response.json({ continuationToken: "next-token", sessionId: "session-01" })
+          : new Response(
+              `${JSON.stringify({ data: { wait: "next-user-message" }, type: "session.waiting" })}\n`,
+              { headers: { "content-type": "application/x-ndjson; charset=utf-8" } },
+            );
+      }),
+    );
+    const runMatrix = vi.fn(
+      async (
+        config: BenchmarkMatrixConfig,
+        overrides: Parameters<typeof runBenchmarkMatrix>[1],
+      ) => {
+        callOrder.push("matrix");
+        await overrides?.runSample?.({
+          nonce: "nonce-test",
+          runtimeKind: "inline",
+          sampleId: "sample-test",
+          targetKind: "vercel",
+          targetUrl: config.runtimeUrls.inline,
+        });
+        return summary(config);
+      },
+    );
 
     await runSandboxBenchmarkCommand(sandboxConfig(), {
       createRunId: () => "run-sandbox",
@@ -154,8 +186,21 @@ describe("runSandboxBenchmarkCommand", () => {
     ]);
     expect(runMatrix).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-sandbox", targetKind: "vercel" }),
-      expect.objectContaining({ collectServerTelemetry: expect.any(Function) }),
+      expect.objectContaining({
+        collectServerTelemetry: expect.any(Function),
+        runSample: expect.any(Function),
+      }),
     );
+    expect(JSON.stringify(records)).not.toContain("oidc-test-token");
+    expect(JSON.stringify(runMatrix.mock.calls[0]?.[0])).not.toContain("oidc-test-token");
+    expect(requestHeaders.map((headers) => headers.get("authorization"))).toEqual([
+      "Bearer oidc-test-token",
+      "Bearer oidc-test-token",
+    ]);
+    expect(requestHeaders.map((headers) => headers.get("x-vercel-trusted-oidc-idp-token"))).toEqual(
+      ["oidc-test-token", "oidc-test-token"],
+    );
+    expect(requestRedirects).toEqual(["error", "error"]);
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
@@ -225,6 +270,11 @@ function sandboxConfig() {
     modelKind: "live" as const,
     mode: "sandbox" as const,
     seed: 7,
+    vercelOidc: {
+      environment: "development",
+      projectId: "prj_benchmark",
+      token: "oidc-test-token",
+    },
     warmupBlocks: 1,
   };
 }
