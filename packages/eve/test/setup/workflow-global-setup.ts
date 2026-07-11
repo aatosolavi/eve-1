@@ -54,6 +54,9 @@ export default async function setupWorkflowTests(): Promise<void> {
 async function discoverWorkflowEntries(): Promise<WorkflowBundleDiscoveredEntries> {
   const inputFiles = [
     ...(await collectWorkflowInputFiles(resolvePackageSourceDirectoryPath("src/execution"))),
+    ...(await collectWorkflowInputFiles(
+      resolvePackageSourceDirectoryPath("src/internal/loop-benchmark/workflow"),
+    )),
     ...(await collectWorkflowInputFiles(resolvePackageSourceDirectoryPath("src/internal/testing"))),
     resolvePackageSourceFilePath("test/setup/compiled-artifacts-bootstrap.mjs"),
   ];

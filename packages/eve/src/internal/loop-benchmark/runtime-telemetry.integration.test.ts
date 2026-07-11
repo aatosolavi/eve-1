@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { recordWorkflowBenchmarkParkAcceptedStep } from "#execution/workflow-steps.js";
 import {
   JsonlRawRecordWriter,
   readLoopBenchmarkJsonlRecords,
@@ -13,6 +12,7 @@ import {
   createLoopBenchmarkRecorder,
   recordLoopBenchmarkInterval,
 } from "#internal/loop-benchmark/runtime-telemetry.js";
+import { recordWorkflowBenchmarkParkAcceptedStep } from "#internal/loop-benchmark/workflow/steps.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -73,7 +73,11 @@ describe("createLoopBenchmarkRecorder", () => {
     const path = join(directory, "records.jsonl");
     vi.stubEnv("EVE_LOOP_BENCHMARK_RECORD_PATH", path);
 
-    await recordWorkflowBenchmarkParkAcceptedStep({ sampleId: "sample-workflow" });
+    await recordWorkflowBenchmarkParkAcceptedStep({
+      sampleId: "sample-workflow",
+      sessionId: "session-workflow",
+      turnOrdinal: 0,
+    });
     await new JsonlRawRecordWriter(path).flush();
 
     const records = await readLoopBenchmarkJsonlRecords(path);

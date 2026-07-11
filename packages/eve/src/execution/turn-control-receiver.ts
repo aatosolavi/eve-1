@@ -3,9 +3,9 @@ import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 import type { DeliverHookPayload } from "#channel/types.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { forwardTurnDeliveryStep } from "#execution/forward-turn-delivery-step.js";
-import { closeHookIterator, disposeHook } from "#execution/hook-ownership.js";
+import { closeHookIterator, disposeHook } from "#internal/workflow/hook-ownership.js";
 import type { NextDriverAction } from "#execution/next-driver-action.js";
-import type { SessionDeliveryHook } from "#execution/session-delivery-hook.js";
+import type { SessionDeliveryHook } from "#internal/workflow/session-delivery-hook.js";
 import { rebuildSerializableError } from "#execution/workflow-errors.js";
 
 type DeliveryRequest = Extract<TurnControlPayload, { readonly kind: "turn-delivery-request" }>;

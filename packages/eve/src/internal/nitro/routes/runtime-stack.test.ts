@@ -7,6 +7,7 @@ import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-a
 const mocks = vi.hoisted(() => ({
   createInlineBenchmarkRuntime: vi.fn(),
   createLocalTemporalBenchmarkRuntime: vi.fn(),
+  createWorkflowBenchmarkRuntime: vi.fn(),
   createWorkflowRuntime: vi.fn(),
   getCompiledRuntimeAgentBundle: vi.fn(),
   resolveNitroCompiledArtifactsSource: vi.fn(),
@@ -24,6 +25,10 @@ vi.mock("#internal/loop-benchmark/temporal/runtime.js", () => ({
   createLocalTemporalBenchmarkRuntime: mocks.createLocalTemporalBenchmarkRuntime,
 }));
 
+vi.mock("#internal/loop-benchmark/workflow/runtime.js", () => ({
+  createWorkflowBenchmarkRuntime: mocks.createWorkflowBenchmarkRuntime,
+}));
+
 vi.mock("#internal/nitro/routes/runtime-artifacts.js", () => ({
   resolveNitroCompiledArtifactsSource: mocks.resolveNitroCompiledArtifactsSource,
 }));
@@ -34,7 +39,8 @@ vi.mock("#runtime/sessions/compiled-agent-cache.js", () => ({
 
 const SOURCE = createBundledRuntimeCompiledArtifactsSource();
 const CHANNELS: readonly [] = [];
-const WORKFLOW_RUNTIME = createRuntimeStub();
+const PRODUCTION_WORKFLOW_RUNTIME = createRuntimeStub();
+const WORKFLOW_BENCHMARK_RUNTIME = createRuntimeStub();
 const INLINE_RUNTIME = createRuntimeStub();
 const TEMPORAL_RUNTIME = createRuntimeStub();
 
@@ -44,24 +50,39 @@ afterEach(() => {
 });
 
 describe("resolveNitroChannelRuntimeBundle", () => {
-  it.each([undefined, "workflow"])(
-    "keeps Workflow as the default for selection %s",
-    async (selection) => {
-      prepare();
-      if (selection !== undefined) vi.stubEnv("EVE_LOOP_BENCHMARK_RUNTIME", selection);
+  it("keeps the production Workflow runtime as the default", async () => {
+    prepare();
 
-      await expect(resolveNitroChannelRuntimeBundle({})).resolves.toEqual({
-        channels: CHANNELS,
-        runtime: WORKFLOW_RUNTIME,
-      });
+    await expect(resolveNitroChannelRuntimeBundle({})).resolves.toEqual({
+      channels: CHANNELS,
+      runtime: PRODUCTION_WORKFLOW_RUNTIME,
+    });
 
-      expect(mocks.createWorkflowRuntime).toHaveBeenCalledWith({
-        compiledArtifactsSource: SOURCE,
-      });
-      expect(mocks.createInlineBenchmarkRuntime).not.toHaveBeenCalled();
-      expect(mocks.createLocalTemporalBenchmarkRuntime).not.toHaveBeenCalled();
-    },
-  );
+    expect(mocks.createWorkflowRuntime).toHaveBeenCalledWith({
+      compiledArtifactsSource: SOURCE,
+    });
+    expect(mocks.createWorkflowBenchmarkRuntime).not.toHaveBeenCalled();
+    expect(mocks.createInlineBenchmarkRuntime).not.toHaveBeenCalled();
+    expect(mocks.createLocalTemporalBenchmarkRuntime).not.toHaveBeenCalled();
+  });
+
+  it("selects the Workflow benchmark runtime in a Vercel Function", async () => {
+    prepare();
+    vi.stubEnv("EVE_LOOP_BENCHMARK_RUNTIME", "workflow");
+    vi.stubEnv("VERCEL_ENV", "preview");
+
+    await expect(resolveNitroChannelRuntimeBundle({})).resolves.toEqual({
+      channels: CHANNELS,
+      runtime: WORKFLOW_BENCHMARK_RUNTIME,
+    });
+
+    expect(mocks.createWorkflowBenchmarkRuntime).toHaveBeenCalledWith({
+      compiledArtifactsSource: SOURCE,
+    });
+    expect(mocks.createWorkflowRuntime).not.toHaveBeenCalled();
+    expect(mocks.createInlineBenchmarkRuntime).not.toHaveBeenCalled();
+    expect(mocks.createLocalTemporalBenchmarkRuntime).not.toHaveBeenCalled();
+  });
 
   it("selects the inline benchmark runtime", async () => {
     prepare();
@@ -137,7 +158,8 @@ function prepare(): void {
   mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({
     graph: { root: { channels: CHANNELS } },
   });
-  mocks.createWorkflowRuntime.mockReturnValue(WORKFLOW_RUNTIME);
+  mocks.createWorkflowRuntime.mockReturnValue(PRODUCTION_WORKFLOW_RUNTIME);
+  mocks.createWorkflowBenchmarkRuntime.mockReturnValue(WORKFLOW_BENCHMARK_RUNTIME);
   mocks.createInlineBenchmarkRuntime.mockReturnValue(INLINE_RUNTIME);
   mocks.createLocalTemporalBenchmarkRuntime.mockResolvedValue(TEMPORAL_RUNTIME);
 }

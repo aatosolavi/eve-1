@@ -40,7 +40,6 @@ export interface NitroChannelRuntimeBundle {
  * existing per-request Workflow runtime.
  *
  * The local Temporal benchmark owns one process-wide server and Worker.
- * Inline and Workflow state follow their existing runtime implementations.
  */
 export async function resolveNitroChannelRuntimeBundle(
   config: NitroArtifactsConfig,
@@ -60,8 +59,14 @@ async function resolveSelectedRuntime(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<Runtime> {
   const selected = readLoopBenchmarkRuntime();
-  if (selected === undefined || selected === "workflow") {
+  if (selected === undefined) {
     return createWorkflowRuntime({ compiledArtifactsSource });
+  }
+
+  if (selected === "workflow") {
+    const { createWorkflowBenchmarkRuntime } =
+      await import("#internal/loop-benchmark/workflow/runtime.js");
+    return createWorkflowBenchmarkRuntime({ compiledArtifactsSource });
   }
 
   if (selected === "inline") {

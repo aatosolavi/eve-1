@@ -4,16 +4,12 @@ import { resumeHook } from "#internal/workflow/runtime.js";
 
 import type { HookPayload } from "#channel/types.js";
 import { ChannelRequestIdKey, SubagentDepthKey, SubagentMaxDepthKey } from "#context/keys.js";
-import { LoopBenchmarkRecordingKey } from "#internal/loop-benchmark/config.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { workflowEntry } from "#execution/workflow-entry.js";
 import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
-import {
-  dispatchTurnStep,
-  recordWorkflowBenchmarkParkAcceptedStep,
-} from "#execution/workflow-steps.js";
+import { dispatchTurnStep } from "#execution/workflow-steps.js";
 
 vi.mock("#compiled/@workflow/core/index.js", () => ({
   createHook: vi.fn(),
@@ -51,7 +47,6 @@ vi.mock("./route-child-delivery.js", () => ({
 vi.mock("./workflow-steps.js", () => ({
   dispatchTurnStep: vi.fn().mockImplementation(async () => ({ runId: "turn-run" })),
   emitTerminalSessionFailureStep: vi.fn().mockResolvedValue(undefined),
-  recordWorkflowBenchmarkParkAcceptedStep: vi.fn().mockResolvedValue(undefined),
 }));
 
 function createSessionStateForMock(
@@ -493,45 +488,6 @@ describe("workflowEntry", () => {
     expect(initialDispose).toHaveBeenCalledTimes(1);
     expect(rekeyedReturn).not.toHaveBeenCalled();
     expect(rekeyedDispose).toHaveBeenCalledTimes(1);
-  });
-
-  it("records benchmark park acceptance only after the driver rekeys", async () => {
-    const baseSessionState = createBaseSessionState({ continuationToken: "http:initial" });
-    const rekeyedSessionState = {
-      ...baseSessionState,
-      continuationToken: "http:accepted",
-    };
-    const benchmarkContext = createSerializedContext({
-      [ChannelRequestIdKey.name]: "sample-workflow",
-      [LoopBenchmarkRecordingKey.name]: true,
-      "eve.continuationToken": "http:initial",
-    });
-    vi.mocked(createSessionStep).mockResolvedValue(
-      createSessionStepResultForMock(baseSessionState),
-    );
-    installHookMocks({
-      deliveryHooks: [
-        { token: "http:initial", values: [] },
-        { token: "http:accepted", values: [] },
-      ],
-      turnControls: [
-        turnResult({
-          action: "park",
-          serializedContext: benchmarkContext,
-          sessionState: rekeyedSessionState,
-        }),
-      ],
-    });
-
-    await workflowEntry({ input: { message: "hello" }, serializedContext: benchmarkContext });
-
-    expect(createSessionStep).toHaveBeenCalledWith(
-      expect.objectContaining({ benchmarkSampleId: "sample-workflow" }),
-    );
-    expect(recordWorkflowBenchmarkParkAcceptedStep).toHaveBeenCalledWith({
-      sampleId: "sample-workflow",
-    });
-    expect(nonTurnHookTokens()).toEqual(["http:initial", "http:accepted"]);
   });
 
   it("defers the first delivery hook until an empty continuation token is anchored", async () => {

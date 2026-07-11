@@ -27,6 +27,14 @@ class InspectableWorkflowBundleBuilder extends WorkflowBundleBuilder {
   get snapshot() {
     return this.config;
   }
+
+  async inspectDiscovery() {
+    const inputFiles = await this.getInputFiles();
+    return {
+      discoveredEntries: await this.discoverEntries(inputFiles, this.outDir),
+      inputFiles,
+    };
+  }
 }
 
 class StepEntryOnlyWorkflowBundleBuilder extends WorkflowBundleBuilder {
@@ -103,7 +111,32 @@ describe("WorkflowBundleBuilder", () => {
 
     expect(builder.snapshot.projectRoot).toBe(appRoot);
     expect(builder.snapshot.workingDir).toBe(rootDir);
-    expect(builder.snapshot.dirs).toEqual([resolvePackageSourceDirectoryPath("src/execution")]);
+    expect(builder.snapshot.dirs).toEqual([
+      resolvePackageSourceDirectoryPath("src/execution"),
+      resolvePackageSourceDirectoryPath("src/internal/loop-benchmark/workflow"),
+    ]);
+  });
+
+  it("discovers the benchmark Workflow adapter from its dedicated directory", async () => {
+    const rootDir = resolvePackageRoot();
+    const builder = new InspectableWorkflowBundleBuilder({
+      agentName: "test-agent",
+      appRoot: "/tmp/eve-app",
+      compiledArtifactsBootstrapPath: "/tmp/compiled-artifacts-bootstrap.js",
+      outDir: "/tmp/eve-workflows",
+      rootDir,
+      watch: false,
+    });
+    const workflowFile = resolvePackageSourceFilePath(
+      "src/internal/loop-benchmark/workflow/workflows.ts",
+    );
+    const stepsFile = resolvePackageSourceFilePath("src/internal/loop-benchmark/workflow/steps.ts");
+
+    const { discoveredEntries, inputFiles } = await builder.inspectDiscovery();
+
+    expect(inputFiles).toEqual(expect.arrayContaining([workflowFile, stepsFile]));
+    expect(discoveredEntries.discoveredWorkflows).toContain(workflowFile);
+    expect(discoveredEntries.discoveredSteps).toContain(stepsFile);
   });
 
   it("writes a Nitro-owned step registration entry", async () => {

@@ -63,7 +63,10 @@ export class WorkflowBundleBuilder {
   readonly #discoveredEntries = new WeakMap<readonly string[], WorkflowBundleDiscoveredEntries>();
 
   constructor(options: WorkflowBundleBuilderOptions) {
-    const dirs = [resolvePackageSourceDirectoryPath("src/execution")];
+    const dirs = [
+      resolvePackageSourceDirectoryPath("src/execution"),
+      resolvePackageSourceDirectoryPath("src/internal/loop-benchmark/workflow"),
+    ];
     if (options.includeTestFixtures === true) {
       dirs.push(resolvePackageSourceDirectoryPath("src/internal/testing"));
     }

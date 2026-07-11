@@ -14,7 +14,7 @@ import {
   closeHookIterator,
   disposeHook,
   isHookConflictError,
-} from "#execution/hook-ownership.js";
+} from "#internal/workflow/hook-ownership.js";
 import type { NextDriverAction } from "#execution/next-driver-action.js";
 import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
 import { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";

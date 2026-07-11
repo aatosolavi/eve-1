@@ -1,5 +1,4 @@
 import { buildAdapterContext } from "#channel/adapter-context.js";
-import { getStepMetadata } from "#compiled/@workflow/core/index.js";
 import { callAdapterEventHandler } from "#channel/adapter.js";
 import type {
   DeliverPayload,
@@ -38,16 +37,7 @@ import {
   reconcileSessionContinuationToken,
   type DurableStepResult,
 } from "#execution/turn-step-operation.js";
-import {
-  buildTurnAttributes,
-  readChannelRequestId,
-  readRootSessionId,
-} from "#execution/eve-workflow-attributes.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
+import { buildTurnAttributes, readRootSessionId } from "#execution/eve-workflow-attributes.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { startWorkflowPreferLatest, turnWorkflowReference } from "#execution/workflow-runtime.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
@@ -63,93 +53,36 @@ export {
 export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResult> {
   "use step";
 
-  const sampleId = readChannelRequestId(rawInput.serializedContext);
-  const attempt = readWorkflowStepAttempt(
-    `${rawInput.sessionState.sessionId}:workflow-turn-step:${String(rawInput.sessionState.emissionState.sequence)}:${String(rawInput.sessionState.emissionState.stepIndex)}`,
-  );
-  const telemetry = createLoopBenchmarkRecorder({
-    actor: "worker",
-    attempt,
-    hostRole: "worker",
-    runtime: "workflow",
-    sampleId,
-  });
   const durableSession = await readDurableSession(rawInput.sessionState);
   const callbackBaseUrl = await resolveTurnStepCallbackBaseUrl();
   let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
 
-  try {
-    const operation = async () =>
-      await executeTurnStepOperation({
-        callbackBaseUrl,
-        createEventSink() {
-          const openedWriter = rawInput.parentWritable.getWriter();
-          writer = openedWriter;
-          return {
-            async write(publication) {
-              if (telemetry === undefined) {
-                await openedWriter.write(publication.encoded);
-                return;
-              }
-              await recordLoopBenchmarkInterval(telemetry, "event.publish", async () => {
-                await openedWriter.write(publication.encoded);
-              });
-            },
-          };
+  const result = await executeTurnStepOperation({
+    callbackBaseUrl,
+    createEventSink() {
+      const openedWriter = rawInput.parentWritable.getWriter();
+      writer = openedWriter;
+      return {
+        async write(publication) {
+          await openedWriter.write(publication.encoded);
         },
-        durableSession,
-        input: rawInput.input,
-        serializedContext: rawInput.serializedContext,
-        sessionState: rawInput.sessionState,
-      });
-
-    const result =
-      telemetry === undefined
-        ? await operation()
-        : await recordLoopBenchmarkInterval(telemetry, "turn.step.operation", operation);
-
-    if (writer !== undefined) {
-      if (result.action === "done") {
-        await writer.close();
-      } else {
-        writer.releaseLock();
-      }
-    }
-
-    scheduleLoopBenchmarkRecorderFlush(telemetry);
-    return result;
-  } catch (error) {
-    scheduleLoopBenchmarkRecorderFlush(telemetry);
-    throw error;
-  }
-}
-
-/** Records that the Workflow driver has accepted and rekeyed one parked turn. */
-export async function recordWorkflowBenchmarkParkAcceptedStep(input: {
-  readonly sampleId: string;
-}): Promise<void> {
-  "use step";
-
-  const attempt = readWorkflowStepAttempt(`${input.sampleId}:workflow-park-accepted`);
-  const telemetry = createLoopBenchmarkRecorder({
-    actor: "session",
-    attempt,
-    hostRole: "worker",
-    runtime: "workflow",
-    sampleId: input.sampleId,
+      };
+    },
+    durableSession,
+    input: rawInput.input,
+    serializedContext: rawInput.serializedContext,
+    sessionState: rawInput.sessionState,
   });
-  telemetry?.mark("session.rekey.accepted");
-  telemetry?.mark("runtime.park.accepted");
-  scheduleLoopBenchmarkRecorderFlush(telemetry);
-}
 
-function readWorkflowStepAttempt(fallback: string): string {
-  try {
-    const metadata = getStepMetadata();
-    return `${fallback}:${metadata.stepId}:attempt:${String(metadata.attempt)}`;
-  } catch {
-    return fallback;
+  if (writer !== undefined) {
+    if (result.action === "done") {
+      await writer.close();
+    } else {
+      writer.releaseLock();
+    }
   }
+
+  return result;
 }
 
 async function resolveTurnStepCallbackBaseUrl(): Promise<string | undefined> {

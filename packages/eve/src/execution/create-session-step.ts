@@ -3,16 +3,6 @@ import {
   type CreateSessionOperationInput,
   type CreateSessionOperationResult,
 } from "#execution/session-operation.js";
-import { getStepMetadata } from "#compiled/@workflow/core/index.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
-
-export interface CreateSessionStepInput extends CreateSessionOperationInput {
-  readonly benchmarkSampleId?: string;
-}
 
 /**
  * Result returned by {@link createSessionStep}.
@@ -31,42 +21,9 @@ export interface CreateSessionStepResult {
  * the root agent.
  */
 export async function createSessionStep(
-  input: CreateSessionStepInput,
+  input: CreateSessionOperationInput,
 ): Promise<CreateSessionStepResult> {
   "use step";
 
-  const { benchmarkSampleId, ...operationInput } = input;
-  const attempt = readWorkflowStepAttempt(`${input.sessionId}:workflow-create-session`);
-  const telemetry = createLoopBenchmarkRecorder({
-    actor: "worker",
-    attempt,
-    hostRole: "worker",
-    runtime: "workflow",
-    sampleId: benchmarkSampleId,
-  });
-
-  try {
-    const result =
-      telemetry === undefined
-        ? await createSessionOperation(operationInput)
-        : await recordLoopBenchmarkInterval(
-            telemetry,
-            "session.create.operation",
-            async () => await createSessionOperation(operationInput),
-          );
-    scheduleLoopBenchmarkRecorderFlush(telemetry);
-    return result;
-  } catch (error) {
-    scheduleLoopBenchmarkRecorderFlush(telemetry);
-    throw error;
-  }
-}
-
-function readWorkflowStepAttempt(fallback: string): string {
-  try {
-    const metadata = getStepMetadata();
-    return `${fallback}:${metadata.stepId}:attempt:${String(metadata.attempt)}`;
-  } catch {
-    return fallback;
-  }
+  return await createSessionOperation(input);
 }

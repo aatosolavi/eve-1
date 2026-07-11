@@ -22,17 +22,13 @@ import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
 import { dispatchAndAwaitTurn } from "#execution/turn-dispatch.js";
 import { normalizeSerializableError } from "#execution/workflow-errors.js";
 import { createSessionStep } from "#execution/create-session-step.js";
-import {
-  emitTerminalSessionFailureStep,
-  recordWorkflowBenchmarkParkAcceptedStep,
-} from "#execution/workflow-steps.js";
-import { LoopBenchmarkRecordingKey } from "#internal/loop-benchmark/config.js";
+import { emitTerminalSessionFailureStep } from "#execution/workflow-steps.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";
-import { closeHookIterator, disposeHook } from "#execution/hook-ownership.js";
+import { closeHookIterator, disposeHook } from "#internal/workflow/hook-ownership.js";
 import {
   createSessionDeliveryHook,
   type SessionDeliveryHook,
-} from "#execution/session-delivery-hook.js";
+} from "#internal/workflow/session-delivery-hook.js";
 import { readSerializedSubagentSessionDepth } from "#harness/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects
@@ -86,10 +82,6 @@ export async function workflowEntry(input: WorkflowEntryInput): Promise<Workflow
   input.serializedContext["eve.sessionId"] = sessionId;
 
   const driverWritable = getWritable<Uint8Array>();
-  const benchmarkSampleId =
-    input.serializedContext[LoopBenchmarkRecordingKey.name] === true
-      ? readChannelRequestId(input.serializedContext)
-      : undefined;
 
   try {
     // Derived once and reused for createSession + tag emission so the
@@ -99,7 +91,7 @@ export async function workflowEntry(input: WorkflowEntryInput): Promise<Workflow
       input.serializedContext,
     );
 
-    const createSessionInput = {
+    const { state: sessionState } = await createSessionStep({
       compiledArtifactsSource: serializedBundle.source,
       continuationToken,
       nodeId: serializedBundle.nodeId,
@@ -108,15 +100,9 @@ export async function workflowEntry(input: WorkflowEntryInput): Promise<Workflow
       sessionId,
       subagentDepth,
       subagentMaxDepth,
-    };
-    const { state: sessionState } = await createSessionStep(
-      benchmarkSampleId === undefined
-        ? createSessionInput
-        : { ...createSessionInput, benchmarkSampleId },
-    );
+    });
 
     return await runDriverLoop({
-      benchmarkSampleId,
       capabilities,
       driverWritable,
       initialInput: {
@@ -158,7 +144,6 @@ export async function workflowEntry(input: WorkflowEntryInput): Promise<Workflow
 }
 
 async function runDriverLoop(input: {
-  readonly benchmarkSampleId?: string;
   readonly capabilities?: SessionCapabilities;
   readonly driverWritable: WritableStream<Uint8Array>;
   readonly initialInput: HookPayload;
@@ -227,9 +212,6 @@ async function runDriverLoop(input: {
       // Rekey to the parked turn's continuation token before awaiting the next
       // delivery — covers both the first turn's anchor and any later rekey.
       await deliveryHook.rekey(action.sessionState.continuationToken);
-      if (input.benchmarkSampleId !== undefined) {
-        await recordWorkflowBenchmarkParkAcceptedStep({ sampleId: input.benchmarkSampleId });
-      }
 
       if (action.authorizationNames && action.authorizationNames.length > 0) {
         const expected = action.authorizationNames.length;

@@ -1,4 +1,3 @@
-import { ContextKey } from "#context/key.js";
 import {
   createSampleId,
   type BenchmarkTarget,
@@ -10,7 +9,6 @@ export const LOOP_BENCHMARK_RUNTIME_ENV = "EVE_LOOP_BENCHMARK_RUNTIME";
 export const LOOP_BENCHMARK_RECORD_PATH_ENV = "EVE_LOOP_BENCHMARK_RECORD_PATH";
 export const LOOP_BENCHMARK_SAMPLE_ID_HEADER = "x-eve-benchmark-sample-id";
 export const LOOP_BENCHMARK_TARGET_ENV = "EVE_LOOP_BENCHMARK_TARGET";
-export const LoopBenchmarkRecordingKey = new ContextKey<boolean>("eve.loopBenchmarkRecording");
 
 /** Reads the optional append-only raw-record destination. */
 export function readLoopBenchmarkRecordPath(

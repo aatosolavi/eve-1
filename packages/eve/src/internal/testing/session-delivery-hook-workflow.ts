@@ -2,7 +2,7 @@ import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
 import {
   createSessionDeliveryHook,
   type SessionDeliveryHook,
-} from "#execution/session-delivery-hook.js";
+} from "#internal/workflow/session-delivery-hook.js";
 
 export async function sessionDeliveryHookWorkflow(input: {
   readonly nextToken: string;

@@ -33,12 +33,6 @@ import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-
 import { buildRunContext } from "#execution/runtime-context.js";
 import { parseNdjsonStream } from "#execution/ndjson-stream.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import { LoopBenchmarkRecordingKey } from "#internal/loop-benchmark/config.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
 
 const WORKFLOW_ENTRY_NAME = "workflowEntry";
 const TURN_WORKFLOW_NAME = "turnWorkflow";
@@ -101,19 +95,11 @@ export function createWorkflowRuntime(config: {
 }): Runtime {
   return {
     async run(input: RunInput): Promise<RunHandle> {
-      const telemetry = createLoopBenchmarkRecorder({
-        actor: "controller",
-        attempt: `${input.requestId ?? "untracked"}:workflow-dispatch`,
-        hostRole: "controller",
-        runtime: "workflow",
-        sampleId: input.requestId,
-      });
       const bundle = await getCompiledRuntimeAgentBundle({
         compiledArtifactsSource: config.compiledArtifactsSource,
         nodeId: config.nodeId,
       });
       const ctx = buildRunContext({ bundle, run: input });
-      if (telemetry !== undefined) ctx.set(LoopBenchmarkRecordingKey, true);
       const serializedContext = serializeContext(ctx);
       const parentLineage = readParentLineage(serializedContext);
       const attributes =
@@ -133,28 +119,20 @@ export function createWorkflowRuntime(config: {
 
       let run: Awaited<ReturnType<typeof startWorkflowPreferLatest>>;
       try {
-        const dispatch = async () =>
-          await startWorkflowPreferLatest(
-            workflowEntryReference,
-            [
-              {
-                input: input.input,
-                serializedContext,
-              },
-            ],
+        run = await startWorkflowPreferLatest(
+          workflowEntryReference,
+          [
             {
-              allowReservedAttributes: true,
-              attributes: normalizeEveAttributes(attributes),
+              input: input.input,
+              serializedContext,
             },
-          );
-        run =
-          telemetry === undefined
-            ? await dispatch()
-            : await recordLoopBenchmarkInterval(telemetry, "engine.dispatch", dispatch);
-        telemetry?.engine({ kind: "workflow.run", workflowRunId: run.runId });
-        scheduleLoopBenchmarkRecorderFlush(telemetry);
+          ],
+          {
+            allowReservedAttributes: true,
+            attributes: normalizeEveAttributes(attributes),
+          },
+        );
       } catch (error) {
-        scheduleLoopBenchmarkRecorderFlush(telemetry);
         logError(log, "failed to start workflow run", error, {
           continuationToken: input.continuationToken,
         });

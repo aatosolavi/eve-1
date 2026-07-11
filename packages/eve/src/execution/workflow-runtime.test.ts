@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
 import { ChannelRequestIdKey } from "#context/keys.js";
-import { LoopBenchmarkRecordingKey } from "#internal/loop-benchmark/config.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import {
   createWorkflowRuntime,
@@ -17,13 +16,6 @@ import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-
 const getRunMock = vi.fn();
 const resumeHookMock = vi.fn();
 const startMock = vi.fn();
-const telemetryMocks = vi.hoisted(() => ({
-  createLoopBenchmarkRecorder: vi.fn(),
-  recordLoopBenchmarkInterval: vi.fn(
-    async (_recorder: unknown, _name: string, run: () => Promise<unknown>) => await run(),
-  ),
-  scheduleLoopBenchmarkRecorderFlush: vi.fn(),
-}));
 
 vi.mock("#compiled/@workflow/core/runtime.js", () => ({
   getRun: (...args: unknown[]) => getRunMock(...args),
@@ -35,16 +27,11 @@ vi.mock("#runtime/sessions/compiled-agent-cache.js", () => ({
   getCompiledRuntimeAgentBundle: vi.fn(),
 }));
 
-vi.mock("#internal/loop-benchmark/runtime-telemetry.js", () => telemetryMocks);
-
 afterEach(() => {
   getRunMock.mockReset();
   resumeHookMock.mockReset();
   startMock.mockReset();
   vi.mocked(getCompiledRuntimeAgentBundle).mockReset();
-  telemetryMocks.createLoopBenchmarkRecorder.mockReset();
-  telemetryMocks.recordLoopBenchmarkInterval.mockClear();
-  telemetryMocks.scheduleLoopBenchmarkRecorderFlush.mockReset();
   vi.unstubAllEnvs();
 });
 
@@ -164,35 +151,6 @@ describe("createWorkflowRuntime#run", () => {
         }),
     });
   }
-
-  it("records Workflow dispatch and carries benchmark recording into the durable context", async () => {
-    const recorder = { engine: vi.fn() };
-    telemetryMocks.createLoopBenchmarkRecorder.mockReturnValue(recorder);
-    const compiledArtifactsSource = {} as RuntimeCompiledArtifactsSource;
-    mockBundleAndRun(compiledArtifactsSource);
-    startMock.mockResolvedValue({ runId: "driver-run" });
-
-    await buildRuntime(compiledArtifactsSource).run({
-      adapter,
-      auth: null,
-      input: { message: "hello" },
-      mode: "conversation",
-      requestId: "sample-workflow",
-    });
-
-    expect(telemetryMocks.recordLoopBenchmarkInterval).toHaveBeenCalledWith(
-      recorder,
-      "engine.dispatch",
-      expect.any(Function),
-    );
-    expect(recorder.engine).toHaveBeenCalledWith({
-      kind: "workflow.run",
-      workflowRunId: "driver-run",
-    });
-    expect(startMock.mock.calls[0]?.[1]?.[0]?.serializedContext).toMatchObject({
-      [LoopBenchmarkRecordingKey.name]: true,
-    });
-  });
 
   it("starts workflowEntry on the latest deployment in Vercel production", async () => {
     vi.stubEnv("VERCEL_ENV", "production");

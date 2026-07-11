@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
-import { createSessionDeliveryHook } from "#execution/session-delivery-hook.js";
+import { createSessionDeliveryHook } from "#internal/workflow/session-delivery-hook.js";
 
 const createHookMock = vi.fn();
 

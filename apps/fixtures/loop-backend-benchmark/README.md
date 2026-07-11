@@ -5,6 +5,10 @@ DevKit, and Temporal loop runtimes. Each sample sends one nonce. The agent must
 make exactly one `benchmark_echo` tool call with that nonce, then return only
 the tool's deterministic verification string.
 
+The explicit `workflow` selection uses a benchmark-owned Workflow DevKit
+session and per-turn child implementation. With no benchmark selection, eve
+continues to use its production Workflow runtime.
+
 The default `deterministic` model kind uses a source-backed local model. It
 makes the required tool call directly from the nonce and returns the exact tool
 output on the second model step. This removes provider and provider-network
