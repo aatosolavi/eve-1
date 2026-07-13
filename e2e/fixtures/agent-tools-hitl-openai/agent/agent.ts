@@ -7,5 +7,5 @@ import { defineAgent } from "eve";
  * validated by OpenAI's `function_call` / `function_call_output` pairing.
  */
 export default defineAgent({
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.6-sol",
 });

@@ -1,6 +1,6 @@
 import { defineAgent } from "eve";
 
 export default defineAgent({
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.6-sol",
   reasoning: "high",
 });

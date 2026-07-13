@@ -1,8 +1,8 @@
 import { defineEval } from "eve/evals";
 
 /**
- * A marked turn selects `openai/gpt-5.5-mini`; the next unmarked turn falls
- * back. Both completing proves each reference serves a real model call.
+ * A marked turn resolves an explicit per-turn model configuration; the next
+ * unmarked turn falls back. Both paths use `openai/gpt-5.6-sol`.
  */
 export default defineEval({
   description: "Dynamic model smoke: per-turn selection and null fallback in one session.",

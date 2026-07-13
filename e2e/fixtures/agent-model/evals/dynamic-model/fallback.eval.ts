@@ -16,7 +16,7 @@ export default defineEval({
       events.some(
         (event) =>
           event.type === "session.started" &&
-          event.data.runtime?.modelId === "dynamic:openai/gpt-5.5",
+          event.data.runtime?.modelId === "dynamic:openai/gpt-5.6-sol",
       ),
     );
   },

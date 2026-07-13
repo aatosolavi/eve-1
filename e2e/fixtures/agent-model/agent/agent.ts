@@ -7,7 +7,7 @@ import { defineAgent, defineDynamic, type DynamicResolveContext } from "eve";
  */
 export default defineAgent({
   model: defineDynamic({
-    fallback: "openai/gpt-5.5",
+    fallback: "openai/gpt-5.6-sol",
     events: {
       "turn.started": (_event, ctx) => {
         const text = lastUserText(ctx.messages);
@@ -18,7 +18,7 @@ export default defineAgent({
 
         if (text.includes("[model: mini]")) {
           return {
-            model: "openai/gpt-5.5-mini",
+            model: "openai/gpt-5.6-sol",
             modelContextWindowTokens: 128_000,
           };
         }
