@@ -3,6 +3,7 @@ import type { ModelMessage, TextPart, UserContent } from "ai";
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
 import type { InputResponse } from "#runtime/input/types.js";
 import type { StepInput } from "#harness/types.js";
+import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
 /**
  * Merges two {@link StepInput} values into one.
@@ -180,13 +181,14 @@ function toUserContentArray(value: string | UserContent): UserContentArray {
  */
 interface DeliverLike {
   readonly auth?: SessionAuthContext | null;
+  readonly compiledArtifactsSource?: RuntimeCompiledArtifactsSource;
   readonly kind: "deliver";
   readonly payloads: readonly DeliverPayload[];
 }
 
 /**
  * Coalesces an array of deliver-like items into a single item by
- * collecting all payloads and keeping the most recent auth value.
+ * collecting all payloads and keeping the most recent request metadata.
  *
  * Used by the workflow runtime to batch follow-up deliveries that
  * arrived while a turn or subagent delegation was in progress. Each
@@ -201,14 +203,18 @@ export function coalesceDeliveries<T extends DeliverLike>(items: readonly T[]): 
   }
 
   let auth = first.auth;
+  let compiledArtifactsSource = first.compiledArtifactsSource;
   const payloads = [...first.payloads];
 
   for (const item of rest) {
     if (item.auth !== undefined) {
       auth = item.auth;
     }
+    if (item.compiledArtifactsSource !== undefined) {
+      compiledArtifactsSource = item.compiledArtifactsSource;
+    }
     payloads.push(...item.payloads);
   }
 
-  return { ...first, auth, payloads };
+  return { ...first, auth, compiledArtifactsSource, payloads };
 }

@@ -7,6 +7,7 @@ import type { InputRequest, InputResponse } from "#runtime/input/types.js";
 import type { ChannelAdapter } from "#channel/adapter.js";
 import type { AgentLimitsDefinition } from "#shared/agent-definition.js";
 import type { JsonObject } from "#shared/json.js";
+import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
 export type { ContextAccessor } from "#context/key.js";
 export type { ChannelInstrumentationProjection } from "#channel/instrumentation.js";
@@ -118,6 +119,8 @@ export interface DeliverPayload {
  */
 export interface DeliverHookPayload {
   readonly auth?: SessionAuthContext | null;
+  /** Current request runtime artifacts used when starting a new turn. */
+  readonly compiledArtifactsSource?: RuntimeCompiledArtifactsSource;
   /** Inbound channel request id used only for workflow attributes. */
   readonly requestId?: string;
   readonly kind: "deliver";

@@ -55,8 +55,13 @@ describe("workflowEntryReference", () => {
 describe("createWorkflowRuntime#deliver", () => {
   const NOT_FOUND_TOKEN = "test:no-such-hook";
 
+  const compiledArtifactsSource: RuntimeCompiledArtifactsSource = {
+    appRoot: "/app/.eve/dev-runtime/snapshots/current/source/app",
+    kind: "disk",
+    sandboxAppRoot: "/app",
+  };
+
   function buildRuntime() {
-    const compiledArtifactsSource = {} as RuntimeCompiledArtifactsSource;
     return createWorkflowRuntime({ compiledArtifactsSource });
   }
 
@@ -104,6 +109,7 @@ describe("createWorkflowRuntime#deliver", () => {
 
     expect(resumeHookMock).toHaveBeenCalledWith("test:token", {
       auth: null,
+      compiledArtifactsSource,
       kind: "deliver",
       payloads: [{ message: "hello" }],
       requestId: "req_deliver",
@@ -125,6 +131,7 @@ describe("createWorkflowRuntime#deliver", () => {
     expect(resumeHookMock).toHaveBeenCalledOnce();
     expect(resumeHookMock).toHaveBeenCalledWith("test:active-hook", {
       auth: null,
+      compiledArtifactsSource,
       kind: "deliver",
       payloads: [{ message: "hello" }],
     });

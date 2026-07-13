@@ -26,6 +26,7 @@ import type { TokenUsage } from "#shared/token-usage.js";
 import type { JsonObject } from "#shared/json.js";
 import type { RunMode } from "#shared/run-mode.js";
 import { getRuntimeActionRequestKey } from "#runtime/actions/keys.js";
+import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { createLogger, formatError } from "#internal/logging.js";
 import {
   createAuthorizationCompletedEvent,
@@ -548,6 +549,7 @@ export interface RoutedDeliverResult {
  */
 export async function routeProxiedDeliverStep(input: {
   readonly auth?: SessionAuthContext | null;
+  readonly compiledArtifactsSource?: RuntimeCompiledArtifactsSource;
   readonly parentWritable: WritableStream<Uint8Array>;
   readonly payload: DeliverPayload;
   readonly sessionState: DurableSessionState;
@@ -563,6 +565,7 @@ export async function routeProxiedDeliverStep(input: {
   for (const forChild of routed.forChildren) {
     await resumeHook(forChild.childContinuationToken, {
       auth: input.auth,
+      compiledArtifactsSource: input.compiledArtifactsSource,
       kind: "deliver",
       payloads: [forChild.payload],
     });

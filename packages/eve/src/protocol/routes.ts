@@ -77,8 +77,8 @@ export function createEveDevDispatchSchedulePath(scheduleId: string): string {
  * during in-turn interactive connection authorization.
  *
  * `:name` is the connection name; `:token` is the workflow hook token minted
- * by the workflow body so the route handler can resume the suspended turn
- * via `resumeHook(token, payload)`.
+ * by the workflow body so the route handler can deliver the callback through
+ * the current request runtime.
  *
  * The route is unauthenticated by design: an OAuth IdP follows this URL
  * via a 3xx redirect from the user's browser with no eve credentials
@@ -117,8 +117,8 @@ export function createEveContinueSessionRoutePath(sessionId: string): string {
  * The workflow body builds this path against {@link EVE_ROUTE_PREFIX} when
  * minting the redirect URL it hands to the IdP via `startAuthorization`.
  * The runtime's framework callback route handler matches the same path
- * pattern and forwards the projected request payload into
- * `resumeHook(token, payload)`.
+ * pattern and forwards the projected request payload through the current
+ * request runtime.
  */
 export function createEveConnectionCallbackRoutePath(name: string, token: string): string {
   return `${EVE_ROUTE_PREFIX}/connections/${encodeURIComponent(name)}/callback/${encodeURIComponent(token)}`;

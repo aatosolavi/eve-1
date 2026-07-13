@@ -215,12 +215,14 @@ async function runDriverLoop(input: {
       if (action.authorizationNames && action.authorizationNames.length > 0) {
         const expected = action.authorizationNames.length;
         const allPayloads: DeliverPayload[] = [];
+        let compiledArtifactsSource: RuntimeCompiledArtifactsSource | undefined;
 
         while (allPayloads.length < expected) {
           const next = await authIterator.next();
           if (next.done) break;
           if (next.value.kind === "deliver") {
             allPayloads.push(...next.value.payloads);
+            compiledArtifactsSource = next.value.compiledArtifactsSource ?? compiledArtifactsSource;
           }
         }
 
@@ -229,13 +231,17 @@ async function runDriverLoop(input: {
           capabilities: input.capabilities,
           controlToken: nextTurnControlToken(),
           delivery: {
+            compiledArtifactsSource,
             kind: "deliver",
             payloads: allPayloads,
           },
           deliveryHook,
           mode: input.mode,
           parentWritable: input.driverWritable,
-          serializedContext: action.serializedContext,
+          serializedContext: refreshRuntimeArtifactsForTurn({
+            compiledArtifactsSource,
+            serializedContext: action.serializedContext,
+          }),
           sessionState: action.sessionState,
         });
         continue;
@@ -252,6 +258,7 @@ async function runDriverLoop(input: {
 
       const remainder = await routeDeliverToChildren({
         auth: nextDeliver.auth,
+        compiledArtifactsSource: nextDeliver.compiledArtifactsSource,
         parentWritable: input.driverWritable,
         payloads: nextDeliver.payloads,
         sessionState: action.sessionState,
@@ -268,6 +275,7 @@ async function runDriverLoop(input: {
         controlToken: nextTurnControlToken(),
         delivery: {
           auth: nextDeliver.auth,
+          compiledArtifactsSource: nextDeliver.compiledArtifactsSource,
           kind: "deliver",
           payloads: [remainder],
           requestId: nextDeliver.requestId,
@@ -275,7 +283,10 @@ async function runDriverLoop(input: {
         deliveryHook,
         mode: input.mode,
         parentWritable: input.driverWritable,
-        serializedContext: action.serializedContext,
+        serializedContext: refreshRuntimeArtifactsForTurn({
+          compiledArtifactsSource: nextDeliver.compiledArtifactsSource,
+          serializedContext: action.serializedContext,
+        }),
         sessionState: action.sessionState,
       });
     }
@@ -284,6 +295,28 @@ async function runDriverLoop(input: {
     await closeHookIterator(authIterator);
     await disposeHook(authHook);
   }
+}
+
+function refreshRuntimeArtifactsForTurn(input: {
+  readonly compiledArtifactsSource?: RuntimeCompiledArtifactsSource;
+  readonly serializedContext: Record<string, unknown>;
+}): Record<string, unknown> {
+  if (input.compiledArtifactsSource === undefined) {
+    return input.serializedContext;
+  }
+
+  const serializedBundle = input.serializedContext["eve.bundle"];
+  if (typeof serializedBundle !== "object" || serializedBundle === null) {
+    throw new Error('Cannot refresh runtime artifacts without serialized "eve.bundle" context.');
+  }
+
+  return {
+    ...input.serializedContext,
+    "eve.bundle": {
+      ...serializedBundle,
+      source: input.compiledArtifactsSource,
+    },
+  };
 }
 
 async function finalizeDone(input: {

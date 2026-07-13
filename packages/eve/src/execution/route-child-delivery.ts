@@ -1,4 +1,5 @@
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
+import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { coalesceDeliverPayloads } from "#execution/deliver-payloads.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
 import { routeProxiedDeliverStep } from "#execution/workflow-steps.js";
@@ -15,6 +16,7 @@ import { routeProxiedDeliverStep } from "#execution/workflow-steps.js";
  */
 export async function routeDeliverToChildren(input: {
   readonly auth?: SessionAuthContext | null;
+  readonly compiledArtifactsSource?: RuntimeCompiledArtifactsSource;
   readonly parentWritable: WritableStream<Uint8Array>;
   readonly payloads: readonly DeliverPayload[];
   readonly sessionState: DurableSessionState;
@@ -24,6 +26,7 @@ export async function routeDeliverToChildren(input: {
 
   const routed = await routeProxiedDeliverStep({
     auth: input.auth,
+    compiledArtifactsSource: input.compiledArtifactsSource,
     parentWritable: input.parentWritable,
     payload,
     sessionState: input.sessionState,

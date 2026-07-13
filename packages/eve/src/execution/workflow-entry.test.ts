@@ -582,6 +582,94 @@ describe("workflowEntry", () => {
     expect(anchoredDispose).toHaveBeenCalledTimes(1);
   });
 
+  it("starts an ordinary follow-up turn with the request's current runtime artifacts", async () => {
+    const sessionState = createBaseSessionState();
+    const oldSource = {
+      appRoot: "/app/.eve/dev-runtime/snapshots/old/source/app",
+      kind: "disk" as const,
+      sandboxAppRoot: "/app",
+    };
+    const currentSource = {
+      appRoot: "/app/.eve/dev-runtime/snapshots/current/source/app",
+      kind: "disk" as const,
+      sandboxAppRoot: "/app",
+    };
+    const parkedContext = createSerializedContext({
+      "eve.bundle": { nodeId: "researcher", source: oldSource },
+    });
+    vi.mocked(createSessionStep).mockResolvedValue(createSessionStepResultForMock(sessionState));
+    installHookMocks({
+      deliveryHooks: [
+        {
+          token: "http:test",
+          values: [
+            {
+              compiledArtifactsSource: currentSource,
+              kind: "deliver",
+              payloads: [{ message: "follow up" }],
+            },
+          ],
+        },
+      ],
+      turnControls: [
+        turnResult({ action: "park", serializedContext: parkedContext, sessionState }),
+        turnResult({ action: "done", output: "ok", sessionState }),
+      ],
+    });
+
+    await workflowEntry({
+      input: { message: "hello" },
+      serializedContext: createSerializedContext({ "eve.bundle": { source: oldSource } }),
+    });
+
+    expect(vi.mocked(dispatchTurnStep).mock.calls[1]?.[0].serializedContext).toEqual({
+      ...parkedContext,
+      "eve.bundle": { nodeId: "researcher", source: currentSource },
+    });
+  });
+
+  it("starts an input-response continuation with the request's current runtime artifacts", async () => {
+    const sessionState = createBaseSessionState();
+    const oldSource = {
+      appRoot: "/app/.eve/dev-runtime/snapshots/old/source/app",
+      kind: "disk" as const,
+    };
+    const currentSource = {
+      appRoot: "/app/.eve/dev-runtime/snapshots/current/source/app",
+      kind: "disk" as const,
+    };
+    const parkedContext = createSerializedContext({ "eve.bundle": { source: oldSource } });
+    vi.mocked(createSessionStep).mockResolvedValue(createSessionStepResultForMock(sessionState));
+    installHookMocks({
+      deliveryHooks: [
+        {
+          token: "http:test",
+          values: [
+            {
+              compiledArtifactsSource: currentSource,
+              kind: "deliver",
+              payloads: [{ inputResponses: [{ requestId: "input-1", text: "yes" }] }],
+            },
+          ],
+        },
+      ],
+      turnControls: [
+        turnResult({ action: "park", serializedContext: parkedContext, sessionState }),
+        turnResult({ action: "done", output: "ok", sessionState }),
+      ],
+    });
+
+    await workflowEntry({
+      input: { message: "hello" },
+      serializedContext: createSerializedContext({ "eve.bundle": { source: oldSource } }),
+    });
+
+    expect(vi.mocked(dispatchTurnStep).mock.calls[1]?.[0].serializedContext).toEqual({
+      ...parkedContext,
+      "eve.bundle": { source: currentSource },
+    });
+  });
+
   it("recreates the delivery hook when a later turn re-keys the session", async () => {
     const baseSessionState = createBaseSessionState({ continuationToken: "slack:C01:" });
     const rekeyedSessionState: DurableSessionState = {

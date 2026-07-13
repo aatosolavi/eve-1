@@ -16,7 +16,7 @@ const NOW = 1_000_000;
 const OLD_SNAPSHOT_TIME = new Date(1_000);
 
 describe("development runtime workflow snapshot retention", () => {
-  it("preserves compressed root and turn workflow snapshots without retaining terminal history", async () => {
+  it("preserves compressed active turn snapshots without retaining parked roots or terminal history", async () => {
     const fixture = await createPruneFixture(["active-root", "active-turn", "completed", "stale"]);
     const runsDirectory = join(fixture.appRoot, ".workflow-data", "default", "runs");
     const eventsDirectory = join(fixture.appRoot, ".workflow-data", "default", "events");
@@ -62,9 +62,37 @@ describe("development runtime workflow snapshot retention", () => {
     await prune(fixture.appRoot);
 
     await expect(readdir(fixture.snapshotsRoot)).resolves.toEqual(
-      expect.arrayContaining(["active", "active-root", "active-turn"]),
+      expect.arrayContaining(["active", "active-turn"]),
     );
+    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "active-root"))).toBe(false);
     expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "completed"))).toBe(false);
+    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "stale"))).toBe(false);
+  });
+
+  it("does not let a broad disk app root protect the snapshots directory", async () => {
+    const fixture = await createPruneFixture(["stale"]);
+    const runsDirectory = join(fixture.appRoot, ".workflow-data", "default", "runs");
+    await mkdir(runsDirectory, { recursive: true });
+    const turnInput = await serializeWorkflowInput({
+      stepInput: {
+        serializedContext: {
+          "eve.bundle": {
+            source: {
+              appRoot: fixture.snapshotsRoot,
+              kind: "disk",
+            },
+          },
+        },
+      },
+    });
+    await writeRun(runsDirectory, "broad-root", {
+      input: encodeWorldLocalUint8Array(turnInput),
+      status: "running",
+      workflowName: "workflow//eve//turnWorkflow",
+    });
+
+    await prune(fixture.appRoot);
+
     expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "stale"))).toBe(false);
   });
 
@@ -78,22 +106,31 @@ describe("development runtime workflow snapshot retention", () => {
         },
         runId: "uncertain",
         status: "running",
-        workflowName: "workflow//eve//workflowEntry",
+        workflowName: "workflow//eve//turnWorkflow",
       }),
     },
     {
       name: "malformed run JSON",
       source: '{"workflowName":"workflow//eve//workflowEntry",',
     },
-  ])("aborts pruning for $name", async ({ source }) => {
+    {
+      name: "unknown run status",
+      source: JSON.stringify({
+        input: {},
+        status: "unknown",
+        workflowName: "workflow//eve//turnWorkflow",
+      }),
+    },
+  ])("does not let $name disable pruning", async ({ source }) => {
     const fixture = await createPruneFixture(["uncertain", "stale"]);
     const runsDirectory = join(fixture.appRoot, ".workflow-data", "default", "runs");
     await mkdir(runsDirectory, { recursive: true });
     await writeFile(join(runsDirectory, "uncertain.json"), source);
 
-    await expect(prune(fixture.appRoot)).rejects.toThrow();
-    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "uncertain"))).toBe(true);
-    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "stale"))).toBe(true);
+    await prune(fixture.appRoot);
+
+    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "uncertain"))).toBe(false);
+    expect(existsSync(requireSnapshotRoot(fixture.snapshotRoots, "stale"))).toBe(false);
   });
 });
 

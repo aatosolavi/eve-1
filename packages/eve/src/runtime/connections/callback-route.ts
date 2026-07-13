@@ -10,7 +10,8 @@
  *
  * 1. Parses the inbound request into a JSON-serializable
  *    {@link AuthorizationCallback} (params only — never request headers).
- * 2. Calls `resumeHook(token, payload)` to wake the suspended workflow.
+ * 2. Delivers the callback through the current request runtime so the resumed
+ *    turn uses the current compiled artifacts.
  * 3. Renders the standard "Authorization complete" landing page so the
  *    user sees a friendly UI instead of an empty `202 Accepted`.
  *
@@ -22,7 +23,6 @@
  * internet.
  */
 
-import { resumeHook } from "#internal/workflow/runtime.js";
 import { EVE_CONNECTION_CALLBACK_ROUTE_PATTERN } from "#protocol/routes.js";
 import type { ChannelMethod, RouteContext } from "#public/definitions/channel.js";
 import type { ResolvedChannelDefinition } from "#runtime/types.js";
@@ -112,9 +112,9 @@ export async function handleConnectionCallbackRequest(
   // this hook upfront (before any turns run) so it always exists
   // when the callback arrives.
   try {
-    await resumeHook(token, {
-      kind: "deliver" as const,
-      payloads: [{ authorizationCallback: { connectionName: name, callback } }],
+    await ctx.agent.deliver({
+      continuationToken: token,
+      payload: { authorizationCallback: { connectionName: name, callback } },
     });
   } catch {
     return Response.json({ error: "Connection callback not pending.", ok: false }, { status: 404 });

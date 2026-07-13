@@ -1,12 +1,12 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { hydrateWorkflowArguments } from "#compiled/@workflow/core/serialization.js";
 
-const EVE_WORKFLOW_NAME_PREFIX = "workflow//eve//";
-const TERMINAL_WORKFLOW_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
+const EVE_TURN_WORKFLOW_NAME = "workflow//eve//turnWorkflow";
+const ACTIVE_WORKFLOW_RUN_STATUSES = new Set(["pending", "running"]);
 
-export async function collectActiveWorkflowSnapshotRoots(input: {
+export async function collectActiveTurnWorkflowSnapshotRoots(input: {
   readonly appRoot: string;
 }): Promise<readonly string[]> {
   const workflowDataDirectory = join(input.appRoot, ".workflow-data");
@@ -24,9 +24,10 @@ export async function collectActiveWorkflowSnapshotRoots(input: {
           runEntries
             .filter((runEntry) => runEntry.isFile())
             .map(async (runEntry) => {
-              const snapshotRoot = await readActiveWorkflowSnapshotRoot(
-                join(runsDirectory, runEntry.name),
-              );
+              const snapshotRoot = await readActiveTurnWorkflowSnapshotRoot({
+                path: join(runsDirectory, runEntry.name),
+                snapshotsDirectory: join(input.appRoot, ".eve", "dev-runtime", "snapshots"),
+              });
               if (snapshotRoot !== undefined) {
                 snapshotRoots.add(snapshotRoot);
               }
@@ -38,35 +39,39 @@ export async function collectActiveWorkflowSnapshotRoots(input: {
   return [...snapshotRoots];
 }
 
-async function readActiveWorkflowSnapshotRoot(path: string): Promise<string | undefined> {
-  const run = parseRunRecord(await readFile(path, "utf8"), path);
-  if (!isEveWorkflowRun(run) || isTerminalWorkflowRun(run.status)) {
+async function readActiveTurnWorkflowSnapshotRoot(input: {
+  readonly path: string;
+  readonly snapshotsDirectory: string;
+}): Promise<string | undefined> {
+  const run = parseRunRecord(await readFile(input.path, "utf8"));
+  if (run === undefined || !isActiveEveTurnWorkflowRun(run)) {
     return undefined;
   }
 
   const serializedInput = parseWorldLocalUint8Array(run.input);
   if (serializedInput === undefined) {
-    return readDiskArtifactAppRoot(run.input, path);
+    return readDiskArtifactSnapshotRoot(run.input, input.snapshotsDirectory);
   }
 
-  let workflowInput: unknown;
   try {
-    workflowInput = await hydrateWorkflowArguments(
+    const workflowInput = await hydrateWorkflowArguments(
       serializedInput,
       typeof run.runId === "string" ? run.runId : "",
       undefined,
     );
-  } catch (error) {
-    throw new Error(`Cannot decode active eve workflow run "${path}".`, { cause: error });
+    return readDiskArtifactSnapshotRoot(workflowInput, input.snapshotsDirectory);
+  } catch {
+    return undefined;
   }
-
-  return readDiskArtifactAppRoot(workflowInput, path);
 }
 
-function readDiskArtifactAppRoot(value: unknown, path: string): string | undefined {
+function readDiskArtifactSnapshotRoot(
+  value: unknown,
+  snapshotsDirectory: string,
+): string | undefined {
   const workflowInput = Array.isArray(value) ? value[0] : value;
   if (!isObjectRecord(workflowInput)) {
-    throw new Error(`Active eve workflow run "${path}" has invalid input.`);
+    return undefined;
   }
 
   const stepInput = workflowInput.stepInput;
@@ -74,23 +79,34 @@ function readDiskArtifactAppRoot(value: unknown, path: string): string | undefin
     ? stepInput.serializedContext
     : workflowInput.serializedContext;
   if (!isObjectRecord(serializedContext)) {
-    throw new Error(`Active eve workflow run "${path}" has no serialized context.`);
+    return undefined;
   }
 
   const bundle = serializedContext["eve.bundle"];
   if (!isObjectRecord(bundle) || !isObjectRecord(bundle.source)) {
-    throw new Error(`Active eve workflow run "${path}" has no serialized bundle source.`);
+    return undefined;
   }
 
   const source = bundle.source;
-  if (source.kind !== "disk") {
+  if (source.kind !== "disk" || typeof source.appRoot !== "string" || source.appRoot.length === 0) {
     return undefined;
   }
-  if (typeof source.appRoot !== "string" || source.appRoot.length === 0) {
-    throw new Error(`Active eve workflow run "${path}" has an invalid disk artifact root.`);
+
+  const normalizedAppRoot = source.appRoot.replaceAll("\\", sep);
+  const relativeAppRoot = relative(resolve(snapshotsDirectory), resolve(normalizedAppRoot));
+  if (
+    relativeAppRoot.length === 0 ||
+    relativeAppRoot === ".." ||
+    relativeAppRoot.startsWith(`..${sep}`) ||
+    isAbsolute(relativeAppRoot)
+  ) {
+    return undefined;
   }
 
-  return source.appRoot.replaceAll("\\", "/");
+  const [snapshotName, sourceDirectory] = relativeAppRoot.split(sep);
+  return snapshotName === undefined || snapshotName.length === 0 || sourceDirectory !== "source"
+    ? undefined
+    : join(snapshotsDirectory, snapshotName);
 }
 
 function parseWorldLocalUint8Array(value: unknown): Uint8Array | undefined {
@@ -101,18 +117,18 @@ function parseWorldLocalUint8Array(value: unknown): Uint8Array | undefined {
   return Buffer.from(value.data, "base64");
 }
 
-function isEveWorkflowRun(run: Record<string, unknown>): boolean {
+function isActiveEveTurnWorkflowRun(run: Record<string, unknown>): boolean {
   const workflowName =
     typeof run.workflowName === "string"
       ? run.workflowName
       : typeof run.workflowId === "string"
         ? run.workflowId
         : undefined;
-  return workflowName?.startsWith(EVE_WORKFLOW_NAME_PREFIX) === true;
-}
-
-function isTerminalWorkflowRun(status: unknown): boolean {
-  return typeof status === "string" && TERMINAL_WORKFLOW_RUN_STATUSES.has(status);
+  return (
+    workflowName === EVE_TURN_WORKFLOW_NAME &&
+    typeof run.status === "string" &&
+    ACTIVE_WORKFLOW_RUN_STATUSES.has(run.status)
+  );
 }
 
 async function readDirectoryEntries(path: string) {
@@ -126,18 +142,13 @@ async function readDirectoryEntries(path: string) {
   }
 }
 
-function parseRunRecord(source: string, path: string): Record<string, unknown> {
-  let value: unknown;
+function parseRunRecord(source: string): Record<string, unknown> | undefined {
   try {
-    value = JSON.parse(source) as unknown;
-  } catch (error) {
-    throw new Error(`Cannot parse workflow run "${path}".`, { cause: error });
+    const value = JSON.parse(source) as unknown;
+    return isObjectRecord(value) ? value : undefined;
+  } catch {
+    return undefined;
   }
-
-  if (!isObjectRecord(value)) {
-    throw new Error(`Workflow run "${path}" is not a JSON object.`);
-  }
-  return value;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

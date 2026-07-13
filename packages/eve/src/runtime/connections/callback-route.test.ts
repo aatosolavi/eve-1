@@ -12,15 +12,17 @@ import {
   HTTP_CONNECTION_CALLBACK_CHANNEL_NAME_PREFIX,
 } from "#runtime/connections/callback-route.js";
 
-const resumeHookMock = vi.fn();
-
-vi.mock("#compiled/@workflow/core/runtime.js", () => ({
-  resumeHook: (token: string, payload: unknown) => resumeHookMock(token, payload),
-}));
+const deliverMock = vi.fn();
 
 function buildRouteContext(params: Readonly<Record<string, string>>): RouteContext {
   return {
-    agent: {} as RouteContext["agent"],
+    agent: {
+      deliver: (input) => deliverMock(input),
+      getEventStream: async () => new ReadableStream(),
+      run: async () => {
+        throw new Error("Unexpected callback route run.");
+      },
+    },
     waitUntil: () => {},
     params,
     requestIp: null,
@@ -62,7 +64,7 @@ describe("getConnectionCallbackChannelNames", () => {
 
 describe("handleConnectionCallbackRequest", () => {
   beforeEach(() => {
-    resumeHookMock.mockReset();
+    deliverMock.mockReset();
   });
 
   it("rejects requests with a missing connection name with 400", async () => {
@@ -71,7 +73,7 @@ describe("handleConnectionCallbackRequest", () => {
       buildRouteContext({ token: "tok" }),
     );
     expect(response.status).toBe(400);
-    expect(resumeHookMock).not.toHaveBeenCalled();
+    expect(deliverMock).not.toHaveBeenCalled();
   });
 
   it("rejects requests with a missing token with 400", async () => {
@@ -80,11 +82,11 @@ describe("handleConnectionCallbackRequest", () => {
       buildRouteContext({ name: "linear" }),
     );
     expect(response.status).toBe(400);
-    expect(resumeHookMock).not.toHaveBeenCalled();
+    expect(deliverMock).not.toHaveBeenCalled();
   });
 
-  it("forwards a GET callback into resumeHook as parsed params with no request headers", async () => {
-    resumeHookMock.mockResolvedValueOnce(undefined);
+  it("delivers a GET callback through the current request runtime", async () => {
+    deliverMock.mockResolvedValueOnce({ sessionId: "session-1" });
     const url = `https://app.example.com${createEveConnectionCallbackRoutePath("linear", "tok123")}?code=abc&state=xyz`;
     const response = await handleConnectionCallbackRequest(
       new Request(url, {
@@ -99,29 +101,23 @@ describe("handleConnectionCallbackRequest", () => {
     const body = await response.text();
     expect(body).toContain("Authorization complete");
 
-    expect(resumeHookMock).toHaveBeenCalledTimes(1);
-    const [token, payload] = resumeHookMock.mock.calls[0] ?? [];
-    expect(token).toBe("tok123");
-    // Exact match: only parsed params + method cross into the hook
-    // payload. The inbound `x-probe` header (and any `Cookie`) is dropped.
-    expect(payload).toEqual({
-      kind: "deliver",
-      payloads: [
-        {
-          authorizationCallback: {
-            connectionName: "linear",
-            callback: {
-              params: { code: "abc", state: "xyz" },
-              method: "GET",
-            },
+    expect(deliverMock).toHaveBeenCalledTimes(1);
+    expect(deliverMock).toHaveBeenCalledWith({
+      continuationToken: "tok123",
+      payload: {
+        authorizationCallback: {
+          connectionName: "linear",
+          callback: {
+            params: { code: "abc", state: "xyz" },
+            method: "GET",
           },
         },
-      ],
+      },
     });
   });
 
-  it("captures form-encoded POST bodies before resuming the hook", async () => {
-    resumeHookMock.mockResolvedValueOnce(undefined);
+  it("captures form-encoded POST bodies before delivering the callback", async () => {
+    deliverMock.mockResolvedValueOnce({ sessionId: "session-1" });
     const url = `https://app.example.com${createEveConnectionCallbackRoutePath("linear", "tok123")}`;
     await handleConnectionCallbackRequest(
       new Request(url, {
@@ -132,29 +128,23 @@ describe("handleConnectionCallbackRequest", () => {
       buildRouteContext({ name: "linear", token: "tok123" }),
     );
 
-    const [, payload] = resumeHookMock.mock.calls[0] ?? [];
-    expect(payload).toEqual({
-      kind: "deliver",
-      payloads: [
-        {
-          authorizationCallback: {
-            connectionName: "linear",
-            callback: {
-              params: { code: "abc", state: "xyz" },
-              method: "POST",
-              body: "code=abc&state=xyz",
-            },
+    expect(deliverMock).toHaveBeenCalledWith({
+      continuationToken: "tok123",
+      payload: {
+        authorizationCallback: {
+          connectionName: "linear",
+          callback: {
+            params: { code: "abc", state: "xyz" },
+            method: "POST",
+            body: "code=abc&state=xyz",
           },
         },
-      ],
+      },
     });
   });
 
   it("returns 404 when the workflow runtime reports no hook for the supplied token", async () => {
-    // `resumeHook` throws when no workflow run is currently waiting on
-    // the supplied token, e.g. the workflow already completed,
-    // disposed the hook, or the user replayed a stale callback URL.
-    resumeHookMock.mockRejectedValueOnce(new Error("hook not found"));
+    deliverMock.mockRejectedValueOnce(new Error("hook not found"));
     const response = await handleConnectionCallbackRequest(
       new Request(
         `https://app.example.com${createEveConnectionCallbackRoutePath("linear", "tok")}`,

@@ -225,6 +225,7 @@ async function waitForRuntimeActionResults(input: {
 
       const remainder = await routeDeliverToChildren({
         auth: value.delivery.auth,
+        compiledArtifactsSource: value.delivery.compiledArtifactsSource,
         parentWritable: input.cursor.parentWritable,
         payloads: value.delivery.payloads,
         sessionState: input.cursor.sessionState,

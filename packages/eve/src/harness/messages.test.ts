@@ -1,6 +1,10 @@
 import type { FilePart, ModelMessage, UserContent } from "ai";
 import { describe, expect, it } from "vitest";
-import { coalesceTurnInputs, resolveAssistantStepText } from "#harness/messages.js";
+import {
+  coalesceDeliveries,
+  coalesceTurnInputs,
+  resolveAssistantStepText,
+} from "#harness/messages.js";
 import type { StepInput } from "#harness/types.js";
 
 function textFilePart(overrides: {
@@ -120,6 +124,33 @@ describe("coalesceTurnInputs", () => {
     const merged = result.message as UserContent;
     expect(merged).toHaveLength(1);
     expect(merged[0]).toBe(attachment);
+  });
+});
+
+describe("coalesceDeliveries", () => {
+  it("uses the newest runtime artifact source for buffered deliveries", () => {
+    const oldSource = { appRoot: "/snapshots/old", kind: "disk" as const };
+    const currentSource = { appRoot: "/snapshots/current", kind: "disk" as const };
+
+    expect(
+      coalesceDeliveries([
+        {
+          compiledArtifactsSource: oldSource,
+          kind: "deliver" as const,
+          payloads: [{ message: "first" }],
+        },
+        {
+          compiledArtifactsSource: currentSource,
+          kind: "deliver" as const,
+          payloads: [{ message: "second" }],
+        },
+      ]),
+    ).toEqual({
+      auth: undefined,
+      compiledArtifactsSource: currentSource,
+      kind: "deliver",
+      payloads: [{ message: "first" }, { message: "second" }],
+    });
   });
 });
 

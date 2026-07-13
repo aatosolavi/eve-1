@@ -2,4 +2,4 @@
 "eve": patch
 ---
 
-Preserve dev runtime snapshots referenced by active between-turn sessions stored in the local Workflow world's serialized data format.
+Resume ordinary local-dev follow-up turns with the current runtime artifacts while retaining old snapshots only for in-flight turns that still require them.

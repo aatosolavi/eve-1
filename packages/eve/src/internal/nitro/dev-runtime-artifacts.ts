@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { CompileAgentResult } from "#compiler/compile-agent.js";
 import { copyDevelopmentSourceSnapshot } from "#internal/nitro/dev-runtime-source-snapshot-copy.js";
 import { createDevelopmentSourceSnapshotPlan } from "#internal/nitro/dev-runtime-source-snapshot.js";
-import { collectActiveWorkflowSnapshotRoots } from "#internal/nitro/dev-runtime-workflow-snapshots.js";
+import { collectActiveTurnWorkflowSnapshotRoots } from "#internal/nitro/dev-runtime-workflow-snapshots.js";
 
 const DEV_RUNTIME_ARTIFACTS_DIRECTORY = "dev-runtime";
 const DEV_RUNTIME_ARTIFACTS_POINTER_VERSION = 2;
@@ -183,7 +183,7 @@ export async function pruneDevelopmentRuntimeArtifactsSnapshots(input: {
   );
   const protectedPaths = [
     ...collectProtectedSnapshotPaths(pointer),
-    ...(await collectActiveWorkflowSnapshotRoots({ appRoot: input.appRoot })),
+    ...(await collectActiveTurnWorkflowSnapshotRoots({ appRoot: input.appRoot })),
   ];
   const now = input.now ?? Date.now();
   const recentWindowMs = input.recentWindowMs ?? DEV_RUNTIME_SNAPSHOT_RECENT_WINDOW_MS;
