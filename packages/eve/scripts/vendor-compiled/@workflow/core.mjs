@@ -112,6 +112,10 @@ export default {
       outputPath: "runtime",
     },
     {
+      input: "@workflow/core/serialization",
+      outputPath: "serialization",
+    },
+    {
       entry: "dist/private.js",
       outputPath: "private",
     },

@@ -155,15 +155,22 @@ describe("compiled vendor assets", () => {
     expect(forwardedLogs).toEqual(["warn:eve vendoring warning", "error:dependency build failure"]);
   });
 
-  it("copies @workflow/core declaration files from the installed package", async () => {
-    const [indexDts, createHookDts, workflowDts, workflowIndexDts, runtimeRunDts] =
-      await Promise.all([
-        readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/index.d.ts"), "utf8"),
-        readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/create-hook.d.ts"), "utf8"),
-        readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/workflow.d.ts"), "utf8"),
-        readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/workflow/index.d.ts"), "utf8"),
-        readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/runtime/run.d.ts"), "utf8"),
-      ]);
+  it("copies @workflow/core declaration files and serialization runtime", async () => {
+    const [
+      indexDts,
+      createHookDts,
+      workflowDts,
+      workflowIndexDts,
+      runtimeRunDts,
+      serializationRuntime,
+    ] = await Promise.all([
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/index.d.ts"), "utf8"),
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/create-hook.d.ts"), "utf8"),
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/workflow.d.ts"), "utf8"),
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/workflow/index.d.ts"), "utf8"),
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/runtime/run.d.ts"), "utf8"),
+      readFile(join(COMPILED_VENDOR_ROOT, "@workflow/core/serialization.js"), "utf8"),
+    ]);
 
     expect(indexDts).toContain("Just the core utilities");
     expect(indexDts).toContain("from '#compiled/@workflow/errors/index.js'");
@@ -171,6 +178,7 @@ describe("compiled vendor assets", () => {
     expect(workflowDts).toBe(`export * from "./workflow/index.js";\n`);
     expect(workflowIndexDts).toContain("from '#compiled/@workflow/errors/index.js'");
     expect(runtimeRunDts).toContain("from '../_workflow-serde.js'");
+    expect(serializationRuntime).toContain("hydrateWorkflowArguments");
   });
 
   it("vendors the Workflow world targets selected by generated Nitro plugins", async () => {
