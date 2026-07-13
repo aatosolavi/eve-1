@@ -1,5 +1,14 @@
 # eve
 
+## 0.23.0
+
+### Minor Changes
+
+- e5d142f: Make the built-in `agent` tool root-only, so copies created by it cannot delegate recursively. Declared subagents can still call their own nested subagents, and `limits.maxSubagentDepth` has been removed.
+- 9a594c2: Infer authored channel metadata directly from the channel definition passed to `isChannel`, without compiler-generated declarations. Use `isChannel(...)` whenever you need authored metadata type narrowing; direct `channel:<name>` comparisons continue to identify channels but no longer narrow authored metadata.
+
+  The `.eve/**/*.d.ts` TypeScript include is no longer needed. Existing apps may remove it, but leaving the unmatched glob in place does not change typechecking.
+
 ## 0.22.6
 
 ### Patch Changes
