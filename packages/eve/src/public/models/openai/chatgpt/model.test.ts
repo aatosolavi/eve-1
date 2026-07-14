@@ -8,7 +8,7 @@ const CODEX_ENDPOINT = "https://chatgpt.test/backend-api/codex/responses";
 describe("Codex model", () => {
   it("creates an OpenAI Responses model under the Codex provider namespace", () => {
     const model = createCodexSubscriptionModel(
-      { model: " gpt-5.4 " },
+      { credentialSource: { kind: "codex-login" }, model: " gpt-5.4 " },
       {
         fetch: async () => Response.json({ ok: true }),
         readCredentials: async () => ({
@@ -28,15 +28,18 @@ describe("Codex model", () => {
   });
 
   it("rejects an empty Codex model id", () => {
-    expect(() => createCodexSubscriptionModel({ model: " " })).toThrow(
-      'Expected "model" to name a Codex model.',
-    );
+    expect(() =>
+      createCodexSubscriptionModel({
+        credentialSource: { kind: "codex-login" },
+        model: " ",
+      }),
+    ).toThrow('Expected "model" to name a Codex model.');
   });
 
   it("disables response storage before OpenAI Responses prompt conversion", async () => {
     const requests: RecordedRequest[] = [];
     const model = createCodexSubscriptionModel(
-      { model: "gpt-5.2-codex" },
+      { credentialSource: { kind: "codex-login" }, model: "gpt-5.2-codex" },
       {
         codexApiEndpoint: CODEX_ENDPOINT,
         fetch: createRecordingFetch(requests),

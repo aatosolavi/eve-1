@@ -61,7 +61,7 @@ export type AgentModelResolveContext = DynamicResolveContext;
 
 export interface PublicAgentModelSelectionDefinition {
   readonly model: PublicAgentStaticModelDefinition;
-  /** Context window of the selected model, in tokens; never inherited from the fallback. */
+  /** Optional context-window override for the selected model; never inherited from the fallback. */
   readonly modelContextWindowTokens?: number;
   /** Provider options for the selected model; defaults to the agent-level `modelOptions`. */
   readonly modelOptions?: AgentModelOptionsDefinition;

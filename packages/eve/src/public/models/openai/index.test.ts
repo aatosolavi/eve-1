@@ -19,6 +19,21 @@ describe("experimental_chatgpt", () => {
     expect(model.provider).toContain("codex");
   });
 
+  it("creates a hosted model with host-owned authentication", () => {
+    const model = experimental_chatgpt({
+      auth: {
+        getToken: async (request) => ({
+          token: request.reason === "request" ? "hosted-token" : "refreshed-hosted-token",
+          expiresAt: Number.MAX_SAFE_INTEGER,
+        }),
+      },
+    });
+
+    if (typeof model === "string") throw new Error("expected a model instance");
+    expect(model.modelId).toBe("gpt-5.6-sol");
+    expect(model.provider).toContain("codex");
+  });
+
   it("strips an openai/ provider prefix", () => {
     const model = experimental_chatgpt("openai/gpt-5.5");
 
@@ -28,7 +43,7 @@ describe("experimental_chatgpt", () => {
 
   it("rejects a non-OpenAI provider-qualified id", () => {
     expect(() => experimental_chatgpt("anthropic/claude-sonnet-4.6")).toThrow(
-      'experimental_chatgpt serves OpenAI models through the local ChatGPT login; received "anthropic/claude-sonnet-4.6".',
+      'experimental_chatgpt serves OpenAI models through ChatGPT; received "anthropic/claude-sonnet-4.6".',
     );
   });
 

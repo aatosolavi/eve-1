@@ -9,6 +9,7 @@ import { classifyModelRouting } from "#internal/classify-model-routing.js";
 import { DEFAULT_AGENT_MODEL_ID } from "#shared/default-agent-model.js";
 import { toErrorMessage } from "#shared/errors.js";
 import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { getLanguageModelContextWindowTokens } from "#shared/language-model-context-window.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 import {
   isDynamicModelDefinition,
@@ -244,8 +245,10 @@ async function normalizeAuthoredModelReference(input: {
     providerOptions: parseProviderOptionsRecord(input.providerOptions),
     routing: classifyModelRouting(languageModel, input.providerOptions),
   };
+  const contextWindowTokens =
+    input.contextWindowTokens ?? getLanguageModelContextWindowTokens(languageModel);
 
-  if (input.contextWindowTokens === undefined) {
+  if (contextWindowTokens === undefined) {
     const providerResult = await input.modelCatalog.getByProviderModelId(
       languageModel.provider,
       languageModel.modelId,
@@ -260,7 +263,10 @@ async function normalizeAuthoredModelReference(input: {
     }
   }
 
-  return await withCompiledRuntimeModelLimits(sourceBackedModel, input);
+  return await withCompiledRuntimeModelLimits(sourceBackedModel, {
+    ...input,
+    contextWindowTokens,
+  });
 }
 
 function formatAgentConfigModulePath(

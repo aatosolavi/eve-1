@@ -3,13 +3,15 @@ import type {
   LanguageModelV4,
   LanguageModelV4CallOptions,
 } from "#compiled/@ai-sdk/provider/index.js";
-import { createCodexFetch, type CodexTransportOptions } from "./transport.js";
 import { isObject } from "#shared/guards.js";
+import type { CodexCredentialSource } from "./credentials.js";
+import { createCodexFetch, type CodexTransportOptions } from "./transport.js";
 
 const CODEX_LOCAL_AUTH_API_KEY = "codex-local-auth";
 
-/** Configures the Codex model selected by the local Codex login. */
+/** Configures the model and credential source used by the Codex transport. */
 export interface CodexModelOptions {
+  readonly credentialSource: CodexCredentialSource;
   /** OpenAI model ID passed to the Codex Responses endpoint, for example `gpt-5.6-sol`. */
   readonly model: string;
 }
@@ -17,7 +19,7 @@ export interface CodexModelOptions {
 // Test seam for the direct Codex transport boundary.
 export function createCodexSubscriptionModel(
   input: CodexModelOptions,
-  options: CodexTransportOptions = {},
+  options: Omit<CodexTransportOptions, "credentialSource"> = {},
 ): LanguageModelV4 {
   const model = input.model.trim();
   if (model.length === 0) {
@@ -26,7 +28,7 @@ export function createCodexSubscriptionModel(
 
   const openaiModel = createOpenAI({
     apiKey: CODEX_LOCAL_AUTH_API_KEY,
-    fetch: createCodexFetch(options),
+    fetch: createCodexFetch({ ...options, credentialSource: input.credentialSource }),
     name: "codex",
   }).responses(model);
 

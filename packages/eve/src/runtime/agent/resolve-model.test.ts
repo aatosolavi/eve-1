@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ROOT_COMPILED_AGENT_NODE_ID } from "#compiler/manifest.js";
 import type { CompiledModuleMap } from "#compiler/module-map.js";
 import { defineDynamic } from "#public/definitions/tool.js";
+import { experimental_chatgpt } from "#public/models/openai/index.js";
 import {
   loadDynamicRuntimeModelDefinition,
   normalizeDynamicRuntimeModelResult,
@@ -82,6 +83,22 @@ describe("dynamic runtime model resolution", () => {
       id: "openai/gpt-5.5-mini",
       providerOptions: { gateway: { order: ["openai"] } },
     });
+  });
+
+  it("uses the experimental_chatgpt context window unless the selection overrides it", () => {
+    const model = experimental_chatgpt();
+
+    const defaulted = normalizeDynamicRuntimeModelResult({
+      fallback: { contextWindowTokens: 256_000, id: "openai/gpt-5.5" },
+      result: model,
+    });
+    const overridden = normalizeDynamicRuntimeModelResult({
+      fallback: { contextWindowTokens: 256_000, id: "openai/gpt-5.5" },
+      result: { model, modelContextWindowTokens: 128_000 },
+    });
+
+    expect(defaulted.reference.contextWindowTokens).toBe(200_000);
+    expect(overridden.reference.contextWindowTokens).toBe(128_000);
   });
 
   it("rejects selections with unknown keys", () => {

@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import type { CompiledModuleMap } from "#compiler/module-map.js";
 import { normalizeAgentDefinition } from "#internal/authored-definition/core.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
+import { getLanguageModelContextWindowTokens } from "#shared/language-model-context-window.js";
 import type {
   RuntimeDynamicModelReference,
   RuntimeModelReference,
@@ -162,7 +163,8 @@ export function normalizeDynamicRuntimeModelResult(input: {
     model: selection.model,
     reference: {
       id: formatLanguageModelGatewayId(selection.model),
-      contextWindowTokens,
+      contextWindowTokens:
+        contextWindowTokens ?? getLanguageModelContextWindowTokens(selection.model),
       providerOptions,
     },
   };

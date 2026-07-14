@@ -99,7 +99,7 @@ Exported types ship from the same entrypoint as the helper they describe (for ex
 
 ## ChatGPT subscription models
 
-`experimental_chatgpt()` from `eve/models/openai` serves an OpenAI model through the local Codex login and bills the ChatGPT subscription. With no argument, it selects `gpt-5.6-sol`:
+`experimental_chatgpt()` from `eve/models/openai` serves an OpenAI model through the Codex backend and bills the ChatGPT subscription. With no argument, it reads the local `codex login` and selects `gpt-5.6-sol`:
 
 ```ts title="agent/agent.ts"
 import { defineAgent } from "eve";
@@ -107,11 +107,47 @@ import { experimental_chatgpt } from "eve/models/openai";
 
 export default defineAgent({
   model: experimental_chatgpt(),
-  modelContextWindowTokens: 200_000,
 });
 ```
 
-Pass another bare OpenAI model slug to override the default. The helper reads credentials from `codex login`, so use it only where that local login exists.
+Pass another bare OpenAI model slug to override the default. eve assumes a
+200,000-token context window for every model returned by this helper. Set the
+agent's `modelContextWindowTokens` only when you need to override that value.
+
+For a hosted process, pass an auth provider instead of relying on a local credential file:
+
+```ts title="agent/agent.ts"
+import { defineAgent } from "eve";
+import { experimental_chatgpt } from "eve/models/openai";
+
+export default defineAgent({
+  model: experimental_chatgpt({
+    auth: {
+      getToken: (request) => chatGptCredentials.resolve(request),
+    },
+  }),
+});
+```
+
+`resolve` returns `{ token, expiresAt, accountId? }`, where `expiresAt` is Unix
+milliseconds. eve calls it with `{ reason: "request" }` for every model request.
+When that credential is within 60 seconds of expiry, eve calls it again with
+`{ reason: "refresh", previousToken }` before sending. When the Codex backend
+rejects a replayable request with `401`, eve requests a refresh and retries that
+request once. Non-replayable request bodies are not refreshed or retried.
+
+The credential owner must handle a refresh request inside one serialized
+critical section: re-read the durable credential, return it when another caller
+has already replaced `previousToken` with a fresh credential, otherwise exchange
+its refresh token, and persist the rotated access and refresh tokens before
+returning. The serialization must live in the shared credential store for
+multi-replica deployments; an in-process mutex is not sufficient. The OAuth
+exchange and database write cannot be atomic across systems, so recovery from a
+crash between them also belongs to the credential owner. eve never receives the
+hosted refresh token or writes hosted credentials to `auth.json`.
+
+This direct transport remains experimental because the Codex backend is not a
+public API contract.
 
 ## What to read next
 

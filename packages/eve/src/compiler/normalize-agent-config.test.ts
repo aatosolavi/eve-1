@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAgentSourceManifest, createModuleSourceRef } from "#discover/manifest.js";
 import { defineDynamic } from "#public/definitions/tool.js";
+import { experimental_chatgpt } from "#public/models/openai/index.js";
 import { compileAgentConfig } from "#compiler/normalize-agent-config.js";
 import type { ManifestCompileContext } from "#compiler/normalize-helpers.js";
 
@@ -56,7 +57,46 @@ describe("compileAgentConfig", () => {
       sourceKind: "module",
     });
   });
+
+  it("uses the experimental_chatgpt context window without catalog metadata", async () => {
+    mocks.loadModuleBackedDefinition.mockResolvedValue({
+      model: experimental_chatgpt(),
+    });
+    const modelCatalog = createModelCatalog();
+
+    const compiled = await compileAgentConfig(createAgentManifest(), { modelCatalog });
+
+    expect(compiled.model.contextWindowTokens).toBe(200_000);
+    expect(modelCatalog.getByProviderModelId).not.toHaveBeenCalled();
+    expect(modelCatalog.getModelLimits).not.toHaveBeenCalled();
+  });
+
+  it("lets an authored context window override the experimental_chatgpt default", async () => {
+    mocks.loadModuleBackedDefinition.mockResolvedValue({
+      model: experimental_chatgpt(),
+      modelContextWindowTokens: 128_000,
+    });
+    const modelCatalog = createModelCatalog();
+
+    const compiled = await compileAgentConfig(createAgentManifest(), { modelCatalog });
+
+    expect(compiled.model.contextWindowTokens).toBe(128_000);
+    expect(modelCatalog.getByProviderModelId).not.toHaveBeenCalled();
+    expect(modelCatalog.getModelLimits).not.toHaveBeenCalled();
+  });
 });
+
+function createAgentManifest() {
+  return createAgentSourceManifest({
+    agentId: "app",
+    agentRoot: "/app/agent",
+    appRoot: "/app",
+    configModule: createModuleSourceRef({
+      logicalPath: "agent.ts",
+      sourceId: "agent-config",
+    }),
+  });
+}
 
 function createModelCatalog(): ManifestCompileContext["modelCatalog"] {
   return {
