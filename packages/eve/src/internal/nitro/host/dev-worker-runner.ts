@@ -10,7 +10,7 @@ import {
 import type {
   DevelopmentWorkerRunner,
   DevelopmentWorkerRunnerFactory,
-} from "#internal/nitro/host/dev-worker-server.js";
+} from "#internal/nitro/host/dev-worker-server-types.js";
 
 class NodeDevelopmentWorkerRunner extends BaseEnvRunner implements DevelopmentWorkerRunner {
   #closeCause: unknown;

@@ -6,7 +6,8 @@ import {
   DEVELOPMENT_WORKER_METADATA_HEADER,
   encodeDevelopmentWorkerMetadata,
 } from "#internal/nitro/host/dev-worker-metadata.js";
-import type { DevelopmentWorkerGeneration } from "#internal/nitro/host/dev-worker-server.js";
+import { DEVELOPMENT_WORKFLOW_DELIVERY_HEADER } from "#internal/workflow/development-world-protocol.js";
+import type { DevelopmentWorkerGeneration } from "#internal/nitro/host/dev-worker-server-types.js";
 import { toErrorMessage } from "#shared/errors.js";
 
 export function createPublicRequest(request: IncomingMessage, signal: AbortSignal): Request {
@@ -40,12 +41,39 @@ export function createWorkerRequest(input: {
   readonly secret: string;
   readonly socket: Socket;
 }): Request {
+  return createTrustedWorkerRequest({
+    clientAddress: normalizeClientAddress(input.socket.remoteAddress),
+    generation: input.generation,
+    request: input.request,
+    secret: input.secret,
+  });
+}
+
+export function createWorkflowWorkerRequest(input: {
+  readonly generation: DevelopmentWorkerGeneration;
+  readonly request: Request;
+  readonly secret: string;
+}): Request {
+  const request = createTrustedWorkerRequest({
+    clientAddress: null,
+    ...input,
+  });
+  request.headers.set(DEVELOPMENT_WORKFLOW_DELIVERY_HEADER, input.secret);
+  return request;
+}
+
+function createTrustedWorkerRequest(input: {
+  readonly clientAddress: string | null;
+  readonly generation: DevelopmentWorkerGeneration;
+  readonly request: Request;
+  readonly secret: string;
+}): Request {
   const headers = new Headers(input.request.headers);
   headers.set(
     DEVELOPMENT_WORKER_METADATA_HEADER,
     encodeDevelopmentWorkerMetadata({
       metadata: {
-        clientAddress: normalizeClientAddress(input.socket.remoteAddress),
+        clientAddress: input.clientAddress,
         generationId: input.generation.id,
         runtimeAppRoot: input.generation.runtimeAppRoot,
       },

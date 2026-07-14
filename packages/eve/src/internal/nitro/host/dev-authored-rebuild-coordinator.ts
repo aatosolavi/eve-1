@@ -85,11 +85,13 @@ class TransactionalDevelopmentAuthoredRebuildCoordinator implements DevelopmentA
       if (!hasStructuralChange) {
         await removeDevelopmentHostWorkspace(nextHost.workspace);
         const committedHost = retainActiveHostWorkspace(previousHost, nextHost);
-        await this.#devServer.publishRuntimeGeneration(async () => {
-          return await activateDevelopmentGenerationTransaction({
-            appRoot: committedHost.appRoot,
-            generation: committedHost.generation,
-          });
+        await this.#devServer.publishRuntimeGeneration({
+          generation: committedHost.generation,
+          publish: async () =>
+            await activateDevelopmentGenerationTransaction({
+              appRoot: committedHost.appRoot,
+              generation: committedHost.generation,
+            }),
         });
         this.#commitState(committedHost, nextHostFingerprint, nextRuntimeFingerprint);
         nextHost = undefined;

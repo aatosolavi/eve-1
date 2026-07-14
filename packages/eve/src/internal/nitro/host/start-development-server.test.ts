@@ -28,10 +28,12 @@ const mocks = vi.hoisted(() => {
     discardCandidate: vi.fn(async () => undefined),
     listen: vi.fn(() => listenerServer),
     promote: vi.fn(async () => undefined),
-    publishRuntimeGeneration: vi.fn(async (publish: () => Promise<{ commit(): void }>) => {
-      const publication = await publish();
-      publication.commit();
-    }),
+    publishRuntimeGeneration: vi.fn(
+      async (input: { readonly publish: () => Promise<{ commit(): void }> }) => {
+        const publication = await input.publish();
+        publication.commit();
+      },
+    ),
     publishStructuralCandidate: vi.fn(
       async (input: { publish: () => Promise<{ commit(): void }> }) => {
         const publication = await input.publish();
@@ -39,7 +41,11 @@ const mocks = vi.hoisted(() => {
       },
     ),
     setControlHandler: vi.fn(),
+    startWorkflowWorld: vi.fn(async () => undefined),
   };
+  const nitroDevelopmentWorkerServer = vi.fn(function NitroDevelopmentWorkerServer() {
+    return devServer;
+  });
   const files = new Map<string, string>();
   const devHandlers: Nitro["options"]["devHandlers"] = [];
   const nitro = {
@@ -77,8 +83,12 @@ const mocks = vi.hoisted(() => {
     listenerServer,
     mkdir: vi.fn(async () => undefined),
     nitro,
+    nitroDevelopmentWorkerServer,
     prepareDevelopmentApplicationHost: vi.fn(async () => ({
       appRoot: "/tmp/eve-test",
+      compileResult: {
+        manifest: { config: { name: "test-agent" } },
+      },
       generation: {
         fingerprint: "test",
         runtimeAppRoot: "/tmp/eve-test/.eve/dev-runtime/snapshots/test/source/app",
@@ -150,9 +160,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 vi.mock("./nitro-development-worker-server.js", () => ({
-  NitroDevelopmentWorkerServer: function NitroDevelopmentWorkerServer() {
-    return mocks.devServer;
-  },
+  NitroDevelopmentWorkerServer: mocks.nitroDevelopmentWorkerServer,
 }));
 
 vi.mock("./dev-host-candidate.js", () => ({
@@ -383,6 +391,11 @@ describe("createDevelopmentServer", () => {
       },
     });
     expect(mocks.pruneLocalSandboxTemplatesInBackground).toHaveBeenCalledWith("/tmp/eve-test");
+    expect(mocks.nitroDevelopmentWorkerServer).toHaveBeenCalledWith({
+      appRoot: "/tmp/eve-test",
+      workflowWorld: { agentName: "test-agent", kind: "parent-local" },
+    });
+    expect(mocks.devServer.startWorkflowWorld).toHaveBeenCalledOnce();
     expect(process.env.WORKFLOW_LOCAL_BASE_URL).toBe("http://127.0.0.1:42123");
     expect(process.env.PORT).toBe("42123");
 
@@ -396,6 +409,31 @@ describe("createDevelopmentServer", () => {
     expect(process.env.WORKFLOW_LOCAL_BASE_URL).toBeUndefined();
     expect(process.env.PORT).toBeUndefined();
     expect(process.env.EVE_DEVELOPMENT_SANDBOX_RUN_ID).toBeUndefined();
+  });
+
+  it("keeps an explicitly configured Workflow World inside the worker", async () => {
+    const preparedHost = await mocks.prepareDevelopmentApplicationHost();
+    mocks.prepareDevelopmentApplicationHost.mockClear();
+    mocks.prepareDevelopmentApplicationHost.mockResolvedValueOnce({
+      ...preparedHost,
+      compileResult: {
+        manifest: {
+          config: {
+            experimental: { workflow: { world: "@workflow/world-postgres" } },
+            name: "test-agent",
+          },
+        },
+      },
+    } as never);
+    const startDevelopmentServer = await loadStartDevelopmentServer();
+
+    const server = await startDevelopmentServer("/tmp/eve-test");
+
+    expect(mocks.nitroDevelopmentWorkerServer).toHaveBeenCalledWith({
+      appRoot: "/tmp/eve-test",
+      workflowWorld: { kind: "worker-configured" },
+    });
+    await server.close();
   });
 
   it("uses Eve's default port when no port is requested", async () => {

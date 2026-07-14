@@ -2,15 +2,18 @@ import { basename, resolve } from "node:path";
 
 import type { Nitro } from "nitro/types";
 
+import type { DevelopmentGeneration } from "#internal/nitro/development-generation.js";
 import { readActiveDevelopmentRuntimeArtifactsSnapshot } from "#internal/nitro/dev-runtime-artifacts.js";
-import {
-  createDevelopmentWorkerServer,
-  type DevelopmentWorkerCandidate,
-  type DevelopmentWorkerGeneration,
-  type DevelopmentWorkerListener,
-  type DevelopmentWorkerPublication,
-  type DevelopmentWorkerServer,
-} from "#internal/nitro/host/dev-worker-server.js";
+import { writeDevelopmentRuntimeArtifactsWorker } from "#internal/nitro/dev-runtime-worker-artifacts.js";
+import { createDevelopmentWorkerServer } from "#internal/nitro/host/dev-worker-server.js";
+import type {
+  DevelopmentWorkflowWorldOwnership,
+  DevelopmentWorkerCandidate,
+  DevelopmentWorkerGeneration,
+  DevelopmentWorkerListener,
+  DevelopmentWorkerPublication,
+  DevelopmentWorkerServer,
+} from "#internal/nitro/host/dev-worker-server-types.js";
 import { createNodeDevelopmentWorkerRunner } from "#internal/nitro/host/dev-worker-runner.js";
 
 const NITRO_CANDIDATE_BUILD_TIMEOUT_MS = 60_000;
@@ -26,7 +29,10 @@ export class NitroDevelopmentWorkerServer {
   readonly #appRoot: string;
   readonly #server: DevelopmentWorkerServer;
 
-  constructor(input: { readonly appRoot: string }) {
+  constructor(input: {
+    readonly appRoot: string;
+    readonly workflowWorld: DevelopmentWorkflowWorldOwnership;
+  }) {
     this.#appRoot = input.appRoot;
     this.#server = createDevelopmentWorkerServer({
       appRoot: input.appRoot,
@@ -38,6 +44,7 @@ export class NitroDevelopmentWorkerServer {
         }
         return generation;
       },
+      workflowWorld: input.workflowWorld,
     });
   }
 
@@ -49,11 +56,16 @@ export class NitroDevelopmentWorkerServer {
     this.#server.setControlHandler(handler);
   }
 
+  async startWorkflowWorld(): Promise<void> {
+    await this.#server.startWorkflowWorld();
+  }
+
   async buildCandidate(input: {
     readonly dispose: () => Promise<void>;
     readonly generation: DevelopmentWorkerGeneration;
     readonly nitro: NitroCandidateHost;
     readonly trigger: () => Promise<void>;
+    readonly workspaceRoot: string;
   }): Promise<DevelopmentWorkerCandidate> {
     let buildError: unknown;
     let candidatePromise: Promise<DevelopmentWorkerCandidate> | undefined;
@@ -70,12 +82,22 @@ export class NitroDevelopmentWorkerServer {
         candidateSignal.resolve();
         return;
       }
-      candidatePromise = this.#server.prepareCandidate({
-        dispose,
-        entry: payload?.entry ?? resolveDefaultEntry(input.nitro),
-        generation: input.generation,
-        workerData: payload?.workerData ?? {},
-      });
+      const entry = payload?.entry ?? resolveDefaultEntry(input.nitro);
+      const workerData = payload?.workerData ?? {};
+      candidatePromise = (async () => {
+        await writeDevelopmentRuntimeArtifactsWorker({
+          entry,
+          snapshotRoot: input.generation.snapshotRoot,
+          workerData,
+          workspaceRoot: input.workspaceRoot,
+        });
+        return await this.#server.prepareCandidate({
+          dispose,
+          entry,
+          generation: input.generation,
+          workerData,
+        });
+      })();
       try {
         await candidatePromise;
       } catch (error) {
@@ -130,10 +152,14 @@ export class NitroDevelopmentWorkerServer {
     await this.#server.promote(candidate);
   }
 
-  async publishRuntimeGeneration(
-    publish: () => Promise<DevelopmentWorkerPublication>,
-  ): Promise<void> {
-    await this.#server.publishRuntimeGeneration(publish);
+  async publishRuntimeGeneration(input: {
+    readonly generation: DevelopmentGeneration;
+    readonly publish: () => Promise<DevelopmentWorkerPublication>;
+  }): Promise<void> {
+    await this.#server.publishRuntimeGeneration({
+      generation: toDevelopmentWorkerGeneration(input.generation),
+      publish: input.publish,
+    });
   }
 
   async publishStructuralCandidate(input: {
@@ -155,6 +181,7 @@ export function toDevelopmentWorkerGeneration(input: {
   return {
     id: basename(input.snapshotRoot),
     runtimeAppRoot: input.runtimeAppRoot,
+    snapshotRoot: input.snapshotRoot,
   };
 }
 

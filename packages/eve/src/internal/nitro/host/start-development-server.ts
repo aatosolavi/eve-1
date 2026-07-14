@@ -47,6 +47,7 @@ import { detectPackageManager, type PackageManagerKind } from "#setup/package-ma
 import { eveDevArguments } from "#setup/primitives/index.js";
 import { devBootPhase } from "#internal/dev-boot-progress.js";
 import { NitroDevelopmentWorkerServer } from "#internal/nitro/host/nitro-development-worker-server.js";
+import type { DevelopmentWorkflowWorldOwnership } from "#internal/nitro/host/dev-worker-server-types.js";
 import {
   activateDevelopmentGenerationTransaction,
   discardDevelopmentGeneration,
@@ -63,6 +64,18 @@ const IPV6_LOOPBACK_HOSTNAME = "[::1]";
  * They are valid bind targets but invalid as connect targets.
  */
 const IPV6_WILDCARD_LISTEN_HOSTNAMES: ReadonlySet<string> = new Set(["[::]", "::"]);
+
+function resolveDevelopmentWorkflowWorldOwnership(
+  preparedHost: PreparedDevelopmentApplicationHost,
+): DevelopmentWorkflowWorldOwnership {
+  if (preparedHost.compileResult.manifest.config.experimental?.workflow?.world !== undefined) {
+    return { kind: "worker-configured" };
+  }
+  return {
+    agentName: preparedHost.compileResult.manifest.config.name,
+    kind: "parent-local",
+  };
+}
 
 /**
  * Rewrites a server URL whose hostname is a wildcard listen address into a
@@ -434,7 +447,10 @@ async function startNitroDevelopmentServer(
       options.onBootProgress,
     );
     nitro = activeNitro;
-    devServer = new NitroDevelopmentWorkerServer({ appRoot: preparedHost.appRoot });
+    devServer = new NitroDevelopmentWorkerServer({
+      appRoot: preparedHost.appRoot,
+      workflowWorld: resolveDevelopmentWorkflowWorldOwnership(preparedHost),
+    });
     const activeDevServer = devServer;
     const hostname =
       options.host ?? activeNitro.options.devServer.hostname ?? DEFAULT_DEVELOPMENT_SERVER_HOST;
@@ -480,6 +496,7 @@ async function startNitroDevelopmentServer(
       },
       options.onBootProgress,
     );
+    await activeDevServer.startWorkflowWorld();
     startDevelopmentSandboxPrewarmInBackground({
       appRoot: preparedHost.appRoot,
       compiledArtifactsSource,

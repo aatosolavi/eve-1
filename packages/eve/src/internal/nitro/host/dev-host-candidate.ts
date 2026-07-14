@@ -6,7 +6,7 @@ import {
   NitroDevelopmentWorkerServer,
   toDevelopmentWorkerGeneration,
 } from "#internal/nitro/host/nitro-development-worker-server.js";
-import type { DevelopmentWorkerCandidate } from "#internal/nitro/host/dev-worker-server.js";
+import type { DevelopmentWorkerCandidate } from "#internal/nitro/host/dev-worker-server-types.js";
 import type { PreparedDevelopmentApplicationHost } from "#internal/nitro/host/types.js";
 
 export async function buildDevelopmentHostCandidate(input: {
@@ -26,6 +26,7 @@ export async function buildDevelopmentHostCandidate(input: {
         await prepare(input.nitro);
         await buildNitro(input.nitro);
       },
+      workspaceRoot: input.host.workspace.rootDir,
     });
   } catch (error) {
     try {

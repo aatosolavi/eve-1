@@ -3,12 +3,12 @@ import { connect } from "node:net";
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createDevelopmentWorkerServer,
-  type DevelopmentWorkerGeneration,
-  type DevelopmentWorkerRunner,
-  type DevelopmentWorkerRunnerFactory,
-} from "#internal/nitro/host/dev-worker-server.js";
+import { createDevelopmentWorkerServer } from "#internal/nitro/host/dev-worker-server.js";
+import type {
+  DevelopmentWorkerGeneration,
+  DevelopmentWorkerRunner,
+  DevelopmentWorkerRunnerFactory,
+} from "#internal/nitro/host/dev-worker-server-types.js";
 import { decodeDevelopmentWorkerMetadata } from "#internal/nitro/host/dev-worker-metadata.js";
 
 const TEST_DEADLINE_MS = 5_000;
@@ -16,10 +16,12 @@ const TEST_DEADLINE_MS = 5_000;
 const FIRST_GENERATION: DevelopmentWorkerGeneration = {
   id: "first",
   runtimeAppRoot: "/tmp/eve-dev-runtime/first/source/app",
+  snapshotRoot: "/tmp/eve-dev-runtime/first",
 };
 const SECOND_GENERATION: DevelopmentWorkerGeneration = {
   id: "second",
   runtimeAppRoot: "/tmp/eve-dev-runtime/second/source/app",
+  snapshotRoot: "/tmp/eve-dev-runtime/second",
 };
 
 function createDeferred<T>(): {
@@ -115,6 +117,7 @@ async function listenWithGenerationResolver(
     appRoot: "/tmp/eve-dev-worker-test",
     createRunner,
     resolveAdmissionGeneration,
+    workflowWorld: { agentName: "worker-server-test", kind: "parent-local" },
   });
   const listener = server.listen({ hostname: "127.0.0.1", port: 0 });
   await listener.ready();
@@ -163,6 +166,7 @@ describe("development worker server", () => {
         throw new Error("worker creation failed");
       },
       resolveAdmissionGeneration: (generation) => generation,
+      workflowWorld: { agentName: "worker-server-test", kind: "parent-local" },
     });
 
     await expect(
@@ -682,6 +686,41 @@ describe("development worker server", () => {
       clientAddress: "127.0.0.1",
       runtimeAppRoot: FIRST_GENERATION.runtimeAppRoot,
     });
+
+    await closeWithinDeadline(() => server.close());
+  });
+
+  it("leaves configured World queue requests with the worker", async () => {
+    const { createRunner } = createRunnerFactory(async (request) =>
+      request.url.endsWith("/.well-known/workflow/v1/flow")
+        ? new Response("configured-world")
+        : new Response("unexpected", { status: 404 }),
+    );
+    const server = createDevelopmentWorkerServer({
+      appRoot: "/tmp/eve-dev-worker-configured-world-test",
+      createRunner,
+      resolveAdmissionGeneration: (generation) => generation,
+      workflowWorld: { kind: "worker-configured" },
+    });
+    const listener = server.listen({ hostname: "127.0.0.1", port: 0 });
+    await listener.ready();
+    if (listener.url === undefined) {
+      throw new Error("Development worker listener did not expose a URL.");
+    }
+    const candidate = await server.prepareCandidate({
+      dispose: async () => undefined,
+      entry: "/tmp/configured-world.mjs",
+      generation: FIRST_GENERATION,
+      workerData: {},
+    });
+    await server.promote(candidate);
+
+    await expect(
+      fetch(new URL("/.well-known/workflow/v1/flow", listener.url), {
+        body: "{}",
+        method: "POST",
+      }).then(async (response) => await response.text()),
+    ).resolves.toBe("configured-world");
 
     await closeWithinDeadline(() => server.close());
   });

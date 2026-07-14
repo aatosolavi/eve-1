@@ -11,8 +11,19 @@ const mocks = vi.hoisted(() => ({
     publishRuntimeGeneration: vi.fn(async () => undefined),
     publishStructuralCandidate: vi.fn(async () => undefined),
     setControlHandler: vi.fn(),
+    startWorkflowWorld: vi.fn(async () => undefined),
   },
+  writeWorker: vi.fn(async () => undefined),
 }));
+
+vi.mock("#internal/nitro/dev-runtime-worker-artifacts.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("#internal/nitro/dev-runtime-worker-artifacts.js")>();
+  return {
+    ...actual,
+    writeDevelopmentRuntimeArtifactsWorker: mocks.writeWorker,
+  };
+});
 
 vi.mock("#internal/nitro/host/dev-worker-server.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#internal/nitro/host/dev-worker-server.js")>();
@@ -63,12 +74,19 @@ describe("NitroDevelopmentWorkerServer", () => {
     };
     const { NitroDevelopmentWorkerServer } =
       await import("#internal/nitro/host/nitro-development-worker-server.js");
-    const server = new NitroDevelopmentWorkerServer({ appRoot: "/tmp/app" });
+    const server = new NitroDevelopmentWorkerServer({
+      appRoot: "/tmp/app",
+      workflowWorld: { agentName: "worker-server-test", kind: "parent-local" },
+    });
     const buildError = new Error("Nitro build failed");
 
     const result = server.buildCandidate({
       dispose: async () => undefined,
-      generation: { id: "generation-a", runtimeAppRoot: "/tmp/generation-a" },
+      generation: {
+        id: "generation-a",
+        runtimeAppRoot: "/tmp/generation-a/source/app",
+        snapshotRoot: "/tmp/generation-a",
+      },
       nitro,
       trigger: async () => {
         const reload = hooks.get("dev:reload")?.({
@@ -79,6 +97,7 @@ describe("NitroDevelopmentWorkerServer", () => {
         candidateReady.resolve(candidate);
         await reload;
       },
+      workspaceRoot: "/tmp/dev-host-a",
     });
 
     await expect(result).rejects.toThrow("Nitro build failed");
@@ -99,7 +118,10 @@ describe("NitroDevelopmentWorkerServer", () => {
     };
     const { NitroDevelopmentWorkerServer } =
       await import("#internal/nitro/host/nitro-development-worker-server.js");
-    const server = new NitroDevelopmentWorkerServer({ appRoot: "/tmp/app" });
+    const server = new NitroDevelopmentWorkerServer({
+      appRoot: "/tmp/app",
+      workflowWorld: { agentName: "worker-server-test", kind: "parent-local" },
+    });
     const buildError = new Error("Nitro build failed");
     const cleanupError = new Error("candidate cleanup failed");
 
@@ -107,11 +129,16 @@ describe("NitroDevelopmentWorkerServer", () => {
       dispose: async () => {
         throw cleanupError;
       },
-      generation: { id: "generation-a", runtimeAppRoot: "/tmp/generation-a" },
+      generation: {
+        id: "generation-a",
+        runtimeAppRoot: "/tmp/generation-a/source/app",
+        snapshotRoot: "/tmp/generation-a",
+      },
       nitro,
       trigger: async () => {
         throw buildError;
       },
+      workspaceRoot: "/tmp/dev-host-a",
     });
 
     const error = await result.catch((cause: unknown) => cause);

@@ -1,113 +1,39 @@
 import { randomBytes } from "node:crypto";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { Socket } from "node:net";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 
+import { DevelopmentWorkerHttpServer } from "#internal/nitro/host/dev-worker-http-server.js";
+import { DevelopmentWorkflowDispatcher } from "#internal/nitro/host/development-workflow-dispatch.js";
+import { isRestorableDevelopmentWorker } from "#internal/nitro/host/development-worker-recovery.js";
 import {
-  closeServer,
-  createPublicRequest,
-  createWorkerRequest,
-  stampWorkerUpgradeRequest,
-  writeRequestError,
-  writeResponse,
-} from "#internal/nitro/host/dev-worker-http.js";
+  pruneDevelopmentRuntimeArtifactsSnapshots,
+  readActivatedDevelopmentRuntimeArtifactGenerations,
+} from "#internal/nitro/dev-runtime-artifacts.js";
+import { copyDevelopmentRuntimeArtifactsWorker } from "#internal/nitro/dev-runtime-worker-artifacts.js";
+import type {
+  DevelopmentWorkerCandidate,
+  DevelopmentWorkerGeneration,
+  DevelopmentWorkerListener,
+  DevelopmentWorkerPublication,
+  DevelopmentWorkerRunner,
+  DevelopmentWorkerRunnerFactory,
+  DevelopmentWorkerServer,
+  DevelopmentWorkerSlot,
+  DevelopmentWorkflowWorldOwnership,
+} from "#internal/nitro/host/dev-worker-server-types.js";
+import {
+  createParentDevelopmentWorkflowWorld,
+  type DevelopmentWorkflowGenerationReferences,
+  type ParentDevelopmentWorkflowWorld,
+} from "#internal/workflow/development-world-server.js";
 import { toErrorMessage } from "#shared/errors.js";
 
 const DEVELOPMENT_WORKER_READY_TIMEOUT_MS = 60_000;
 
-export interface DevelopmentWorkerGeneration {
-  readonly id: string;
-  readonly runtimeAppRoot: string;
-}
-
-export interface DevelopmentWorkerRunner {
-  readonly closed: boolean;
-  close(cause?: unknown): Promise<void>;
-  fetch(request: Request): Promise<Response>;
-  upgrade(input: {
-    readonly node: {
-      readonly head: Buffer;
-      readonly req: IncomingMessage;
-      readonly socket: Socket;
-    };
-  }): Promise<void>;
-  waitForReady(timeout: number): Promise<void>;
-}
-
-export interface DevelopmentWorkerRunnerFactoryInput {
-  readonly appRoot: string;
-  readonly entry: string;
-  readonly name: string;
-  readonly onClose: (cause?: unknown) => void;
-  readonly transportSecret: string;
-  readonly workerData: Readonly<Record<string, unknown>>;
-}
-
-export type DevelopmentWorkerRunnerFactory = (
-  input: DevelopmentWorkerRunnerFactoryInput,
-) => DevelopmentWorkerRunner;
-
-type WorkerState = "candidate" | "active" | "retired" | "closed";
-
-interface WorkerSlot {
-  disposed: boolean;
-  readonly dispose: () => Promise<void>;
-  readonly entry: string;
-  readonly generation: DevelopmentWorkerGeneration;
-  leases: number;
-  readonly runner: DevelopmentWorkerRunner;
-  state: WorkerState;
-  readonly workerData: Readonly<Record<string, unknown>>;
-}
-
-export interface DevelopmentWorkerCandidate {
-  readonly slot: WorkerSlot;
-}
-
-export interface DevelopmentWorkerPublication {
-  commit(): void;
-  rollback(): Promise<void>;
-}
-
-export interface DevelopmentWorkerListener {
-  close(): Promise<void>;
-  readonly node: { readonly server: Server };
-  ready(): Promise<void>;
-  readonly url: string | undefined;
-}
-
 interface RequestLease {
   readonly generation: DevelopmentWorkerGeneration;
   release(): void;
-  readonly slot: WorkerSlot;
-}
-
-interface ActiveExchange {
-  cancel(): void;
-  readonly slot: WorkerSlot;
-}
-
-interface ListenerState {
-  readonly beginClose: () => Promise<void>;
-  destroySockets(): void;
-}
-
-export interface DevelopmentWorkerServer {
-  close(): Promise<void>;
-  discardCandidate(candidate: DevelopmentWorkerCandidate): Promise<void>;
-  listen(input: { readonly hostname: string; readonly port: number }): DevelopmentWorkerListener;
-  prepareCandidate(input: {
-    readonly dispose: () => Promise<void>;
-    readonly entry: string;
-    readonly generation: DevelopmentWorkerGeneration;
-    readonly workerData: Readonly<Record<string, unknown>>;
-  }): Promise<DevelopmentWorkerCandidate>;
-  promote(candidate: DevelopmentWorkerCandidate): Promise<void>;
-  publishRuntimeGeneration(publish: () => Promise<DevelopmentWorkerPublication>): Promise<void>;
-  publishStructuralCandidate(input: {
-    readonly candidate: DevelopmentWorkerCandidate;
-    readonly publish: () => Promise<DevelopmentWorkerPublication>;
-  }): Promise<void>;
-  setControlHandler(handler: (request: Request) => Promise<Response | undefined>): void;
+  readonly slot: DevelopmentWorkerSlot;
 }
 
 export function createDevelopmentWorkerServer(input: {
@@ -116,26 +42,34 @@ export function createDevelopmentWorkerServer(input: {
   readonly resolveAdmissionGeneration: (
     workerGeneration: DevelopmentWorkerGeneration,
   ) => DevelopmentWorkerGeneration;
+  readonly workflowWorld: DevelopmentWorkflowWorldOwnership;
 }): DevelopmentWorkerServer {
   return new ParentDevelopmentWorkerServer(input);
 }
 
 class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
-  readonly #activeExchanges = new Set<ActiveExchange>();
   readonly #activeWaiters = new Set<() => void>();
   readonly #appRoot: string;
   readonly #createRunner: DevelopmentWorkerRunnerFactory;
-  readonly #listeners = new Set<ListenerState>();
+  readonly #generationRegistry = new Map<string, DevelopmentWorkerGeneration>();
+  readonly #generationSlots = new Map<string, DevelopmentWorkerSlot>();
+  readonly #httpServer: DevelopmentWorkerHttpServer;
+  readonly #leasedGenerations = new Map<string, number>();
+  readonly #parentOwnsWorkflowWorld: boolean;
   readonly #resolveAdmissionGeneration: (
     workerGeneration: DevelopmentWorkerGeneration,
   ) => DevelopmentWorkerGeneration;
-  readonly #slots = new Set<WorkerSlot>();
+  readonly #slots = new Set<DevelopmentWorkerSlot>();
   readonly #transportSecret = randomBytes(32).toString("base64url");
+  readonly #workflowDispatcher: DevelopmentWorkflowDispatcher;
+  readonly #workflowWorld: ParentDevelopmentWorkflowWorld;
   #accepting = true;
-  #activeSlot: WorkerSlot | undefined;
+  #activeSlot: DevelopmentWorkerSlot | undefined;
   #closePromise: Promise<void> | undefined;
   #controlHandler: ((request: Request) => Promise<Response | undefined>) | undefined;
   #promotion: Promise<void> = Promise.resolve();
+  #prunePromise: Promise<void> | undefined;
+  #pruneRequested = false;
   #workerCounter = 0;
 
   constructor(input: {
@@ -144,10 +78,96 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     readonly resolveAdmissionGeneration: (
       workerGeneration: DevelopmentWorkerGeneration,
     ) => DevelopmentWorkerGeneration;
+    readonly workflowWorld: DevelopmentWorkflowWorldOwnership;
   }) {
     this.#appRoot = input.appRoot;
     this.#createRunner = input.createRunner;
+    this.#parentOwnsWorkflowWorld = input.workflowWorld.kind === "parent-local";
     this.#resolveAdmissionGeneration = input.resolveAdmissionGeneration;
+    this.#workflowDispatcher = new DevelopmentWorkflowDispatcher({
+      admit: async (generationId) => {
+        const lease = await this.#admitWorkflowGeneration(generationId);
+        return {
+          generation: lease.generation,
+          release: lease.release,
+          runner: lease.slot.runner,
+        };
+      },
+      onRelease: () => this.#pruneInBackground(),
+      transportSecret: this.#transportSecret,
+    });
+    this.#workflowWorld = this.#createWorkflowWorld(input.workflowWorld);
+    this.#httpServer = new DevelopmentWorkerHttpServer({
+      admit: async () => {
+        const lease = await this.#admit();
+        return {
+          generation: lease.generation,
+          release: lease.release,
+          runner: lease.slot.runner,
+        };
+      },
+      handleParentRequest: async (request) => {
+        const workflowResponse = await this.#workflowWorld.handleRequest(request);
+        return workflowResponse ?? (await this.#controlHandler?.(request));
+      },
+      transportSecret: this.#transportSecret,
+    });
+  }
+
+  #createWorkflowWorld(
+    ownership: DevelopmentWorkflowWorldOwnership,
+  ): ParentDevelopmentWorkflowWorld {
+    if (ownership.kind === "worker-configured") {
+      return createWorkerOwnedDevelopmentWorkflowWorld();
+    }
+    return createParentDevelopmentWorkflowWorld({
+      agentName: ownership.agentName,
+      appRoot: this.#appRoot,
+      dispatch: async (request, generationId) =>
+        await this.#workflowDispatcher.dispatch(request, generationId),
+      hasGeneration: (generationId) => this.#hasGeneration(generationId),
+      resolveActiveGenerationId: () => this.#readActiveGeneration().id,
+      transportSecret: this.#transportSecret,
+    });
+  }
+
+  async startWorkflowWorld(): Promise<void> {
+    const generations = await readActivatedDevelopmentRuntimeArtifactGenerations(this.#appRoot);
+    for (const generation of generations) {
+      this.#generationRegistry.set(generation.id, generation);
+    }
+    if (this.#parentOwnsWorkflowWorld) {
+      const references = await this.#workflowWorld.collectGenerationReferences();
+      if (!references.protectAll) {
+        for (const generationId of references.generationIds) {
+          if (this.#generationSlots.has(generationId)) {
+            continue;
+          }
+          const generation = generations.find((candidate) => candidate.id === generationId);
+          if (generation === undefined) {
+            throw new Error(
+              `Workflow run references missing development generation "${generationId}".`,
+            );
+          }
+          const worker = generation.worker;
+          if (!isRestorableDevelopmentWorker(worker, this.#appRoot)) {
+            throw new Error(
+              `Workflow run references development generation "${generationId}" without a restorable worker.`,
+            );
+          }
+          const candidate = await this.prepareCandidate({
+            dispose: async () => await rm(worker.workspaceRoot, { force: true, recursive: true }),
+            entry: worker.entry,
+            generation,
+            workerData: worker.workerData,
+          });
+          candidate.slot.state = "retired";
+          this.#recordGeneration(generation, candidate.slot);
+        }
+      }
+    }
+    await this.#workflowWorld.start();
+    this.#pruneInBackground();
   }
 
   setControlHandler(handler: (request: Request) => Promise<Response | undefined>): void {
@@ -158,67 +178,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     if (!this.#accepting) {
       throw new Error("Development worker server is closed.");
     }
-
-    const sockets = new Set<Socket>();
-    const server = createServer((request, response) => {
-      void this.#handleRequest(request, response);
-    });
-    server.on("connection", (socket) => {
-      sockets.add(socket);
-      socket.once("close", () => sockets.delete(socket));
-    });
-    server.on("upgrade", (request, socket, head) => {
-      void this.#handleUpgrade(request, socket as Socket, head);
-    });
-
-    let url: string | undefined;
-    const ready = new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => {
-        server.off("listening", onListening);
-        reject(error);
-      };
-      const onListening = () => {
-        server.off("error", onError);
-        const address = server.address();
-        if (address === null || typeof address === "string") {
-          reject(new Error("Development worker server did not expose a TCP address."));
-          return;
-        }
-        const urlHost = input.hostname.includes(":") ? `[${input.hostname}]` : input.hostname;
-        url = `http://${urlHost}:${String(address.port)}/`;
-        resolve();
-      };
-      server.once("error", onError);
-      server.once("listening", onListening);
-      server.listen({ host: input.hostname, port: input.port });
-    });
-    let listenerClosePromise: Promise<void> | undefined;
-    const beginClose = (): Promise<void> => {
-      listenerClosePromise ??= closeServer(server).finally(() => {
-        this.#listeners.delete(listenerState);
-      });
-      return listenerClosePromise;
-    };
-    const destroySockets = () => {
-      for (const socket of sockets) {
-        socket.destroy();
-      }
-    };
-    const listenerState: ListenerState = { beginClose, destroySockets };
-    this.#listeners.add(listenerState);
-
-    return {
-      async close() {
-        const closed = beginClose();
-        destroySockets();
-        await closed;
-      },
-      node: { server },
-      ready: async () => await ready,
-      get url() {
-        return url;
-      },
-    };
+    return this.#httpServer.listen(input);
   }
 
   async prepareCandidate(input: {
@@ -231,7 +191,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
       throw new Error("Development worker server is closed.");
     }
 
-    let slot: WorkerSlot | undefined;
+    let slot: DevelopmentWorkerSlot | undefined;
     const workerNumber = this.#workerCounter++;
     let runner: DevelopmentWorkerRunner;
     try {
@@ -288,16 +248,29 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
 
   async promote(candidate: DevelopmentWorkerCandidate): Promise<void> {
     const previousSlot = await this.#gateAdmission(async () => this.#swapCandidate(candidate));
+    this.#recordGeneration(candidate.slot.generation, candidate.slot);
     await this.#closeRetiredSlotWithoutFailingCommit(previousSlot);
+    this.#pruneInBackground();
   }
 
-  async publishRuntimeGeneration(
-    publish: () => Promise<DevelopmentWorkerPublication>,
-  ): Promise<void> {
+  async publishRuntimeGeneration(input: {
+    readonly generation: DevelopmentWorkerGeneration;
+    readonly publish: () => Promise<DevelopmentWorkerPublication>;
+  }): Promise<void> {
     await this.#gateAdmission(async () => {
-      const publication = await publish();
+      const slot = this.#activeSlot;
+      if (slot === undefined) {
+        throw new Error("Development worker is unavailable for runtime publication.");
+      }
+      await copyDevelopmentRuntimeArtifactsWorker({
+        sourceSnapshotRoot: slot.generation.snapshotRoot,
+        targetSnapshotRoot: input.generation.snapshotRoot,
+      });
+      const publication = await input.publish();
       publication.commit();
+      this.#recordGeneration(input.generation, slot);
     });
+    this.#pruneInBackground();
   }
 
   async publishStructuralCandidate(input: {
@@ -310,6 +283,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
       try {
         const slot = this.#swapCandidate(input.candidate);
         publication.commit();
+        this.#recordGeneration(input.candidate.slot.generation, input.candidate.slot);
         return slot;
       } catch (error) {
         try {
@@ -325,6 +299,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
       }
     });
     await this.#closeRetiredSlotWithoutFailingCommit(previousSlot);
+    this.#pruneInBackground();
   }
 
   async #gateAdmission<T>(operation: () => Promise<T>): Promise<T> {
@@ -351,7 +326,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     }
   }
 
-  #swapCandidate(candidate: DevelopmentWorkerCandidate): WorkerSlot | undefined {
+  #swapCandidate(candidate: DevelopmentWorkerCandidate): DevelopmentWorkerSlot | undefined {
     this.#validateCandidate(candidate);
     const previousSlot = this.#activeSlot;
     candidate.slot.state = "active";
@@ -381,130 +356,29 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     this.#accepting = false;
     this.#wakeActiveWaiters();
 
-    const listeners = [...this.#listeners];
-    const listenerClosePromises = listeners.map((listener) => listener.beginClose());
-
-    for (const exchange of this.#activeExchanges) {
-      exchange.cancel();
-    }
-
-    await Promise.all([...this.#slots].map(async (slot) => await this.#closeSlot(slot)));
-
-    for (const listener of listeners) {
-      listener.destroySockets();
-    }
-
-    await Promise.all(listenerClosePromises);
-  }
-
-  async #handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const requestAbort = new AbortController();
-    const abortRequest = (cause?: unknown) => {
-      if (!requestAbort.signal.aborted) {
-        requestAbort.abort(cause);
-      }
-    };
-    request.once("aborted", abortRequest);
-    request.once("error", abortRequest);
-    response.once("close", () => {
-      if (!response.writableEnded) {
-        abortRequest();
-      }
+    this.#workflowDispatcher.close();
+    await this.#httpServer.close(async () => {
+      await this.#prunePromise;
+      const workflowReferences = this.#parentOwnsWorkflowWorld
+        ? await this.#workflowWorld.collectGenerationReferences()
+        : undefined;
+      await Promise.all([
+        ...[...this.#slots].map(async (slot) => {
+          if (
+            workflowReferences !== undefined &&
+            (workflowReferences.protectAll ||
+              this.#readSlotGenerationIds(slot).some((generationId) =>
+                workflowReferences.generationIds.has(generationId),
+              ))
+          ) {
+            await this.#stopSlotPreservingWorkspace(slot);
+            return;
+          }
+          await this.#closeSlot(slot);
+        }),
+        this.#workflowWorld.close(),
+      ]);
     });
-
-    let lease: RequestLease | undefined;
-    let exchange: ActiveExchange | undefined;
-    try {
-      const publicRequest = createPublicRequest(request, requestAbort.signal);
-      const controlResponse = await this.#controlHandler?.(publicRequest);
-      if (controlResponse !== undefined) {
-        await writeResponse(response, controlResponse, requestAbort.signal);
-        return;
-      }
-
-      lease = await this.#admit();
-      const workerRequest = createWorkerRequest({
-        generation: lease.generation,
-        request: publicRequest,
-        secret: this.#transportSecret,
-        socket: request.socket,
-      });
-      const admittedLease = lease;
-      exchange = {
-        cancel() {
-          abortRequest(new Error("Development worker request was cancelled."));
-          if (!response.destroyed) {
-            response.destroy();
-          }
-          admittedLease.release();
-        },
-        slot: lease.slot,
-      };
-      this.#activeExchanges.add(exchange);
-      response.once("finish", admittedLease.release);
-      response.once("error", admittedLease.release);
-      response.once("close", admittedLease.release);
-      request.once("aborted", admittedLease.release);
-
-      const workerResponse = await lease.slot.runner.fetch(workerRequest);
-      await writeResponse(response, workerResponse, requestAbort.signal);
-    } catch (error) {
-      if (!requestAbort.signal.aborted) {
-        writeRequestError(response, error);
-      }
-    } finally {
-      if (exchange !== undefined) {
-        this.#activeExchanges.delete(exchange);
-      }
-      lease?.release();
-      request.off("aborted", abortRequest);
-      request.off("error", abortRequest);
-    }
-  }
-
-  async #handleUpgrade(request: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
-    let lease: RequestLease | undefined;
-    let exchange: ActiveExchange | undefined;
-    try {
-      lease = await this.#admit();
-      stampWorkerUpgradeRequest({
-        generation: lease.generation,
-        request,
-        secret: this.#transportSecret,
-      });
-      const admittedLease = lease;
-      exchange = {
-        cancel() {
-          if (!socket.destroyed) {
-            socket.destroy();
-          }
-          admittedLease.release();
-        },
-        slot: lease.slot,
-      };
-      this.#activeExchanges.add(exchange);
-      const release = () => {
-        admittedLease.release();
-        if (exchange !== undefined) {
-          this.#activeExchanges.delete(exchange);
-          exchange = undefined;
-        }
-      };
-      socket.once("close", release);
-      socket.once("error", release);
-      await lease.slot.runner.upgrade({ node: { head, req: request, socket } });
-    } catch {
-      if (exchange !== undefined) {
-        exchange.cancel();
-      } else {
-        // Failure before the exchange existed: no socket listener releases
-        // the lease, so release it here or the retired worker never closes.
-        lease?.release();
-      }
-      if (!socket.destroyed) {
-        socket.destroy();
-      }
-    }
   }
 
   async #admit(): Promise<RequestLease> {
@@ -520,7 +394,15 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     }
 
     const generation = this.#resolveAdmissionGeneration(slot.generation);
+    return this.#createLease(slot, generation);
+  }
+
+  #createLease(slot: DevelopmentWorkerSlot, generation: DevelopmentWorkerGeneration): RequestLease {
     slot.leases += 1;
+    this.#leasedGenerations.set(
+      generation.id,
+      (this.#leasedGenerations.get(generation.id) ?? 0) + 1,
+    );
     let released = false;
     return {
       generation,
@@ -530,6 +412,12 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
         }
         released = true;
         slot.leases -= 1;
+        const generationLeases = (this.#leasedGenerations.get(generation.id) ?? 1) - 1;
+        if (generationLeases === 0) {
+          this.#leasedGenerations.delete(generation.id);
+        } else {
+          this.#leasedGenerations.set(generation.id, generationLeases);
+        }
         void this.#closeRetiredSlot(slot).catch((error) => {
           console.error(`[eve:dev] failed to close retired worker: ${toErrorMessage(error)}`);
         });
@@ -538,22 +426,112 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     };
   }
 
-  async #handleWorkerClose(slot: WorkerSlot, cause: unknown): Promise<void> {
-    if (slot.state !== "active" || !this.#accepting || this.#activeSlot !== slot) {
+  async #admitWorkflowGeneration(generationId: string): Promise<RequestLease> {
+    await this.#promotion;
+    const generation = this.#generationRegistry.get(generationId);
+    const slot = this.#generationSlots.get(generationId);
+    if (
+      !this.#accepting ||
+      slot === undefined ||
+      (slot.state !== "active" && slot.state !== "retired")
+    ) {
+      throw new Error("Development worker is unavailable for Workflow delivery.");
+    }
+    if (generation === undefined) {
+      throw new Error(`Workflow run references missing development generation "${generationId}".`);
+    }
+    return this.#createLease(slot, generation);
+  }
+
+  #recordGeneration(generation: DevelopmentWorkerGeneration, slot: DevelopmentWorkerSlot): void {
+    this.#generationRegistry.set(generation.id, generation);
+    this.#generationSlots.set(generation.id, slot);
+  }
+
+  #readActiveGeneration(): DevelopmentWorkerGeneration {
+    const slot = this.#activeSlot;
+    if (slot === undefined) {
+      throw new Error("Development runtime generation is unavailable.");
+    }
+    return this.#resolveAdmissionGeneration(slot.generation);
+  }
+
+  #hasGeneration(generationId: string): boolean {
+    const generation = this.#generationRegistry.get(generationId);
+    return generation !== undefined && existsSync(generation.runtimeAppRoot);
+  }
+
+  #pruneInBackground(): void {
+    if (!this.#accepting) {
+      return;
+    }
+    this.#pruneRequested = true;
+    if (this.#prunePromise !== undefined) {
+      return;
+    }
+    this.#prunePromise = this.#runScheduledPruning().finally(() => {
+      this.#prunePromise = undefined;
+      if (this.#pruneRequested) {
+        this.#pruneInBackground();
+      }
+    });
+  }
+
+  async #runScheduledPruning(): Promise<void> {
+    while (this.#accepting && this.#pruneRequested) {
+      this.#pruneRequested = false;
+      await this.#prune().catch((error) => {
+        console.error(`[eve:dev] failed to prune runtime generations: ${toErrorMessage(error)}`);
+      });
+    }
+  }
+
+  async #prune(): Promise<void> {
+    const workflowReferences = await this.#workflowWorld.collectGenerationReferences();
+    await Promise.all(
+      [...this.#slots].map(async (slot) => await this.#closeRetiredSlot(slot, workflowReferences)),
+    );
+    const protectedGenerationIds = new Set(this.#leasedGenerations.keys());
+    for (const slot of this.#slots) {
+      protectedGenerationIds.add(slot.generation.id);
+    }
+    for (const generationId of workflowReferences.generationIds) {
+      protectedGenerationIds.add(generationId);
+    }
+    await pruneDevelopmentRuntimeArtifactsSnapshots({
+      appRoot: this.#appRoot,
+      protectAll: workflowReferences.protectAll,
+      protectedGenerationIds,
+    });
+    for (const [generationId, generation] of this.#generationRegistry) {
+      if (!protectedGenerationIds.has(generationId) && !existsSync(generation.runtimeAppRoot)) {
+        this.#generationRegistry.delete(generationId);
+      }
+    }
+  }
+
+  async #handleWorkerClose(slot: DevelopmentWorkerSlot, cause: unknown): Promise<void> {
+    const wasActive = slot.state === "active" && this.#activeSlot === slot;
+    const wasRetired = slot.state === "retired";
+    if ((!wasActive && !wasRetired) || !this.#accepting) {
       return;
     }
 
+    const generationIds = this.#readSlotGenerationIds(slot);
     slot.state = "closed";
     this.#slots.delete(slot);
-    this.#activeSlot = undefined;
-    for (const exchange of this.#activeExchanges) {
-      if (exchange.slot === slot) {
-        exchange.cancel();
-        this.#activeExchanges.delete(exchange);
-      }
+    this.#removeSlotGenerationMappings(slot);
+    if (wasActive) {
+      this.#activeSlot = undefined;
     }
+    this.#workflowDispatcher.cancelRunnerExchanges(slot.runner);
+    this.#httpServer.cancelRunnerExchanges(slot.runner);
 
     try {
+      if (wasRetired && !(await this.#isSlotProtected(generationIds))) {
+        await this.#disposeSlot(slot);
+        return;
+      }
       slot.disposed = true;
       const candidate = await this.prepareCandidate({
         dispose: slot.dispose,
@@ -561,7 +539,17 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
         generation: slot.generation,
         workerData: slot.workerData,
       });
-      await this.promote(candidate);
+      if (wasActive) {
+        await this.promote(candidate);
+      } else {
+        candidate.slot.state = "retired";
+      }
+      for (const generationId of generationIds) {
+        const generation = this.#generationRegistry.get(generationId);
+        if (generation !== undefined) {
+          this.#generationSlots.set(generationId, candidate.slot);
+        }
+      }
     } catch (error) {
       console.error(
         `[eve:dev] worker restart failed after ${toErrorMessage(cause)}: ${toErrorMessage(error)}`,
@@ -569,18 +557,55 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     }
   }
 
-  async #closeRetiredSlot(slot: WorkerSlot): Promise<void> {
-    if (slot.state === "retired" && slot.leases === 0) {
+  async #closeRetiredSlot(
+    slot: DevelopmentWorkerSlot,
+    workflowReferences?: DevelopmentWorkflowGenerationReferences,
+  ): Promise<void> {
+    if (
+      slot.state === "retired" &&
+      slot.leases === 0 &&
+      !(await this.#isSlotProtected(this.#readSlotGenerationIds(slot), workflowReferences))
+    ) {
       await this.#closeSlot(slot);
     }
   }
 
-  async #closeSlot(slot: WorkerSlot, cause?: unknown): Promise<void> {
+  async #isSlotProtected(
+    generationIds: readonly string[],
+    workflowReferences?: DevelopmentWorkflowGenerationReferences,
+  ): Promise<boolean> {
+    if (generationIds.some((generationId) => this.#leasedGenerations.has(generationId))) {
+      return true;
+    }
+    const references =
+      workflowReferences ?? (await this.#workflowWorld.collectGenerationReferences());
+    return (
+      references.protectAll ||
+      generationIds.some((generationId) => references.generationIds.has(generationId))
+    );
+  }
+
+  #readSlotGenerationIds(slot: DevelopmentWorkerSlot): readonly string[] {
+    return [...this.#generationSlots]
+      .filter(([, generationSlot]) => generationSlot === slot)
+      .map(([generationId]) => generationId);
+  }
+
+  #removeSlotGenerationMappings(slot: DevelopmentWorkerSlot): void {
+    for (const [generationId, generationSlot] of this.#generationSlots) {
+      if (generationSlot === slot) {
+        this.#generationSlots.delete(generationId);
+      }
+    }
+  }
+
+  async #closeSlot(slot: DevelopmentWorkerSlot, cause?: unknown): Promise<void> {
     if (slot.state === "closed") {
       return;
     }
     slot.state = "closed";
     this.#slots.delete(slot);
+    this.#removeSlotGenerationMappings(slot);
     if (this.#activeSlot === slot) {
       this.#activeSlot = undefined;
     }
@@ -596,7 +621,20 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     }
   }
 
-  async #disposeSlot(slot: WorkerSlot): Promise<void> {
+  async #stopSlotPreservingWorkspace(slot: DevelopmentWorkerSlot): Promise<void> {
+    if (slot.state === "closed") {
+      return;
+    }
+    slot.state = "closed";
+    this.#slots.delete(slot);
+    this.#removeSlotGenerationMappings(slot);
+    if (this.#activeSlot === slot) {
+      this.#activeSlot = undefined;
+    }
+    await slot.runner.close();
+  }
+
+  async #disposeSlot(slot: DevelopmentWorkerSlot): Promise<void> {
     if (slot.disposed) {
       return;
     }
@@ -604,7 +642,9 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     await slot.dispose();
   }
 
-  async #closeRetiredSlotWithoutFailingCommit(slot: WorkerSlot | undefined): Promise<void> {
+  async #closeRetiredSlotWithoutFailingCommit(
+    slot: DevelopmentWorkerSlot | undefined,
+  ): Promise<void> {
     if (slot === undefined) {
       return;
     }
@@ -619,4 +659,17 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     }
     this.#activeWaiters.clear();
   }
+}
+
+function createWorkerOwnedDevelopmentWorkflowWorld(): ParentDevelopmentWorkflowWorld {
+  return {
+    async close() {},
+    async collectGenerationReferences() {
+      return { generationIds: new Set(), protectAll: true };
+    },
+    async handleRequest() {
+      return undefined;
+    },
+    async start() {},
+  };
 }
