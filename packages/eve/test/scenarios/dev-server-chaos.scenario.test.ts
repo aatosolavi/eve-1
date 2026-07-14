@@ -19,6 +19,7 @@ import {
   startEveDev,
   wait,
   waitForCondition,
+  withinDeadline,
   type RunningEveDev,
 } from "./dev-server-harness.js";
 
@@ -39,6 +40,7 @@ const CHAOS_CHANNEL_SOURCE = [
   "      setTimeout(() => process.exit(7), 25);",
   '      return new Response("crashing");',
   "    }),",
+  '    GET("/chaos/request-ip", (_request, context) => new Response(String(context.requestIp))),',
   '    GET("/chaos/slow-stream", () => {',
   "      let timer: ReturnType<typeof setInterval> | undefined;",
   "      const body = new ReadableStream({",
@@ -229,6 +231,102 @@ describe("eve dev server chaos", () => {
 
         await completeStreamedTurn(server, "What's the weather in Lisbon?");
         expect(hasKnownDevServerFailure(`${server.stdout()}\n${server.stderr()}`)).toBe(false);
+      } finally {
+        await server.stop();
+      }
+    },
+    CHAOS_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "terminates an open stream within a bounded deadline when its worker crashes",
+    async () => {
+      const app = await scenarioApp(CHAOS_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+
+      try {
+        const streamResponse = await fetch(new URL("/chaos/slow-stream", server.url));
+        const reader = streamResponse.body?.getReader();
+        await reader?.read();
+
+        await fetch(new URL("/chaos/crash", server.url));
+        const settled = await withinDeadline(
+          (async () => {
+            for (;;) {
+              const result = await reader?.read();
+              if (result === undefined || result.done) {
+                return "done";
+              }
+            }
+          })().catch(() => "errored"),
+          "Timed out waiting for the crashed worker's stream to settle.",
+          15_000,
+        );
+        expect(["done", "errored"]).toContain(settled);
+
+        await waitForCondition(async () => {
+          try {
+            const response = await fetch(new URL(EVE_HEALTH_ROUTE_PATH, server.url));
+            return response.status === 200;
+          } catch {
+            return false;
+          }
+        }, "Timed out waiting for the dev server to recover after the crash.");
+        await completeStreamedTurn(server, "What's the weather in Lisbon?");
+      } finally {
+        await server.stop();
+      }
+    },
+    CHAOS_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "shuts down within a bounded deadline while a stream is open",
+    async () => {
+      const app = await scenarioApp(CHAOS_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+      const streamResponse = await fetch(new URL("/chaos/slow-stream", server.url));
+      const reader = streamResponse.body?.getReader();
+      await reader?.read();
+
+      const stopStart = Date.now();
+      await server.stop();
+
+      // The harness escalates to SIGKILL at 10s; a graceful exit must beat it.
+      expect(Date.now() - stopStart).toBeLessThan(9_000);
+      await expect(
+        withinDeadline(
+          (async () => {
+            for (;;) {
+              const result = await reader?.read();
+              if (result === undefined || result.done) {
+                return "done";
+              }
+            }
+          })().catch(() => "errored"),
+          "Timed out waiting for the shutdown stream to settle.",
+          5_000,
+        ),
+      ).resolves.toBeDefined();
+    },
+    CHAOS_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "reports the socket peer as the client address despite forged headers",
+    async () => {
+      const app = await scenarioApp(CHAOS_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+
+      try {
+        const response = await fetch(new URL("/chaos/request-ip", server.url), {
+          headers: {
+            "x-eve-dev-worker-metadata": "forged.forged",
+            "x-forwarded-for": "203.0.113.7",
+          },
+        });
+        expect(response.status).toBe(200);
+        await expect(response.text()).resolves.toBe("127.0.0.1");
       } finally {
         await server.stop();
       }

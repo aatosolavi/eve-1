@@ -1,3 +1,4 @@
+import { Agent } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,6 +24,7 @@ import {
   forceDevelopmentRebuild,
   hasKnownDevServerFailure,
   readDevelopmentRevision,
+  requestWithAgent,
   startEveDev,
   waitForCondition,
   waitForPath,
@@ -505,6 +507,39 @@ describe("eve dev server", () => {
         await expect(reader.read()).resolves.toEqual(expect.objectContaining({ done: true }));
         expect(hasKnownDevServerFailure(`${server.stdout()}\n${server.stderr()}`)).toBe(false);
       } finally {
+        await server.stop();
+      }
+    },
+    DEV_SERVER_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "serves a kept-alive connection across a structural worker replacement",
+    async () => {
+      const app = await scenarioApp(TRANSACTIONAL_REBUILD_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+      const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+
+      try {
+        const first = await requestWithAgent(new URL("/worker-id", server.url).href, agent);
+        expect(first.localPort).toBeDefined();
+
+        await writeFile(
+          join(app.appRoot, "agent", "instrumentation.ts"),
+          createInstrumentationSource("keep-alive-two"),
+        );
+        await forceDevelopmentRebuild(server.url);
+        await waitForCondition(
+          async () => (await fetchText(server.url, "/instrumentation-marker")) === "keep-alive-two",
+          `Timed out waiting for the structural replacement.\n\nstdout:\n${server.stdout()}\n\nstderr:\n${server.stderr()}`,
+        );
+
+        const second = await requestWithAgent(new URL("/worker-id", server.url).href, agent);
+        expect(second.localPort).toBe(first.localPort);
+        expect(second.body).not.toBe(first.body);
+        expect(hasKnownDevServerFailure(`${server.stdout()}\n${server.stderr()}`)).toBe(false);
+      } finally {
+        agent.destroy();
         await server.stop();
       }
     },

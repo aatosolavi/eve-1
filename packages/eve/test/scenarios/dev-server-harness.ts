@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
+import { request as requestHttp, type Agent } from "node:http";
 import { existsSync, watch as watchFileSystem } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
@@ -397,5 +398,36 @@ async function waitForServerUrl(input: {
     input.child.once("error", settleReject);
     input.child.once("exit", handleExit);
     handleOutput();
+  });
+}
+
+/**
+ * Issues one GET through the provided keep-alive agent and reports the local
+ * port so callers can assert connection reuse across worker replacements.
+ */
+export async function requestWithAgent(
+  url: string,
+  agent: Agent,
+): Promise<{ readonly body: string; readonly localPort: number | undefined }> {
+  return await new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = requestHttp(
+      {
+        agent,
+        host: target.hostname,
+        path: `${target.pathname}${target.search}`,
+        port: Number(target.port),
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        const localPort = response.socket.localPort;
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          resolve({ body: Buffer.concat(chunks).toString("utf8"), localPort });
+        });
+      },
+    );
+    request.once("error", reject);
+    request.end();
   });
 }
