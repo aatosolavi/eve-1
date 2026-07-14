@@ -158,7 +158,7 @@ For bearer tokens or custom schemes, pass explicit headers with `-H`.
 
 Local dev records the last ready URL per resolved app root in `.eve/dev-server-state.v1.json`. A second interactive `eve dev` reconnects only when that URL is loopback and healthy; each terminal UI creates a fresh client session while sharing the server process. A stale or malformed record is replaced when eve starts a new server. Passing `--host`, `--port`, or a `PORT` environment value skips reconnection and reports a healthy recorded server instead.
 
-Local dev keeps immutable runtime source snapshots under `.eve/dev-runtime/snapshots/` so in-flight sessions hold a consistent code revision while new prompts pick up rebuilds. On startup, `eve dev` prunes stale runtime snapshots and old local sandbox templates in the background. For manual cleanup, stop `eve dev` and delete `.eve/dev-runtime/snapshots/` or `.eve/sandbox-cache/local/templates/`.
+Local dev keeps immutable runtime generations under `.eve/dev-runtime/snapshots/` so an in-flight turn finishes on the code revision it started with while the next prompt picks up successful rebuilds. eve prunes generations in the background once no request, worker, or active local Workflow run references them, along with old local sandbox templates. For manual cleanup, stop `eve dev` and delete `.eve/dev-runtime/snapshots/` or `.eve/sandbox-cache/local/templates/`; also delete `.workflow-data` if it exists, since a Workflow run that references a deleted generation stops `eve dev` startup with an integrity error.
 
 ## `eve link`
 
