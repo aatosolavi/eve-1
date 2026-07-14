@@ -11,7 +11,7 @@ const DEV_RUNTIME_ARTIFACTS_DIRECTORY = "dev-runtime";
 const DEV_RUNTIME_ARTIFACTS_POINTER_VERSION = 2;
 const DEV_RUNTIME_SNAPSHOT_RECENT_WINDOW_MS = 15 * 60 * 1000;
 const DEV_RUNTIME_SNAPSHOT_RETAIN_COUNT = 5;
-const DEV_RUNTIME_WORKFLOW_DATA_MAX_SCAN_BYTES = 1024 * 1024;
+const DEV_RUNTIME_PROTECTED_REFERENCE_MAX_SCAN_BYTES = 1024 * 1024;
 const TERMINAL_WORKFLOW_RUN_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 
 interface DevelopmentRuntimeArtifactsPointerV1 {
@@ -184,7 +184,10 @@ export async function pruneDevelopmentRuntimeArtifactsSnapshots(input: {
   );
   const protectedPaths = [
     ...collectProtectedSnapshotPaths(pointer),
-    ...(await collectWorkflowDataSnapshotPaths({ appRoot: input.appRoot, snapshotsDirectory })),
+    ...(await collectProtectedReferenceSnapshotPaths({
+      appRoot: input.appRoot,
+      snapshotsDirectory,
+    })),
   ];
   const now = input.now ?? Date.now();
   const recentWindowMs = input.recentWindowMs ?? DEV_RUNTIME_SNAPSHOT_RECENT_WINDOW_MS;
@@ -297,18 +300,25 @@ function collectProtectedSnapshotPaths(
   return [pointer.runtimeAppRoot, pointer.snapshotRoot];
 }
 
-async function collectWorkflowDataSnapshotPaths(input: {
+async function collectProtectedReferenceSnapshotPaths(input: {
   readonly appRoot: string;
   readonly snapshotsDirectory: string;
 }): Promise<readonly string[]> {
-  const workflowDataDirectory = join(input.appRoot, ".workflow-data");
+  const referenceDirectories = [
+    join(input.appRoot, ".workflow-data"),
+    join(input.appRoot, ".eve", "nitro"),
+  ];
   const snapshotPaths = new Set<string>();
 
-  await collectSnapshotPathsFromDirectory({
-    directory: workflowDataDirectory,
-    snapshotPaths,
-    snapshotsDirectory: input.snapshotsDirectory,
-  });
+  await Promise.all(
+    referenceDirectories.map((directory) =>
+      collectSnapshotPathsFromDirectory({
+        directory,
+        snapshotPaths,
+        snapshotsDirectory: input.snapshotsDirectory,
+      }),
+    ),
+  );
 
   return [...snapshotPaths];
 }
@@ -348,8 +358,8 @@ async function collectSnapshotPathsFromDirectory(input: {
       }
 
       const fileStats = await stat(path);
-      // Local workflow run payloads are small; keep this best-effort scan cheap.
-      if (fileStats.size > DEV_RUNTIME_WORKFLOW_DATA_MAX_SCAN_BYTES) {
+      // Protected-reference files are small; keep this best-effort scan cheap.
+      if (fileStats.size > DEV_RUNTIME_PROTECTED_REFERENCE_MAX_SCAN_BYTES) {
         return;
       }
 
