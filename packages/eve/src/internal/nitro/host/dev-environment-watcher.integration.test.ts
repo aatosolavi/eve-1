@@ -71,6 +71,22 @@ describe("development environment reload transactions", () => {
 
     expect(process.env.EVE_WATCH_ENV_SHARED).toBe("committed");
   });
+
+  it("reapplies a rolled-back environment edit when a later rebuild stages again", async () => {
+    const appRoot = await createEnvironmentApp();
+    loadDevelopmentEnvironmentFiles(appRoot);
+    await writeFile(join(appRoot, ".env.local"), "EVE_WATCH_ENV_SHARED=after-fix\n");
+
+    stageDevelopmentEnvironmentFiles(appRoot).rollback();
+    expect(process.env.EVE_WATCH_ENV_SHARED).toBe("from-local");
+
+    // The retry rebuild carries no env-file change of its own; staging from
+    // the files on disk must still pick the edit up.
+    const retry = stageDevelopmentEnvironmentFiles(appRoot);
+    retry.commit();
+
+    expect(process.env.EVE_WATCH_ENV_SHARED).toBe("after-fix");
+  });
 });
 
 async function createEnvironmentApp(): Promise<string> {

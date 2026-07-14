@@ -1,10 +1,6 @@
 import { relative, resolve } from "node:path";
 
-import {
-  getDevelopmentEnvironmentFilePaths,
-  stageDevelopmentEnvironmentFiles,
-  type DevelopmentEnvironmentReload,
-} from "#cli/dev/environment.js";
+import { stageDevelopmentEnvironmentFiles } from "#cli/dev/environment.js";
 import { startDevelopmentSandboxPrewarmInBackground } from "#execution/sandbox/development-prewarm.js";
 import { createDevelopmentNitroArtifactsConfig } from "#internal/nitro/host/artifacts-config.js";
 import { createDevelopmentApplicationNitro } from "#internal/nitro/host/create-application-nitro.js";
@@ -65,7 +61,11 @@ class TransactionalDevelopmentAuthoredRebuildCoordinator implements DevelopmentA
     readonly changedPaths: readonly string[];
   }): Promise<DevelopmentRebuildResult> {
     const previousHost = this.#currentHost;
-    const environmentReload = stageEnvironmentReload(previousHost.appRoot, input.changedPaths);
+    // Staged unconditionally rather than keyed off changedPaths: a failed
+    // rebuild rolls the environment back, and the paths that carried the env
+    // edit are consumed by that attempt — a later retry would otherwise
+    // commit without ever reapplying the change.
+    const environmentReload = stageDevelopmentEnvironmentFiles(previousHost.appRoot);
     let nextHost: PreparedDevelopmentApplicationHost | undefined;
 
     try {
@@ -78,7 +78,7 @@ class TransactionalDevelopmentAuthoredRebuildCoordinator implements DevelopmentA
       if (!hasStructuralChange && !hasRuntimeChange) {
         await discardPreparedHost(nextHost);
         nextHost = undefined;
-        environmentReload?.commit();
+        environmentReload.commit();
         return { host: previousHost, kind: "unchanged" };
       }
 
@@ -93,7 +93,7 @@ class TransactionalDevelopmentAuthoredRebuildCoordinator implements DevelopmentA
         });
         this.#commitState(committedHost, nextHostFingerprint, nextRuntimeFingerprint);
         nextHost = undefined;
-        environmentReload?.commit();
+        environmentReload.commit();
         startSandboxPrewarmAfterCommit(committedHost, input.changedPaths);
         return { host: committedHost, kind: "runtime" };
       }
@@ -105,11 +105,11 @@ class TransactionalDevelopmentAuthoredRebuildCoordinator implements DevelopmentA
         nextRuntimeFingerprint,
       });
       nextHost = undefined;
-      environmentReload?.commit();
+      environmentReload.commit();
       startSandboxPrewarmAfterCommit(result.host, input.changedPaths);
       return result;
     } catch (error) {
-      environmentReload?.rollback();
+      environmentReload.rollback();
       if (nextHost === undefined) {
         throw error;
       }
@@ -194,19 +194,6 @@ function retainActiveHostWorkspace(
     workflowBuildDir: activeHost.workflowBuildDir,
     workspace: activeHost.workspace,
   };
-}
-
-function stageEnvironmentReload(
-  appRoot: string,
-  changedPaths: readonly string[],
-): DevelopmentEnvironmentReload | undefined {
-  const environmentPaths = new Set(
-    getDevelopmentEnvironmentFilePaths(appRoot).map((path) => resolve(path)),
-  );
-  if (!changedPaths.some((path) => environmentPaths.has(resolve(path)))) {
-    return undefined;
-  }
-  return stageDevelopmentEnvironmentFiles(appRoot);
 }
 
 function startSandboxPrewarmAfterCommit(
