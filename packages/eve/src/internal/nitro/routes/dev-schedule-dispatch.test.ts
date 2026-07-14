@@ -51,6 +51,7 @@ describe("handleDevScheduleDispatchRequest", () => {
     });
     expect(mocks.dispatchScheduleInDev).toHaveBeenCalledWith({
       artifactsConfig: ARTIFACTS_CONFIG,
+      request: expect.any(Request),
       scheduleId: "heartbeat",
     });
   });
@@ -66,6 +67,7 @@ describe("handleDevScheduleDispatchRequest", () => {
     expect(response.status).toBe(200);
     expect(mocks.dispatchScheduleInDev).toHaveBeenCalledWith({
       artifactsConfig: ARTIFACTS_CONFIG,
+      request: expect.any(Request),
       scheduleId: "weird/name",
     });
   });

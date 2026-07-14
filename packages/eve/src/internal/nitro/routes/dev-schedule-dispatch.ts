@@ -54,6 +54,7 @@ export async function handleDevScheduleDispatchRequest(
   try {
     const result = await dispatchScheduleInDev({
       artifactsConfig: input,
+      request,
       scheduleId,
     });
     return Response.json({
