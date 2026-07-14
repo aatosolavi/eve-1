@@ -415,7 +415,13 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
       socket.once("error", release);
       await lease.slot.runner.upgrade({ node: { head, req: request, socket } });
     } catch {
-      exchange?.cancel();
+      if (exchange !== undefined) {
+        exchange.cancel();
+      } else {
+        // Failure before the exchange existed: no socket listener releases
+        // the lease, so release it here or the retired worker never closes.
+        lease?.release();
+      }
       if (!socket.destroyed) {
         socket.destroy();
       }
