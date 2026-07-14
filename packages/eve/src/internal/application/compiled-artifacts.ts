@@ -100,6 +100,10 @@ export async function writeCompiledArtifactsFiles(input: {
   return generatedArtifacts;
 }
 
+// The dev host's Nitro inputs outlive any single generation, so nothing
+// written here may point into authored source or a prunable snapshot: the
+// bootstrap references no authored module, and the instrumentation bundle is
+// copied out of the generation into the stable host directory.
 export async function writeDevelopmentCompiledArtifactsFiles(input: {
   readonly compileResult: CompileAgentResult;
   readonly outDir: string;

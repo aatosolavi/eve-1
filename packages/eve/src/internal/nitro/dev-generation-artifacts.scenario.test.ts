@@ -87,7 +87,9 @@ describe("development generation artifacts", () => {
       default: { execute(): string };
     };
 
-    expect(tool.default.execute()).toBe("bundled-original:external-original:payload-original");
+    expect(tool.default.execute()).toBe(
+      "bundled-original:serde-original:external-original:payload-original",
+    );
   });
 
   it("uses a path-independent fingerprint that includes instrumentation", async () => {
@@ -214,9 +216,28 @@ async function writeDependencyFixture(appRoot: string): Promise<string> {
     join(bundledRoot, "package.json"),
     `${JSON.stringify({ exports: "./index.mjs", name: "fixture-bundled", type: "module" })}\n`,
   );
+  // eve vendors `@workflow/*`, so a transitive workflow import reachable only
+  // through an inlined dependency must be inlined with it — a bare specifier
+  // would be unresolvable once the generation outlives `node_modules`.
   await writeFile(
     join(bundledRoot, "index.mjs"),
-    '"use workflow";\nexport const bundledValue = "bundled-original";\n',
+    [
+      '"use workflow";',
+      'import { serdeMarker } from "@workflow/serde";',
+      "export const bundledValue = `bundled-original:${serdeMarker}`;",
+      "",
+    ].join("\n"),
+  );
+
+  const vendoredWorkflowRoot = join(nodeModulesRoot, "@workflow", "serde");
+  await mkdir(vendoredWorkflowRoot, { recursive: true });
+  await writeFile(
+    join(vendoredWorkflowRoot, "package.json"),
+    `${JSON.stringify({ exports: "./index.mjs", name: "@workflow/serde", type: "module" })}\n`,
+  );
+  await writeFile(
+    join(vendoredWorkflowRoot, "index.mjs"),
+    'export const serdeMarker = "serde-original";\n',
   );
 
   await mkdir(externalRoot, { recursive: true });

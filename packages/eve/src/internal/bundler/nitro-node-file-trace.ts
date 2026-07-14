@@ -32,6 +32,9 @@ async function loadNitroNodeFileTrace(): Promise<NodeFileTraceModule> {
   return await nodeFileTraceModulePromise;
 }
 
+// Traces under `node` + `import` conditions: the runtime loads materialized
+// externals with ESM `import()`, so tracing through `require` conditions
+// would materialize files the runtime never resolves.
 export async function traceNodeEsmFiles(input: {
   readonly base: string;
   readonly entries: readonly string[];

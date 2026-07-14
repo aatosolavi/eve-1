@@ -1,18 +1,27 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { createAuthoredAssetImportPlugin } from "#internal/authored-asset-import-plugin.js";
 import { assertNoWorkflowDirectivePrologue } from "#internal/authored-directive-prologue.js";
 import { createAuthoredModuleBundleError } from "#internal/authored-module-bundle.js";
 import { createAuthoredPackageTsConfigPathsPlugin } from "#internal/authored-package-tsconfig-paths.js";
 import { createFixedNamespaceScopePlugin } from "#internal/bundler/extension-scope-plugin.js";
+import {
+  CACHED_CHANNEL_PREFIX,
+  RESOLVE_EXTENSIONS,
+  createGenerationPackageBoundaryPlugin,
+  createRuntimeLoaderPackageBoundaryPlugin,
+  isNodeModulesPath,
+  isPathImport,
+  normalizeExternalDependencies,
+  type RolldownResolveContext,
+} from "#internal/authored-package-boundary.js";
 import { expectObjectRecord } from "#internal/authored-module.js";
 import {
   buildWithNitroRolldown,
   getSingleRolldownChunk,
 } from "#internal/bundler/nitro-rolldown.js";
-import { SERVER_EXTERNAL_PACKAGES } from "#internal/nitro/host/server-external-packages.js";
 import type { ResolvedAuthoredExternalModule } from "#internal/materialize-authored-external-dependencies.js";
 import { createNodeEsmCompatBannerPlugin } from "#internal/node-esm-compat-banner.js";
 
@@ -23,32 +32,7 @@ const AUTHORED_MODULE_BUNDLE_DIRECTORY_PATH = join(
   "eve",
   "authored-modules",
 );
-const RESOLVE_EXTENSIONS = [
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".json",
-] as const;
-
 const CHANNEL_MODULE_CACHE_KEY = "__eveChannelModuleCache__";
-const CACHED_CHANNEL_PREFIX = "eve-cached-channel:";
-
-type RolldownResolveResult = {
-  readonly id: string;
-};
-
-type RolldownResolveContext = {
-  resolve(
-    source: string,
-    importer: string | undefined,
-    options: { kind: string; skipSelf: boolean },
-  ): Promise<RolldownResolveResult | null>;
-};
 
 export interface AuthoredModuleLoadOptions {
   readonly externalDependencies?: readonly string[];
@@ -161,6 +145,7 @@ export async function bundleAuthoredModuleCode(
   options: AuthoredModuleLoadOptions = {},
 ): Promise<string> {
   return await buildAuthoredModuleBundle(modulePath, options, {
+    channelIdentity: true,
     packageBoundaryPlugin: createRuntimeLoaderPackageBoundaryPlugin({
       externalDependencies: normalizeExternalDependencies(options.externalDependencies),
       packageRoot: resolveAuthoredPackageRoot(modulePath),
@@ -170,12 +155,23 @@ export async function bundleAuthoredModuleCode(
   });
 }
 
+/**
+ * Bundles one authored entry for an immutable development generation. Ordinary
+ * package dependencies are inlined so the emitted code stays executable after
+ * the original workspace changes; framework runtime imports and configured
+ * external dependencies stay external, and every configured external the
+ * bundle references is reported for closure materialization.
+ */
 export async function bundleAuthoredModuleForGeneration(
   modulePath: string,
   options: AuthoredModuleLoadOptions = {},
 ): Promise<AuthoredGenerationModuleBundle> {
   const externalModules = new Map<string, ResolvedAuthoredExternalModule>();
   const code = await buildAuthoredModuleBundle(modulePath, options, {
+    // Generation bundles must not reference process state: the channel
+    // identity plugin emits reads of a process-global cache keyed by live
+    // source paths, which an immutable retained artifact cannot depend on.
+    channelIdentity: false,
     packageBoundaryPlugin: createGenerationPackageBoundaryPlugin({
       externalDependencies: normalizeExternalDependencies(options.externalDependencies),
       packageRoot: resolveAuthoredPackageRoot(modulePath),
@@ -204,12 +200,13 @@ async function buildAuthoredModuleBundle(
   modulePath: string,
   options: AuthoredModuleLoadOptions,
   configuration: {
+    readonly channelIdentity: boolean;
     readonly packageBoundaryPlugin: Record<string, unknown>;
     readonly plugins: readonly Record<string, unknown>[];
     readonly sourcemap: false | "inline";
   },
 ): Promise<string> {
-  const channelCache = getChannelModuleCache();
+  const channelCache = configuration.channelIdentity ? getChannelModuleCache() : undefined;
   const packageRoot = resolveAuthoredPackageRoot(modulePath);
   const tsconfigPath = resolveAuthoredTsConfigPath(packageRoot);
   const channelIdentityPlugin =
@@ -376,164 +373,6 @@ function createAuthoredRelativeExtensionResolverPlugin(input: {
   };
 }
 
-function createGenerationPackageBoundaryPlugin(input: {
-  readonly externalDependencies: readonly string[];
-  readonly packageRoot: string;
-  readonly recordExternalModule: (externalModule: ResolvedAuthoredExternalModule) => void;
-}): Record<string, unknown> {
-  return {
-    name: "eve-generation-package-boundary",
-    async resolveId(
-      this: RolldownResolveContext,
-      source: string,
-      importer: string | undefined,
-      options: { kind: string },
-    ) {
-      if (!isPackageImport(source)) {
-        return undefined;
-      }
-
-      if (isFrameworkRuntimeImport(source)) {
-        return {
-          external: true,
-          id: source,
-        };
-      }
-
-      const externalModule = await resolveConfiguredExternalModule.call(this, {
-        externalDependencies: input.externalDependencies,
-        importer,
-        kind: options.kind,
-        packageRoot: input.packageRoot,
-        source,
-      });
-      if (externalModule === undefined) {
-        return undefined;
-      }
-
-      input.recordExternalModule(externalModule);
-      return { external: true, id: source };
-    },
-  };
-}
-
-function createRuntimeLoaderPackageBoundaryPlugin(input: {
-  readonly externalDependencies: readonly string[];
-  readonly packageRoot: string;
-}): Record<string, unknown> {
-  const canonicalPackageRoot = toCanonicalPath(input.packageRoot);
-
-  return {
-    name: "eve-runtime-loader-package-boundary",
-    async resolveId(
-      this: RolldownResolveContext,
-      source: string,
-      importer: string | undefined,
-      options: { kind: string },
-    ) {
-      if (!isPackageImport(source)) {
-        return undefined;
-      }
-
-      if (isFrameworkRuntimeImport(source)) {
-        return { external: true, id: source };
-      }
-
-      const externalModule = await resolveConfiguredExternalModule.call(this, {
-        externalDependencies: input.externalDependencies,
-        importer,
-        kind: options.kind,
-        packageRoot: input.packageRoot,
-        source,
-      });
-      if (externalModule !== undefined) {
-        return {
-          external: true,
-          id:
-            resolveExistingExternalFilePath(externalModule.resolvedId) ?? externalModule.resolvedId,
-        };
-      }
-
-      const importerPath =
-        importer === undefined ||
-        importer.startsWith("\0") ||
-        importer.startsWith(CACHED_CHANNEL_PREFIX)
-          ? undefined
-          : resolve(importer);
-
-      // Keep package imports authored directly by the app external by
-      // default, but let symlinked/file workspace packages compile as
-      // source. Those packages often export `.ts` files and rely on the
-      // bundler's extension resolution for their own relative imports.
-      if (
-        importerPath !== undefined &&
-        isPathInsideOrEqual(toCanonicalPath(importerPath), canonicalPackageRoot)
-      ) {
-        const resolved = await this.resolve(source, importer, {
-          kind: options.kind,
-          skipSelf: true,
-        });
-
-        if (resolved === null || typeof resolved.id !== "string") {
-          // Failing here (instead of emitting the bare specifier as an
-          // external) is load-bearing: importing a bundle whose package is
-          // missing poisons Node's process-wide package-config cache with a
-          // negative entry, and once the package is installed the same
-          // long-running process keeps failing resolution until restart.
-          // The bundler's resolver is fresh on every rebuild, so failing at
-          // bundle time keeps the dev server able to recover after install.
-          throw new Error(
-            `Cannot resolve package "${source}" imported from "${importerPath}". ` +
-              `Install it with your package manager (e.g. \`pnpm install\`); ` +
-              `a running \`eve dev\` retries on the next rebuild.`,
-          );
-        }
-
-        if (isNodeModulesPath(resolved.id)) {
-          return {
-            external: true,
-            id: source,
-          };
-        }
-      }
-
-      return undefined;
-    },
-  };
-}
-
-async function resolveConfiguredExternalModule(
-  this: RolldownResolveContext,
-  input: {
-    readonly externalDependencies: readonly string[];
-    readonly importer: string | undefined;
-    readonly kind: string;
-    readonly packageRoot: string;
-    readonly source: string;
-  },
-): Promise<ResolvedAuthoredExternalModule | undefined> {
-  const packageName = resolveConfiguredExternalDependency(input.source, input.externalDependencies);
-  if (packageName === undefined) {
-    return undefined;
-  }
-
-  let resolved = await this.resolve(input.source, input.importer, {
-    kind: input.kind,
-    skipSelf: true,
-  });
-  if (resolved === null) {
-    resolved = await this.resolve(input.source, join(input.packageRoot, "package.json"), {
-      kind: input.kind,
-      skipSelf: true,
-    });
-  }
-  if (resolved === null || typeof resolved.id !== "string") {
-    throw new Error(`Cannot resolve external package "${input.source}".`);
-  }
-
-  return { packageName, resolvedId: resolved.id };
-}
-
 function createInFlightModuleLoadKey(
   modulePath: string,
   options: AuthoredModuleLoadOptions,
@@ -541,35 +380,6 @@ function createInFlightModuleLoadKey(
   const externalDependencies = normalizeExternalDependencies(options.externalDependencies);
 
   return `${modulePath}\0${externalDependencies.join("\0")}\0${options.extensionScopeNamespace ?? ""}`;
-}
-
-function normalizeExternalDependencies(externalDependencies: readonly string[] = []): string[] {
-  return [...new Set([...SERVER_EXTERNAL_PACKAGES, ...externalDependencies])].sort();
-}
-
-function resolveConfiguredExternalDependency(
-  source: string,
-  externalDependencies: readonly string[],
-): string | undefined {
-  return externalDependencies.find(
-    (dependencyName) => source === dependencyName || source.startsWith(`${dependencyName}/`),
-  );
-}
-
-function resolveExistingExternalFilePath(id: string): string | undefined {
-  if (existsSync(id)) {
-    return id;
-  }
-
-  for (const extension of RESOLVE_EXTENSIONS) {
-    const candidate = `${id}${extension}`;
-
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
 }
 
 function resolveExistingImportPath(
@@ -605,57 +415,6 @@ function isFile(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function isPackageImport(source: string): boolean {
-  if (isPathImport(source)) {
-    return false;
-  }
-
-  if (/^(?:node|data|file):/.test(source)) {
-    return false;
-  }
-
-  if (source.startsWith("@/")) {
-    return false;
-  }
-
-  return !source.startsWith(CACHED_CHANNEL_PREFIX);
-}
-
-function isPathImport(source: string): boolean {
-  return source.startsWith(".") || source.startsWith("/") || /^[A-Za-z]:[\\/]/.test(source);
-}
-
-function isFrameworkRuntimeImport(source: string): boolean {
-  return (
-    source === "eve" ||
-    source.startsWith("eve/") ||
-    source === "workflow" ||
-    source.startsWith("workflow/") ||
-    source.startsWith("@workflow/")
-  );
-}
-
-function isNodeModulesPath(path: string): boolean {
-  return path.replaceAll("\\", "/").includes("/node_modules/");
-}
-
-function toCanonicalPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
-function isPathInsideOrEqual(path: string, directory: string): boolean {
-  const resolvedPath = resolve(path);
-  const resolvedDirectory = resolve(directory);
-
-  return (
-    resolvedPath === resolvedDirectory || resolvedPath.startsWith(`${resolvedDirectory}${sep}`)
-  );
 }
 
 function resolveAuthoredTsConfigPath(packageRoot: string): string | false {
