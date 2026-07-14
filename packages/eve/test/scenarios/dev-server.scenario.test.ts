@@ -77,6 +77,26 @@ const TRANSACTIONAL_REBUILD_DESCRIPTOR: ScenarioAppDescriptor = {
     "agent/instrumentation.ts": createInstrumentationSource("one"),
   },
 };
+const SCHEDULE_DISPATCH_DESCRIPTOR: ScenarioAppDescriptor = {
+  ...WEATHER_AGENT_DESCRIPTOR,
+  files: {
+    ...WEATHER_AGENT_DESCRIPTOR.files,
+    "agent/schedules/heartbeat.md": [
+      "---",
+      'cron: "0 0 * * 0"',
+      "---",
+      "",
+      "Report the weather in Lisbon.",
+      "",
+    ].join("\n"),
+  },
+  name: "weather-agent-schedules",
+};
+const NPM_LAYOUT_DESCRIPTOR: ScenarioAppDescriptor = {
+  ...WEATHER_AGENT_DESCRIPTOR,
+  name: "weather-agent-npm",
+  packageManager: "npm",
+};
 const STREAM_PROMOTION_DESCRIPTOR: ScenarioAppDescriptor = {
   ...TRANSACTIONAL_REBUILD_DESCRIPTOR,
   files: {
@@ -962,6 +982,71 @@ describe("eve dev server", () => {
           instrumentation: "one",
           marker: "generation-one-runtime",
         });
+      } finally {
+        await server.stop();
+      }
+    },
+    DEV_SERVER_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "dispatches an authored schedule through the dev route on its generation",
+    async () => {
+      const app = await scenarioApp(SCHEDULE_DISPATCH_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+
+      try {
+        const response = await fetch(new URL("/eve/v1/dev/schedules/heartbeat", server.url), {
+          method: "POST",
+        });
+        const body = (await response.json()) as {
+          scheduleId?: string;
+          sessionIds?: readonly string[];
+        };
+        expect(
+          response.status,
+          [
+            `Expected the dev schedule dispatch route to succeed: ${JSON.stringify(body)}`,
+            `stdout:\n${server.stdout()}`,
+            `stderr:\n${server.stderr()}`,
+          ].join("\n\n"),
+        ).toBe(200);
+        expect(body.scheduleId).toBe("heartbeat");
+        expect(body.sessionIds).toHaveLength(1);
+
+        const unknown = await fetch(new URL("/eve/v1/dev/schedules/missing", server.url), {
+          method: "POST",
+        });
+        expect(unknown.status).toBe(404);
+        expect(hasKnownDevServerFailure(`${server.stdout()}\n${server.stderr()}`)).toBe(false);
+      } finally {
+        await server.stop();
+      }
+    },
+    DEV_SERVER_SCENARIO_TIMEOUT_MS,
+  );
+
+  it(
+    "serves an npm-installed app with hoisted real-directory dependencies",
+    async () => {
+      const app = await scenarioApp(NPM_LAYOUT_DESCRIPTOR);
+      const server = await startEveDev(app.appRoot);
+
+      try {
+        const messageResult = await sendDevelopmentMessage({
+          message: "What's the weather in Lisbon?",
+          session: createDevelopmentSessionState(),
+          serverUrl: server.url,
+        });
+        expect(
+          messageResult.events.some((event) => event.type === "message.completed"),
+          [
+            "Expected the npm-installed dev server to complete a streamed turn.",
+            `stdout:\n${server.stdout()}`,
+            `stderr:\n${server.stderr()}`,
+          ].join("\n\n"),
+        ).toBe(true);
+        expect(hasKnownDevServerFailure(`${server.stdout()}\n${server.stderr()}`)).toBe(false);
       } finally {
         await server.stop();
       }

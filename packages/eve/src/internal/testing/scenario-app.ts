@@ -8,9 +8,11 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach } from "vitest";
 
@@ -76,6 +78,13 @@ export interface ScenarioAppDescriptor {
    * us having to maintain a bespoke template-then-copy cache.
    */
   readonly installDependencies?: boolean;
+  /**
+   * Package manager used for {@link installDependencies}. Defaults to pnpm.
+   * npm installs are slower but produce the hoisted real-directory
+   * `node_modules/` layout, which exercises dependency resolution paths that
+   * pnpm's symlinked store never hits.
+   */
+  readonly packageManager?: "npm" | "pnpm";
 }
 
 /**
@@ -262,6 +271,11 @@ async function installScenarioDependencies(input: {
   readonly appRoot: string;
   readonly descriptor: ScenarioAppDescriptor;
 }): Promise<void> {
+  if (input.descriptor.packageManager === "npm") {
+    await runNpmInstall(input.appRoot);
+    return;
+  }
+
   await runPnpmCommand({
     args: [
       "install",
@@ -273,6 +287,31 @@ async function installScenarioDependencies(input: {
     ],
     cwd: input.appRoot,
   });
+}
+
+const runFile = promisify(execFile);
+
+async function runNpmInstall(appRoot: string): Promise<void> {
+  const args = ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline"];
+
+  try {
+    await runFile(process.platform === "win32" ? "npm.cmd" : "npm", args, {
+      cwd: appRoot,
+      maxBuffer: 10 * 1024 * 1024,
+      shell: process.platform === "win32",
+    });
+  } catch (error) {
+    const failure = error as { readonly stderr?: unknown; readonly stdout?: unknown };
+    throw new Error(
+      [
+        `Command failed: npm ${args.join(" ")}`,
+        `cwd: ${appRoot}`,
+        `stdout:\n${typeof failure.stdout === "string" ? failure.stdout : ""}`,
+        `stderr:\n${typeof failure.stderr === "string" ? failure.stderr : ""}`,
+      ].join("\n\n"),
+      { cause: error },
+    );
+  }
 }
 
 const EVE_SCENARIO_EVE_TARBALL_PATH_ENV = "EVE_SCENARIO_EVE_TARBALL_PATH";
