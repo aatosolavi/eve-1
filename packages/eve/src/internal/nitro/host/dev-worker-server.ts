@@ -139,6 +139,11 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
     if (this.#parentOwnsWorkflowWorld) {
       const references = await this.#workflowWorld.collectGenerationReferences();
       if (!references.protectAll) {
+        // Runtime-only generations shared one worker before the restart, so
+        // restore one slot per persisted workspace. Restoring per generation
+        // would give several slots ownership of the same workspace, and the
+        // first one to close would remove it under the others.
+        const restoredSlotsByWorkspace = new Map<string, DevelopmentWorkerSlot>();
         for (const generationId of references.generationIds) {
           if (this.#generationSlots.has(generationId)) {
             continue;
@@ -146,14 +151,22 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
           const generation = generations.find((candidate) => candidate.id === generationId);
           if (generation === undefined) {
             throw new Error(
-              `Workflow run references missing development generation "${generationId}".`,
+              `Workflow run references missing development generation "${generationId}". ` +
+                `Remove ".workflow-data" to discard the app's active local Workflow runs.`,
             );
           }
           const worker = generation.worker;
           if (!isRestorableDevelopmentWorker(worker, this.#appRoot)) {
             throw new Error(
-              `Workflow run references development generation "${generationId}" without a restorable worker.`,
+              `Workflow run references development generation "${generationId}" without a restorable worker. ` +
+                `Remove ".workflow-data" to discard the app's active local Workflow runs.`,
             );
+          }
+          const workspaceKey = `${worker.entry}\0${worker.workspaceRoot}`;
+          const restoredSlot = restoredSlotsByWorkspace.get(workspaceKey);
+          if (restoredSlot !== undefined) {
+            this.#recordGeneration(generation, restoredSlot);
+            continue;
           }
           const candidate = await this.prepareCandidate({
             dispose: async () => await rm(worker.workspaceRoot, { force: true, recursive: true }),
@@ -163,6 +176,7 @@ class ParentDevelopmentWorkerServer implements DevelopmentWorkerServer {
           });
           candidate.slot.state = "retired";
           this.#recordGeneration(generation, candidate.slot);
+          restoredSlotsByWorkspace.set(workspaceKey, candidate.slot);
         }
       }
     }

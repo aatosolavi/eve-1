@@ -1,15 +1,31 @@
 import { Agent, request as requestHttp } from "node:http";
 import { connect } from "node:net";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { turnWorkflowReference } from "#execution/workflow-runtime.js";
+import { writeDevelopmentRuntimeArtifactsWorker } from "#internal/nitro/dev-runtime-worker-artifacts.js";
 import { createDevelopmentWorkerServer } from "#internal/nitro/host/dev-worker-server.js";
 import type {
   DevelopmentWorkerGeneration,
   DevelopmentWorkerRunner,
   DevelopmentWorkerRunnerFactory,
 } from "#internal/nitro/host/dev-worker-server-types.js";
-import { decodeDevelopmentWorkerMetadata } from "#internal/nitro/host/dev-worker-metadata.js";
+import {
+  decodeDevelopmentWorkerMetadata,
+  DEVELOPMENT_WORKER_METADATA_HEADER,
+} from "#internal/nitro/host/dev-worker-metadata.js";
+import { useTemporaryDirectories } from "#internal/testing/use-temporary-app-roots.js";
+import { encodeDevelopmentWorldValue } from "#internal/workflow/development-world-codec.js";
+import {
+  DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER,
+  DEVELOPMENT_WORKFLOW_WORLD_ROUTE,
+} from "#internal/workflow/development-world-protocol.js";
+import { createParentDevelopmentWorkflowWorld } from "#internal/workflow/development-world-server.js";
+
+const createScratchDirectory = useTemporaryDirectories();
 
 const TEST_DEADLINE_MS = 5_000;
 
@@ -233,7 +249,7 @@ describe("development worker server", () => {
   it("restarts an active worker after a crash without moving its generation", async () => {
     const { createRunner, runners } = createRunnerFactory(async (request, runnerIndex, secret) => {
       const metadata = decodeDevelopmentWorkerMetadata({
-        header: request.headers.get("x-eve-dev-worker-metadata"),
+        header: request.headers.get(DEVELOPMENT_WORKER_METADATA_HEADER),
         secret,
       });
       return new Response(`${String(runnerIndex)}:${metadata.generationId}`);
@@ -261,7 +277,7 @@ describe("development worker server", () => {
     let admissionGeneration = FIRST_GENERATION;
     const { createRunner, runners } = createRunnerFactory(async (request, runnerIndex, secret) => {
       const metadata = decodeDevelopmentWorkerMetadata({
-        header: request.headers.get("x-eve-dev-worker-metadata"),
+        header: request.headers.get(DEVELOPMENT_WORKER_METADATA_HEADER),
         secret,
       });
       return new Response(`${String(runnerIndex)}:${metadata.generationId}`);
@@ -646,7 +662,7 @@ describe("development worker server", () => {
   it("preserves the socket client address in signed metadata and replaces public spoofing", async () => {
     const { createRunner } = createRunnerFactory(async (request, _runnerIndex, secret) => {
       const metadata = decodeDevelopmentWorkerMetadata({
-        header: request.headers.get("x-eve-dev-worker-metadata"),
+        header: request.headers.get(DEVELOPMENT_WORKER_METADATA_HEADER),
         secret,
       });
       return Response.json({
@@ -725,6 +741,92 @@ describe("development worker server", () => {
     await closeWithinDeadline(() => server.close());
   });
 
+  it("restores one retired worker for runtime generations that shared a workspace", async () => {
+    const appRoot = await createScratchDirectory("eve-dev-worker-shared-restore-");
+    const workspaceRoot = join(appRoot, ".eve", "dev-hosts", "workspace-1");
+    const entry = join(workspaceRoot, "output", "index.mjs");
+    await mkdir(dirname(entry), { recursive: true });
+    await writeFile(entry, "export default {};\n");
+    for (const generationId of ["first", "second"]) {
+      await writeActivatedGenerationSnapshot({ appRoot, entry, generationId, workspaceRoot });
+    }
+
+    const seedSecret = "seed-transport-secret";
+    const seedWorld = createParentDevelopmentWorkflowWorld({
+      agentName: "shared-restore-test",
+      appRoot,
+      dispatch: async () => Response.json({ ok: true }),
+      hasGeneration: () => true,
+      resolveActiveGenerationId: () => "second",
+      transportSecret: seedSecret,
+    });
+    await seedWorld.start();
+    for (const generationId of ["first", "second"]) {
+      const response = await seedWorld.handleRequest(
+        new Request(`http://localhost${DEVELOPMENT_WORKFLOW_WORLD_ROUTE}`, {
+          body: encodeDevelopmentWorldValue({
+            arguments: [
+              null,
+              {
+                eventData: {
+                  deploymentId: generationId,
+                  executionContext: {},
+                  input: new Uint8Array(),
+                  workflowName: turnWorkflowReference.workflowId,
+                },
+                eventType: "run_created",
+                specVersion: 5,
+              },
+            ],
+            operation: "events.create",
+          }),
+          headers: { [DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER]: seedSecret },
+          method: "POST",
+        }),
+      );
+      expect(response?.status).toBe(200);
+    }
+    await seedWorld.close();
+
+    const dispatchedGenerationIds = new Set<string>();
+    const { createRunner, runners } = createRunnerFactory(async (request, _index, secret) => {
+      const metadata = decodeDevelopmentWorkerMetadata({
+        header: request.headers.get(DEVELOPMENT_WORKER_METADATA_HEADER),
+        secret,
+      });
+      dispatchedGenerationIds.add(metadata.generationId);
+      return Response.json({ ok: true });
+    });
+    const server = createDevelopmentWorkerServer({
+      appRoot,
+      createRunner,
+      resolveAdmissionGeneration: (generation) => generation,
+      workflowWorld: { agentName: "shared-restore-test", kind: "parent-local" },
+    });
+    const listener = server.listen({ hostname: "127.0.0.1", port: 0 });
+    await listener.ready();
+    const previousBaseUrl = process.env.WORKFLOW_LOCAL_BASE_URL;
+    process.env.WORKFLOW_LOCAL_BASE_URL = listener.url;
+    try {
+      await server.startWorkflowWorld();
+
+      expect(runners).toHaveLength(1);
+      await withinDeadline(
+        vi.waitFor(() => {
+          expect(dispatchedGenerationIds).toEqual(new Set(["first", "second"]));
+        }),
+        "Timed out waiting for both restored generation deliveries.",
+      );
+    } finally {
+      if (previousBaseUrl === undefined) {
+        delete process.env.WORKFLOW_LOCAL_BASE_URL;
+      } else {
+        process.env.WORKFLOW_LOCAL_BASE_URL = previousBaseUrl;
+      }
+      await closeWithinDeadline(() => server.close());
+    }
+  });
+
   it("closes workers and listeners only once when close is repeated", async () => {
     const { createRunner, runners } = createRunnerFactory(async () => new Response("ok"));
     const { server } = await listen(createRunner);
@@ -769,5 +871,26 @@ async function requestWithAgent(
     );
     request.on("error", reject);
     request.end();
+  });
+}
+
+async function writeActivatedGenerationSnapshot(input: {
+  readonly appRoot: string;
+  readonly entry: string;
+  readonly generationId: string;
+  readonly workspaceRoot: string;
+}): Promise<void> {
+  const snapshotRoot = join(input.appRoot, ".eve", "dev-runtime", "snapshots", input.generationId);
+  const runtimeAppRoot = join(snapshotRoot, "source", "app");
+
+  await mkdir(join(runtimeAppRoot, ".eve", "compile"), { recursive: true });
+  await writeFile(join(runtimeAppRoot, ".eve", "compile", "compiled-agent-manifest.json"), "{}\n");
+  await writeFile(join(snapshotRoot, "activated"), "");
+  await writeFile(join(snapshotRoot, "generation.json"), `${JSON.stringify({ runtimeAppRoot })}\n`);
+  await writeDevelopmentRuntimeArtifactsWorker({
+    entry: input.entry,
+    snapshotRoot,
+    workerData: {},
+    workspaceRoot: input.workspaceRoot,
   });
 }
