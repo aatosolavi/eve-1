@@ -1,6 +1,3 @@
-import { EventEmitter } from "node:events";
-import type { IncomingMessage } from "node:http";
-import type { Socket } from "node:net";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +27,7 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(async () => undefined),
     listen: vi.fn(() => listenerServer),
     upgrade: vi.fn(async (_req: unknown, _socket: unknown, _head: unknown) => undefined),
+    waitForActiveRunner: vi.fn(async () => undefined),
   };
   const files = new Map<string, string>();
   const devHandlers: Nitro["options"]["devHandlers"] = [];
@@ -51,7 +49,9 @@ const mocks = vi.hoisted(() => {
     authoredSourceWatcher,
     buildNitro: vi.fn(async () => undefined),
     createDevelopmentApplicationNitro: vi.fn(async () => nitro),
-    createDevServer: vi.fn(() => devServer),
+    createDevServer: vi.fn(function createDevServerMock() {
+      return devServer;
+    }),
     devServer,
     fetch: vi.fn(async () => new Response(null, { status: 200 })),
     files,
@@ -115,8 +115,11 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("nitro/builder", () => ({
   build: mocks.buildNitro,
-  createDevServer: mocks.createDevServer,
   prepare: mocks.prepareNitro,
+}));
+
+vi.mock("./drained-nitro-dev-server.js", () => ({
+  DrainedNitroDevServer: mocks.createDevServer,
 }));
 
 vi.mock("./create-application-nitro.js", () => ({
@@ -152,31 +155,6 @@ vi.mock("#execution/sandbox/bindings/local.js", async (importOriginal) => {
     stopDevelopmentSandboxResources: mocks.stopDevelopmentSandboxResources,
   };
 });
-
-function createRequest(): IncomingMessage {
-  return {
-    headers: {
-      upgrade: "websocket",
-    },
-    method: "GET",
-  } as IncomingMessage;
-}
-
-function createSocket(): Socket {
-  const socket = new EventEmitter() as Socket;
-  Object.defineProperty(socket, "destroyed", {
-    configurable: true,
-    value: false,
-  });
-  socket.destroy = vi.fn(() => {
-    Object.defineProperty(socket, "destroyed", {
-      configurable: true,
-      value: true,
-    });
-    return socket;
-  });
-  return socket;
-}
 
 const developmentServerStatePath = join("/tmp/eve-test", ".eve", "dev-server-state.v1.json");
 
@@ -242,15 +220,6 @@ async function loadStartDevelopmentServer(): Promise<
     const handle = await server.start();
     return Object.assign({ ...handle }, { close: () => server.close() });
   };
-}
-
-async function startServer(): Promise<{
-  close(): Promise<void>;
-  url: string;
-}> {
-  const startDevelopmentServer = await loadStartDevelopmentServer();
-
-  return await startDevelopmentServer("/tmp/eve-test");
 }
 
 describe("normalizeDevelopmentServerClientUrl", () => {
@@ -393,7 +362,6 @@ describe("createDevelopmentServer", () => {
     expect(mocks.devServer.listen).toHaveBeenCalledWith({
       hostname: "127.0.0.1",
       port: 2000,
-      silent: true,
     });
 
     await server.close();
@@ -434,12 +402,10 @@ describe("createDevelopmentServer", () => {
     expect(mocks.devServer.listen).toHaveBeenNthCalledWith(1, {
       hostname: "127.0.0.1",
       port: 2000,
-      silent: true,
     });
     expect(mocks.devServer.listen).toHaveBeenNthCalledWith(2, {
       hostname: "127.0.0.1",
       port: 2001,
-      silent: true,
     });
     expect(server.url).toBe("http://127.0.0.1:2001/");
 
@@ -806,77 +772,5 @@ describe("createDevelopmentServer", () => {
     await expect(startDevelopmentServer("/tmp/eve-test")).rejects.toThrow(
       /Invalid PORT environment variable/,
     );
-  });
-
-  it("swallows websocket upgrade rejections from the Nitro dev server", async () => {
-    const originalUpgrade = vi.fn(
-      async (_req: unknown, _socket: unknown, _head: unknown): Promise<undefined> => {
-        throw new Error("Upstream server did not upgrade the connection");
-      },
-    );
-    Object.assign(mocks.nitro.options.features, { websocket: true });
-    mocks.devServer.upgrade = originalUpgrade;
-
-    const server = await startServer();
-
-    try {
-      const socket = createSocket();
-      await expect(
-        mocks.devServer.upgrade(createRequest(), socket, Buffer.alloc(0)),
-      ).resolves.toBeUndefined();
-
-      expect(originalUpgrade).toHaveBeenCalledTimes(1);
-      expect(socket.destroy).toHaveBeenCalledTimes(1);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("rejects websocket upgrades before Nitro proxying when websocket support is disabled", async () => {
-    const originalUpgrade = vi.fn(
-      async (_req: unknown, _socket: unknown, _head: unknown): Promise<undefined> => undefined,
-    );
-    mocks.devServer.upgrade = originalUpgrade;
-
-    const server = await startServer();
-
-    try {
-      const socket = createSocket();
-      await expect(
-        mocks.devServer.upgrade(createRequest(), socket, Buffer.alloc(0)),
-      ).resolves.toBeUndefined();
-
-      expect(originalUpgrade).not.toHaveBeenCalled();
-      expect(socket.destroy).toHaveBeenCalledTimes(1);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("handles socket errors emitted during websocket upgrade handling", async () => {
-    const originalUpgrade = vi.fn(
-      async (_req: unknown, socket: unknown, _head: unknown): Promise<undefined> => {
-        const upgradeSocket = socket as Socket;
-
-        upgradeSocket.emit("error", new Error("socket failure"));
-        throw new Error("socket failure");
-      },
-    );
-    Object.assign(mocks.nitro.options.features, { websocket: true });
-    mocks.devServer.upgrade = originalUpgrade;
-
-    const server = await startServer();
-
-    try {
-      const socket = createSocket();
-      await expect(
-        mocks.devServer.upgrade(createRequest(), socket, Buffer.alloc(0)),
-      ).resolves.toBeUndefined();
-
-      expect(originalUpgrade).toHaveBeenCalledTimes(1);
-      expect(socket.destroy).toHaveBeenCalledTimes(1);
-    } finally {
-      await server.close();
-    }
   });
 });

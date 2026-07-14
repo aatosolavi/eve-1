@@ -1,12 +1,10 @@
-import type { IncomingMessage } from "node:http";
-import type { Socket } from "node:net";
-
 import { EVE_DEV_ENV_FLAG } from "#internal/application/optional-package-install.js";
 
-import { build as buildNitro, createDevServer, prepare } from "nitro/builder";
+import { build as buildNitro, prepare } from "nitro/builder";
 import type { Nitro } from "nitro/types";
 
 import { createDevelopmentApplicationNitro } from "#internal/nitro/host/create-application-nitro.js";
+import { DrainedNitroDevServer } from "#internal/nitro/host/drained-nitro-dev-server.js";
 import { createDevelopmentNitroArtifactsConfig } from "#internal/nitro/host/artifacts-config.js";
 import type { AuthoredSourceWatcherHandle } from "#internal/nitro/host/dev-authored-source-watcher.js";
 import { prepareDevelopmentApplicationHost } from "#internal/nitro/host/prepare-application-host.js";
@@ -108,8 +106,7 @@ function isAddressInUseError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
 }
 
-type NitroDevelopmentServer = ReturnType<typeof createDevServer>;
-type NitroDevelopmentServerUpgrade = NitroDevelopmentServer["upgrade"];
+type NitroDevelopmentServer = DrainedNitroDevServer;
 
 function resolveDevelopmentServerPort(port: number | string | undefined): number {
   const resolvedPort =
@@ -227,56 +224,6 @@ function installWorkflowLocalQueueEnvironment(serverUrl: string): () => void {
   };
 }
 
-function attachTemporarySocketErrorHandler(socket: Socket): () => void {
-  // Keep early socket failures from becoming uncaught EventEmitter errors
-  // while Nitro/httpxy installs its own upgrade-path listeners.
-  const onSocketError = () => {};
-
-  socket.once("error", onSocketError);
-
-  return () => {
-    socket.off("error", onSocketError);
-  };
-}
-
-function shouldProxyDevelopmentServerWebSocketUpgrades(nitro: Nitro): boolean {
-  return nitro.options.features.websocket === true || nitro.options.experimental.websocket === true;
-}
-
-function guardDevelopmentServerWebSocketUpgrades(
-  nitro: Nitro,
-  devServer: NitroDevelopmentServer,
-): void {
-  const originalUpgrade = devServer.upgrade.bind(devServer) as NitroDevelopmentServerUpgrade;
-  const websocketEnabled = shouldProxyDevelopmentServerWebSocketUpgrades(nitro);
-  const guardedUpgrade: NitroDevelopmentServerUpgrade = async (
-    req: IncomingMessage,
-    socket: Socket,
-    head: unknown,
-  ) => {
-    if (!websocketEnabled) {
-      if (!socket.destroyed) {
-        socket.destroy();
-      }
-      return;
-    }
-
-    const removeSocketErrorHandler = attachTemporarySocketErrorHandler(socket);
-
-    try {
-      await originalUpgrade(req, socket, head);
-    } catch {
-      if (!socket.destroyed) {
-        socket.destroy();
-      }
-    } finally {
-      removeSocketErrorHandler();
-    }
-  };
-
-  devServer.upgrade = guardedUpgrade;
-}
-
 function addDevelopmentRuntimeArtifactsRebuildHandler(input: {
   readonly appRoot: string;
   readonly nitro: Nitro;
@@ -365,7 +312,7 @@ function createDevelopmentServerStartupCleanupError(
 
 async function listenForDevelopmentServer(input: {
   readonly devServer: NitroDevelopmentServer;
-  readonly host?: string;
+  readonly host: string;
   readonly port: number | string | undefined;
   readonly retryOnAddressInUse: boolean;
 }) {
@@ -379,7 +326,6 @@ async function listenForDevelopmentServer(input: {
     const server = input.devServer.listen({
       hostname: input.host,
       port,
-      silent: true,
     });
 
     try {
@@ -476,9 +422,8 @@ async function startNitroDevelopmentServer(
       options.onBootProgress,
     );
     nitro = activeNitro;
-    devServer = createDevServer(activeNitro);
+    devServer = new DrainedNitroDevServer(activeNitro);
     const activeDevServer = devServer;
-    guardDevelopmentServerWebSocketUpgrades(activeNitro, devServer);
     const hostname =
       options.host ?? activeNitro.options.devServer.hostname ?? DEFAULT_DEVELOPMENT_SERVER_HOST;
     const retryOnAddressInUse = requestedPort === undefined;
@@ -505,6 +450,7 @@ async function startNitroDevelopmentServer(
       async () => {
         await prepare(activeNitro);
         await buildNitro(activeNitro);
+        await activeDevServer.waitForActiveRunner();
       },
       options.onBootProgress,
     );
