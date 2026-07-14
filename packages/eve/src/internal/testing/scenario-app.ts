@@ -80,11 +80,11 @@ export interface ScenarioAppDescriptor {
   readonly installDependencies?: boolean;
   /**
    * Package manager used for {@link installDependencies}. Defaults to pnpm.
-   * npm installs are slower but produce the hoisted real-directory
+   * npm and bun installs are slower but produce the hoisted real-directory
    * `node_modules/` layout, which exercises dependency resolution paths that
    * pnpm's symlinked store never hits.
    */
-  readonly packageManager?: "npm" | "pnpm";
+  readonly packageManager?: "bun" | "npm" | "pnpm";
 }
 
 /**
@@ -272,7 +272,17 @@ async function installScenarioDependencies(input: {
   readonly descriptor: ScenarioAppDescriptor;
 }): Promise<void> {
   if (input.descriptor.packageManager === "npm") {
-    await runNpmInstall(input.appRoot);
+    await runInstallCommand(input.appRoot, "npm", [
+      "install",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts",
+      "--prefer-offline",
+    ]);
+    return;
+  }
+  if (input.descriptor.packageManager === "bun") {
+    await runInstallCommand(input.appRoot, "bun", ["install", "--ignore-scripts"]);
     return;
   }
 
@@ -291,11 +301,13 @@ async function installScenarioDependencies(input: {
 
 const runFile = promisify(execFile);
 
-async function runNpmInstall(appRoot: string): Promise<void> {
-  const args = ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline"];
-
+async function runInstallCommand(
+  appRoot: string,
+  command: "bun" | "npm",
+  args: readonly string[],
+): Promise<void> {
   try {
-    await runFile(process.platform === "win32" ? "npm.cmd" : "npm", args, {
+    await runFile(command, [...args], {
       cwd: appRoot,
       maxBuffer: 10 * 1024 * 1024,
       shell: process.platform === "win32",
@@ -304,7 +316,7 @@ async function runNpmInstall(appRoot: string): Promise<void> {
     const failure = error as { readonly stderr?: unknown; readonly stdout?: unknown };
     throw new Error(
       [
-        `Command failed: npm ${args.join(" ")}`,
+        `Command failed: ${command} ${args.join(" ")}`,
         `cwd: ${appRoot}`,
         `stdout:\n${typeof failure.stdout === "string" ? failure.stdout : ""}`,
         `stderr:\n${typeof failure.stderr === "string" ? failure.stderr : ""}`,
