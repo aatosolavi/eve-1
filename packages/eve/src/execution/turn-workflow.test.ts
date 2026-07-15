@@ -150,6 +150,66 @@ describe("turnWorkflow", () => {
     );
   });
 
+  it("forwards the turn abort signal through every owned turn step", async () => {
+    const sessionState = createSessionState();
+    const abortController = new AbortController();
+    installInbox([]);
+    vi.mocked(turnStep)
+      .mockResolvedValueOnce({
+        action: "continue",
+        serializedContext: { state: "continued" },
+        sessionState,
+      })
+      .mockResolvedValueOnce({
+        action: "done",
+        output: "after continue",
+        serializedContext: { state: "done" },
+        sessionState,
+      });
+
+    const { input } = createInput({
+      driverCapabilities: { turnInbox: true },
+      sessionState,
+    });
+    await turnWorkflow({
+      ...input,
+      stepInput: { ...input.stepInput, abortSignal: abortController.signal },
+    });
+
+    expect(vi.mocked(turnStep).mock.calls.map(([stepInput]) => stepInput.abortSignal)).toEqual([
+      abortController.signal,
+      abortController.signal,
+    ]);
+  });
+
+  it("forwards the turn abort signal through every legacy turn step", async () => {
+    const sessionState = createSessionState();
+    const abortController = new AbortController();
+    vi.mocked(turnStep)
+      .mockResolvedValueOnce({
+        action: "continue",
+        serializedContext: { state: "continued" },
+        sessionState,
+      })
+      .mockResolvedValueOnce({
+        action: "done",
+        output: "after continue",
+        serializedContext: { state: "done" },
+        sessionState,
+      });
+
+    const { input } = createInput({ sessionState });
+    await turnWorkflow({
+      ...input,
+      stepInput: { ...input.stepInput, abortSignal: abortController.signal },
+    });
+
+    expect(vi.mocked(turnStep).mock.calls.map(([stepInput]) => stepInput.abortSignal)).toEqual([
+      abortController.signal,
+      abortController.signal,
+    ]);
+  });
+
   it("parks when an authorization is pending", async () => {
     const sessionState = createSessionState();
     vi.mocked(turnStep).mockResolvedValueOnce({

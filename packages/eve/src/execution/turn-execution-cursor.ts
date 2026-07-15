@@ -27,16 +27,19 @@ export class TurnExecutionCursor {
   readonly controlToken: string;
   readonly parentWritable: WritableStream<Uint8Array>;
 
+  private readonly abortSignal?: AbortSignal;
   private currentSerializedContext: Record<string, unknown>;
   private currentSessionState: DurableSessionState;
   private lastReportedContinuationToken: string;
 
   constructor(input: {
+    readonly abortSignal?: AbortSignal;
     readonly controlToken: string;
     readonly parentWritable: WritableStream<Uint8Array>;
     readonly serializedContext: Record<string, unknown>;
     readonly sessionState: DurableSessionState;
   }) {
+    this.abortSignal = input.abortSignal;
     this.controlToken = input.controlToken;
     this.currentSerializedContext = input.serializedContext;
     this.currentSessionState = input.sessionState;
@@ -68,6 +71,7 @@ export class TurnExecutionCursor {
   /** Builds the next atomic turn-step input from the cursor's current state. */
   createStepInput(input: HookPayload | undefined): TurnStepInput {
     return {
+      abortSignal: this.abortSignal,
       input,
       parentWritable: this.parentWritable,
       serializedContext: this.currentSerializedContext,

@@ -14,8 +14,10 @@ describe("TurnExecutionCursor", () => {
   });
 
   it("adopts transitions and reports each continuation token once", async () => {
+    const abortController = new AbortController();
     const parentWritable = new WritableStream<Uint8Array>();
     const cursor = new TurnExecutionCursor({
+      abortSignal: abortController.signal,
       controlToken: "turn-control",
       parentWritable,
       serializedContext: { revision: 1 },
@@ -35,6 +37,7 @@ describe("TurnExecutionCursor", () => {
       },
     });
     expect(cursor.createStepInput(undefined)).toEqual({
+      abortSignal: abortController.signal,
       input: undefined,
       parentWritable,
       serializedContext: { revision: 2 },
