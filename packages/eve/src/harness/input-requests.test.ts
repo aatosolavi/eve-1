@@ -669,7 +669,7 @@ describe("resolvePendingInput", () => {
     expect(result.rejectedActions).toBeUndefined();
   });
 
-  it("denies a pending approval and queues an unrelated follow-up message", () => {
+  it("keeps a pending approval and queues an unrelated follow-up message", () => {
     const session = setPendingInputBatch({
       event: { sequence: 7, stepIndex: 2, turnId: "turn_1" },
       requests: [
@@ -699,6 +699,47 @@ describe("resolvePendingInput", () => {
       session,
     });
 
+    expect(result.outcome).toBe("unresolved");
+    expect(result.rejectedActions).toBeUndefined();
+    expect(result.messages).toEqual([{ content: "previous", role: "user" }]);
+    expect(hasDeferredStepInput(result.session)).toBe(true);
+
+    const deferred = consumeDeferredStepInput({ session: result.session });
+    expect(deferred.input).toEqual({
+      message: "Never mind, do something else.",
+    });
+  });
+
+  it("denies a pending approval and defers a steering message", () => {
+    const session = setPendingInputBatch({
+      event: { sequence: 7, stepIndex: 2, turnId: "turn_1" },
+      requests: [
+        {
+          action: {
+            callId: "approval-call",
+            input: { command: "pwd" },
+            kind: "tool-call",
+            toolName: "bash",
+          },
+          allowFreeform: false,
+          display: "confirmation",
+          options: [
+            { id: "approve", label: "Yes" },
+            { id: "deny", label: "No" },
+          ],
+          prompt: "Approve tool call: bash",
+          requestId: "approval-1",
+        } satisfies InputRequest,
+      ],
+      responseMessages: [],
+      session: createHarnessSession(),
+    });
+
+    const result = resolvePendingInput({
+      stepInput: { message: "Never mind, do something else.", steering: true },
+      session,
+    });
+
     expect(result.outcome).toBe("resolved");
     expect(result.rejectedActions?.results).toEqual([
       expect.objectContaining({
@@ -714,6 +755,7 @@ describe("resolvePendingInput", () => {
     const deferred = consumeDeferredStepInput({ session: result.session });
     expect(deferred.input).toEqual({
       message: "Never mind, do something else.",
+      steering: true,
     });
   });
 

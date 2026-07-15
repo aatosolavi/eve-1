@@ -9,6 +9,7 @@ import {
 } from "../../src/channel/cross-channel-receive.js";
 import type { Runtime } from "../../src/channel/types.js";
 import { compileAgent } from "../../src/compiler/compile-agent.js";
+import { RuntimeNoActiveSessionError } from "../../src/execution/runtime-errors.js";
 import { createDiskRuntimeCompiledArtifactsSource } from "../../src/runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "../../src/runtime/sessions/compiled-agent-cache.js";
 import {
@@ -99,7 +100,7 @@ function createCapturingRuntime(captured: CapturedRun[]): Runtime {
       };
     },
     async deliver() {
-      throw new Error("deliver should not be called in this scenario");
+      throw new RuntimeNoActiveSessionError("target:test");
     },
     async getEventStream() {
       return new ReadableStream();

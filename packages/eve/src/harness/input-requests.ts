@@ -158,7 +158,7 @@ export function resolvePendingInput(input: {
 
   if (
     resolvesApprovalBatch &&
-    resolvedStepInput?.message === undefined &&
+    resolvedStepInput?.steering !== true &&
     hasUnansweredApproval({ pendingBatch, responses })
   ) {
     session = queueDeferredStepInput(session, compactStepInput(resolvedStepInput));

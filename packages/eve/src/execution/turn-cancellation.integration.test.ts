@@ -34,7 +34,6 @@ import { attachRouteAgent } from "#internal/nitro/routes/channel-route-context.j
 
 const FAILURE_EVENT_TYPES = ["step.failed", "turn.failed", "session.failed"] as const;
 const WAIT_TOOL_NAME = "wait_for_cancel";
-const STEER_TOOL_NAME = "wait_for_steer";
 
 function buildSerializedContext(overrides: {
   channelKind: string;
@@ -138,15 +137,15 @@ function createSteerToolRuntime(agentName: string): SteerToolFixture {
       return { released: true };
     },
     inputSchema: { additionalProperties: false, properties: {}, type: "object" },
-    logicalPath: `tools/${STEER_TOOL_NAME}.ts`,
-    name: STEER_TOOL_NAME,
-    sourceId: `tools/${STEER_TOOL_NAME}.ts`,
+    logicalPath: `tools/${WAIT_TOOL_NAME}.ts`,
+    name: WAIT_TOOL_NAME,
+    sourceId: `tools/${WAIT_TOOL_NAME}.ts`,
     sourceKind: "module",
   };
   const runtime = createTestRuntime({ agent: { name: agentName }, tools: [steerTool] });
-  const manifestTool = runtime.manifest.tools.find((tool) => tool.name === STEER_TOOL_NAME);
+  const manifestTool = runtime.manifest.tools.find((tool) => tool.name === WAIT_TOOL_NAME);
   if (manifestTool === undefined) {
-    throw new Error(`Expected ${STEER_TOOL_NAME} to be present in the test manifest.`);
+    throw new Error(`Expected ${WAIT_TOOL_NAME} to be present in the test manifest.`);
   }
   runtime.moduleMap.nodes[ROOT_COMPILED_AGENT_NODE_ID]!.modules[manifestTool.sourceId] = {
     default: { execute: steerTool.execute },
@@ -344,7 +343,7 @@ describe("turn cancellation integration", () => {
     await fixture.runtime.run(async () => {
       const run = await start(workflowEntry, [
         {
-          input: { message: `Use the ${STEER_TOOL_NAME} tool.` },
+          input: { message: `Use the ${WAIT_TOOL_NAME} tool.` },
           serializedContext: buildSerializedContext({
             channelKind: "http",
             continuationToken,
