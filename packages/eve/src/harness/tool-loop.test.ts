@@ -6455,7 +6455,7 @@ describe("createToolLoopHarness", () => {
     expect(events.filter((event) => event.type === "action.result")).toHaveLength(1);
   });
 
-  it("queues a follow-up user message until the pending tool approval resolves", async () => {
+  it("defers a steering message after dismissing the pending tool approval", async () => {
     const generateCalls: unknown[] = [];
     const agentResults = [
       {
@@ -6567,6 +6567,7 @@ describe("createToolLoopHarness", () => {
 
     const firstResult = await createToolLoopHarness(config)(session, {
       message: "Hi instead.",
+      steering: true,
     });
 
     expect(typeof firstResult.next).toBe("function");
@@ -6974,19 +6975,22 @@ describe("createToolLoopHarness", () => {
     });
 
     // Step 1: user sends "Do something else" while approval is pending.
-    // The approval is denied automatically and the message is deferred.
+    // Approval remains pending; message is deferred.
     const firstResult = await createToolLoopHarness(config)(session, {
       message: "Do something else",
     });
-    expect(typeof firstResult.next).toBe("function");
-    expect(generateCalls).toHaveLength(1);
+    expect(firstResult.next).toBeNull();
+    expect(generateCalls).toEqual([]);
 
-    // Step 1 resolves only the denial; the deferred message is not in this call.
-    const deniedResult = firstResult;
+    // Step 2: user denies the approval; the deferred message is NOT in this call.
+    const deniedResult = await createToolLoopHarness(config)(firstResult.session, {
+      inputResponses: [{ requestId: "approval-1", optionId: "deny" }],
+    });
+    expect(typeof deniedResult.next).toBe("function");
     const step2Last = generateCalls[0]?.at(-1);
     expect(step2Last?.role).toBe("tool");
 
-    // Step 2: harness consumes the deferred message.
+    // Step 3: harness consumes the deferred message.
     const secondResult = await createToolLoopHarness(config)(deniedResult.session);
     expect(secondResult.next).toBeNull();
 
