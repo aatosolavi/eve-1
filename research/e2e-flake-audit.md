@@ -78,7 +78,9 @@ mock model): 50 sessions × 2 turns produced 99 of 100 turns;
 `stress-session-46` shows `session.waiting` after turn 1 and zero events for
 turn 2, yet the eval failed only at a later unlabeled `equals` on the message
 text. `readTurn()` already guards this case (`evals/session.ts:194-198`);
-`send()` does not.
+`send()` does not. The closed, unmerged
+[PR #369](https://github.com/vercel/eve/pull/369) explored idle reconnect and
+a missing-boundary error; the current contract still permits silent success.
 
 Contract: a response may resolve only after a terminal boundary; EOF or
 reconnect exhaustion before one throws a typed `STREAM_ENDED_BEFORE_TURN_BOUNDARY`
@@ -98,7 +100,10 @@ This exactly matches the largest deterministic cluster: `dynamic-workflow`
 failed 28 times with `expected exactly 2 matching subagent.completed event(s),
 found 4` — each event duplicated with the same `callId`. `deriveRunFacts`
 happens to coalesce tool/subagent _facts_ by callId, so only event-count
-assertions and real clients observe the duplication today.
+assertions and real clients observe the duplication today. The closed,
+unmerged [PR #358](https://github.com/vercel/eve/pull/358) proposed read-side
+dedupe of replayed workflow events; the fixture evidence shows the underlying
+issue remains.
 
 Contract: every logical event has a replay-stable ID; replay cannot expose the
 same logical event twice to any stream consumer; attempt metadata is retained
@@ -166,9 +171,11 @@ bounded retry, unless the provider adapter proves the finish state terminal.
 - **`sandbox/redeploy` (7)** — six of seven failures are the model passing
   `deploy note` instead of `deploy-note` to `load_skill`. Effective skill
   names are finite at invocation time; `load_skill` should expose them as an
-  enum (or normalize), keeping unknown-name suggestions as the error path.
-- **`hitl/authored-always-unrelated-input` (7)** — the guarded regression
-  (#533/#588 behavior) passes; the queued "unrelated" note then legitimately
+  enum (or normalize), keeping unknown-name suggestions as the error path. The
+  deployment-pinning tripwire this eval also carries is tracked separately in
+  [issue #582](https://github.com/vercel/eve/issues/582).
+- **`hitl/authored-always-unrelated-input` (7)** — the regression it guards
+  (issue #533, fixed in PR #588) passes; the queued "unrelated" note then legitimately
   triggers a new `ask_question` park. The eval should assert the approved
   action is not re-gated, without also demanding the model never request
   input. Separately, `succeeded()` reports _all_ historical `input.requested`
