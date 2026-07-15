@@ -61,10 +61,10 @@ export interface ModelFlowDeps {
 }
 
 /**
- * How the agent's model is backed right now, as far as the local directory
- * shows: a linked Vercel project, a gateway credential in an env file, or
- * nothing detectable. An external provider (own ANTHROPIC_API_KEY etc.)
- * leaves no marker eve owns, so it reads as `unset`.
+ * How the agent's model is backed right now: a linked Vercel project, a
+ * gateway credential in the inherited environment or an env file, or nothing
+ * detectable. An external provider (own ANTHROPIC_API_KEY etc.) leaves no
+ * marker eve owns, so it reads as `unset`.
  */
 export type ModelProviderStatus =
   | { kind: "unset" }
@@ -213,6 +213,20 @@ export async function detectModelProviderStatus(
     };
     if (identity.teamName !== undefined) status.teamName = identity.teamName;
     return status;
+  }
+  if (process.env[AI_GATEWAY_API_KEY_ENV_VAR]?.trim()) {
+    return {
+      kind: "gateway-key",
+      envKey: AI_GATEWAY_API_KEY_ENV_VAR,
+      envFile: "the shell environment",
+    };
+  }
+  if (process.env.VERCEL_OIDC_TOKEN?.trim()) {
+    return {
+      kind: "gateway-key",
+      envKey: "VERCEL_OIDC_TOKEN",
+      envFile: "the shell environment",
+    };
   }
   if (gatewayKeyFile !== undefined) {
     return { kind: "gateway-key", envKey: AI_GATEWAY_API_KEY_ENV_VAR, envFile: gatewayKeyFile };

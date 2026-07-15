@@ -155,6 +155,7 @@ export async function createBashSandbox(input: {
       return adaptMultiplexedCommandToSandboxProcess({
         command,
         getOutput: (log) => log.type,
+        sandboxId: input.sessionKey,
       });
     },
     async writeFiles(files) {

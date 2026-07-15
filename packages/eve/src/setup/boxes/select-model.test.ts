@@ -114,6 +114,61 @@ describe("selectModel box", () => {
     expect(captured?.initialValue).toBe("anthropic/claude-sonnet-5");
   });
 
+  it("sorts matching models newest-first and keeps fast variants selectable", async () => {
+    let captured: SingleSelectOptions<PrompterValue> | undefined;
+    const { prompter } = createSelectPrompter((opts) => {
+      captured = opts;
+      return "xai/grok-4.5";
+    });
+    const catalog: GatewayCatalogModel[] = [
+      {
+        id: "xai/grok-4.20-beta",
+        name: "Grok 4.20 Beta",
+        owned_by: "xai",
+        released: 100,
+        tags: ["web-search"],
+        type: "language",
+      },
+      {
+        id: "xai/grok-4.5",
+        name: "Grok 4.5",
+        owned_by: "xai",
+        released: 300,
+        tags: ["web-search"],
+        type: "language",
+      },
+      {
+        id: "xai/grok-4.3",
+        name: "Grok 4.3",
+        owned_by: "xai",
+        released: 200,
+        tags: ["web-search"],
+        type: "language",
+      },
+      {
+        id: "anthropic/claude-opus-4.8-fast",
+        name: "Claude Opus 4.8 (Fast)",
+        owned_by: "anthropic",
+        released: 400,
+        tags: ["web-search"],
+        type: "language",
+      },
+    ];
+
+    await runInteractive(
+      [selectModel({ asker: interactiveAsker(prompter), deps: catalogDeps(catalog) })],
+      createDefaultSetupState(),
+      silentSink,
+    );
+
+    expect(captured?.options.map((option) => option.value)).toEqual([
+      "anthropic/claude-opus-4.8-fast",
+      "xai/grok-4.5",
+      "xai/grok-4.3",
+      "xai/grok-4.20-beta",
+    ]);
+  });
+
   it("orders the curated shortlist first, marks it featured, and pre-selects the default", async () => {
     let captured: SingleSelectOptions<PrompterValue> | undefined;
     const { prompter } = createSelectPrompter((opts) => {

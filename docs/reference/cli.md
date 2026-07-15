@@ -1,6 +1,6 @@
 ---
 title: "CLI"
-description: "Reference for every eve CLI command: init, info, build, start, dev, link, deploy, eval, channels, and extension."
+description: "Reference for every eve CLI command: init, logs, info, build, start, dev, link, deploy, eval, channels, and extension."
 ---
 
 The `eve` binary (`bin: eve`) runs from your app root, and every command first loads `.env`/`.env.local` from that root. Running `eve` with no command runs `eve dev`.
@@ -10,6 +10,8 @@ The `eve` binary (`bin: eve`) runs from your app root, and every command first l
 | Command                       | Description                                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `eve init [target]`           | Create a new agent, or add an agent to an existing project                                                                                            |
+| `eve logs [session-id]`       | Follow the most recently used local session log, or one exact session                                                                                 |
+| `eve logs ls`                 | List local session logs                                                                                                                               |
 | `eve info`                    | Print the resolved application, including discovered tools, skills, subagents, schedules, channels, routes, artifact paths, and discovery diagnostics |
 | `eve build`                   | Compile `.eve/` artifacts and build the host output; prints the output directory                                                                      |
 | `eve start`                   | Serve the built `.output/` app; prints the listening URL                                                                                              |
@@ -39,11 +41,27 @@ Creates a new agent app or adds an agent to an existing app. Always installs dep
 | `eve init .` (or an existing project dir) | Adds `agent/` plus missing `eve`, `ai`, and `zod` deps. Needs a `package.json` and no `agent/` files yet                                                 |
 | `eve init` with no target                 | Same as `eve init .`, except coding agents (Claude Code, Cursor, and similar) get a setup guide instead of scaffolding — they have not chosen a name yet |
 
-After scaffolding, a human terminal usually continues into `eve dev` (or a coding-agent REPL if one is on `PATH` and you pick it). Coding-agent launches print the next steps instead of opening the TUI, so the session does not get stuck. Fresh projects use the parent workspace's package manager when there is one; otherwise they use the manager that launched `eve init`.
+After scaffolding, a human terminal continues into `eve dev`. In Ghostty, eve reports the new project directory while dev runs so new splits inherit it. Coding-agent launches print the next steps instead of opening the TUI, so the session does not get stuck. Fresh projects use the parent workspace's package manager when there is one; otherwise they use the manager that launched `eve init`.
+
+To add eve's workflow guidance to a coding agent, run `npx skills add vercel/eve`.
 
 | Flag                   | Type | Default | Description                                                                                           |
 | ---------------------- | ---- | ------- | ----------------------------------------------------------------------------------------------------- |
 | `--channel-web-nextjs` | flag | off     | Add the Web Chat app (Next.js). Not for existing projects — run `eve channels add web` there instead. |
+
+## `eve logs`
+
+```bash
+eve logs
+eve logs <session-id>
+eve logs ls
+```
+
+Local development automatically writes one `.eve/logs/<session-id>.log` file per root session. The file is a derived view of committed Workflow lifecycle data, the canonical eve session event stream, session-attributed process output, and sandbox stdout and stderr. Tool inputs and results, model and tool failures, usage, and latency measurements come from the durable session events; eve replays and follows that Workflow-owned stream instead of creating a second event journal.
+
+`eve logs` prints the last 10 lines of the most recently updated Workflow session that has a log, then follows new writes until Ctrl-C. Pass a session ID to select an exact log. `eve logs ls` lists available logs, ordered by the matching Workflow run's `updatedAt` value. Use `-n, --lines <count>` to change the initial line count or `--no-follow` to print once and exit.
+
+Recording is enabled by default. Set `EVE_SESSION_LOGS=0` before starting `eve dev` to disable it. The recorder requests owner-only modes on POSIX systems; Windows access follows the log directory's ACL. The files may contain unredacted model, tool, sandbox, stdout, stderr, and error data. These commands do not inspect deployed or remote sessions.
 
 ## `eve extension`
 

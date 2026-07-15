@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { dirname as posixDirname } from "node:path/posix";
 
 import type { DockerCli } from "#execution/sandbox/bindings/docker-cli.js";
+import { createSandboxOutputObserver } from "#execution/sandbox/output-events.js";
 import { expectDockerSuccess } from "#execution/sandbox/bindings/docker-utils.js";
 import { resolveWorkspacePath } from "#execution/sandbox/bindings/local-backend-utils.js";
 import { shellQuote } from "#execution/sandbox/shell-quote.js";
@@ -93,7 +94,15 @@ export function createDockerInternalSession(input: {
         `status=$?; rm -f ${shellQuote(pidFilePath)}; exit $status`;
       args.push(containerName, "bash", "-c", wrapped);
 
-      const child = cli.stream(args, { signal: options.abortSignal });
+      const observer = createSandboxOutputObserver(input.id);
+      const child = cli.stream(args, {
+        onOutput: (stream, chunk) => observer.write(stream, chunk),
+        onOutputEnd: () => {
+          observer.close("stdout");
+          observer.close("stderr");
+        },
+        signal: options.abortSignal,
+      });
       options.abortSignal?.addEventListener("abort", () => void killSpawnTree(pidFilePath), {
         once: true,
       });

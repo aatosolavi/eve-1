@@ -16,6 +16,7 @@ export interface GatewayCatalogModel {
   name: string;
   type: string;
   owned_by: string;
+  released?: number;
   tags?: readonly string[];
 }
 
@@ -102,6 +103,7 @@ async function buildModelOptions(
           label: m.name,
           hint: providerLabel(provider),
           provider,
+          released: m.released ?? 0,
         };
       })
       .sort((a, b) => {
@@ -111,6 +113,8 @@ async function buildModelOptions(
         if (priorityDiff !== 0) return priorityDiff;
         const providerDiff = a.provider.localeCompare(b.provider);
         if (providerDiff !== 0) return providerDiff;
+        const releaseDiff = b.released - a.released;
+        if (releaseDiff !== 0) return releaseDiff;
         return a.label.localeCompare(b.label);
       });
 

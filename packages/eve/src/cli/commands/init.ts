@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { pathToFileURL } from "node:url";
 
 import pc from "picocolors";
 
@@ -26,20 +27,14 @@ import {
 import type { ProcessOutputLine } from "#setup/primitives/process-output.js";
 import { addAgentToProject } from "#setup/scaffold/create/add-to-project.js";
 import { ensureChannel, scaffoldBaseProject } from "#setup/scaffold/index.js";
-import { WizardCancelledError } from "#setup/step.js";
 import type { WorkspaceRootMutation } from "#setup/scaffold/workspace-root.js";
 import {
   DEFAULT_EVE_PACKAGE_CONTRACT,
   type EvePackageContract,
 } from "#setup/scaffold/create/project.js";
 
-import {
-  initAgentDevHandoff,
-  initAgentInstructions,
-  initAgentReplPrompt,
-} from "./agent-instructions.js";
+import { initAgentDevHandoff, initAgentInstructions } from "./agent-instructions.js";
 import { tryInitializeGit, type GitInitResult } from "./init-git.js";
-import { selectInitHandoff, spawnCodingAgentRepl, type InitHandoff } from "./init-repl.js";
 
 export interface InitCliLogger {
   error(message: string): void;
@@ -60,10 +55,14 @@ export interface InitCommandDependencies {
   now: () => number;
   runPackageManagerInstall: typeof runPackageManagerInstall;
   scaffoldBaseProject: typeof scaffoldBaseProject;
-  selectInitHandoff: typeof selectInitHandoff;
-  spawnCodingAgentRepl: typeof spawnCodingAgentRepl;
   spawnPackageManager: typeof spawnPackageManager;
+  setTerminalDirectory(path: string): void;
   tryInitializeGit: typeof tryInitializeGit;
+}
+
+function setTerminalDirectory(path: string): void {
+  if (process.stdout.isTTY !== true || process.env.TERM_PROGRAM !== "ghostty") return;
+  process.stdout.write(`\x1b]7;${pathToFileURL(path).href}\x1b\\`);
 }
 
 const defaultDependencies: InitCommandDependencies = {
@@ -75,9 +74,8 @@ const defaultDependencies: InitCommandDependencies = {
   now: () => performance.now(),
   runPackageManagerInstall,
   scaffoldBaseProject,
-  selectInitHandoff,
-  spawnCodingAgentRepl,
   spawnPackageManager,
+  setTerminalDirectory,
   tryInitializeGit,
 };
 
@@ -504,34 +502,7 @@ export async function runInitCommand(
     return;
   }
 
-  let handoff: InitHandoff;
-  try {
-    handoff = await dependencies.selectInitHandoff({ agentName: basename(result.projectPath) });
-  } catch (error) {
-    if (error instanceof WizardCancelledError) return;
-    throw error;
-  }
-  if (handoff !== "eve-dev") {
-    logger.log(pc.dim(`$ ${handoff}`));
-    if (
-      !(await dependencies.spawnCodingAgentRepl({
-        command: handoff,
-        cwd: result.projectPath,
-        prompt: initAgentReplPrompt({ devCommand: agentDevCommand }),
-        // A `.cmd`/`.bat` shim can't take the multi-line prompt on its command
-        // line, so print it for the user to paste once the REPL opens.
-        onPromptUnseeded: (prompt) => {
-          logger.log(
-            pc.yellow(`Could not seed ${handoff} automatically. Paste this prompt into it:`),
-          );
-          logger.log(prompt);
-        },
-      }))
-    ) {
-      throw new Error(`Coding-agent REPL exited unsuccessfully in "${result.projectPath}".`);
-    }
-    return;
-  }
+  logger.log(pc.dim("Coding agent setup: npx skills add vercel/eve"));
 
   // Strictly the eve binary, never the project's dev script, which in an
   // existing app may start unrelated processes. Exec-style runs do not echo
@@ -541,14 +512,19 @@ export async function runInitCommand(
     ? [...eveDevArguments(result.packageManager), "--input", "/model"]
     : eveDevArguments(result.packageManager);
   logger.log(pc.dim(freshScaffold ? "$ eve dev --input /model" : "$ eve dev"));
-  if (
-    !(await dependencies.spawnPackageManager(
-      result.packageManager,
-      result.projectPath,
-      devArguments,
-    ))
-  ) {
-    throw new Error(`Development server exited unsuccessfully in "${result.projectPath}".`);
+  dependencies.setTerminalDirectory(result.projectPath);
+  try {
+    if (
+      !(await dependencies.spawnPackageManager(
+        result.packageManager,
+        result.projectPath,
+        devArguments,
+      ))
+    ) {
+      throw new Error(`Development server exited unsuccessfully in "${result.projectPath}".`);
+    }
+  } finally {
+    dependencies.setTerminalDirectory(parentDirectory);
   }
 }
 

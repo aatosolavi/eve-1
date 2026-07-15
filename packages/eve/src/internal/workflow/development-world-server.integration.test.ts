@@ -1,9 +1,14 @@
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { buildSandboxSession } from "#execution/sandbox/session.js";
+import { createSandboxOutputObserver } from "#execution/sandbox/output-events.js";
+import { bufferToStream } from "#execution/sandbox/stream-utils.js";
 import { turnWorkflowReference, workflowEntryReference } from "#execution/workflow-runtime.js";
+import { ContextContainer, contextStorage } from "#context/container.js";
+import { SessionLogIdKey } from "#context/keys.js";
 import { useTemporaryDirectories } from "#internal/testing/use-temporary-app-roots.js";
 import { getDevelopmentWorkflowGeneration } from "#internal/workflow/development-generation-context.js";
 import { deriveEveWorkflowQueuePrefix } from "#internal/workflow/queue-namespace.js";
@@ -28,6 +33,19 @@ import {
   DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER,
   DEVELOPMENT_WORKFLOW_WORLD_ROUTE,
 } from "#internal/workflow/development-world-protocol.js";
+import { DEVELOPMENT_SESSION_LOG_ROUTE } from "#internal/session-logs/protocol.js";
+import { resolveSessionLogDirectory, resolveSessionLogPath } from "#internal/session-logs/files.js";
+import { flushDevelopmentSessionLogs } from "#internal/session-logs/client.js";
+import { ensureDevelopmentSessionOutputCapture } from "#internal/session-logs/output-capture.js";
+import {
+  createActionResultEvent,
+  createActionsRequestedEvent,
+  createStepCompletedEvent,
+  createStepStartedEvent,
+  encodeMessageStreamEvent,
+  timestampHandleMessageStreamEvent,
+  type HandleMessageStreamEvent,
+} from "#protocol/message.js";
 
 const createScratchDirectory = useTemporaryDirectories();
 const SECRET = "workflow-transport-secret";
@@ -42,6 +60,7 @@ afterEach(() => {
   delete process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV];
   delete process.env[DEVELOPMENT_WORKER_APP_ROOT_ENV];
   delete process.env.WORKFLOW_LOCAL_BASE_URL;
+  delete process.env.EVE_SESSION_LOGS;
 });
 
 describe("parent development Workflow World", () => {
@@ -60,6 +79,172 @@ describe("parent development Workflow World", () => {
     } finally {
       await world.close();
     }
+  });
+
+  it("follows committed session events with raw output in one secure session log", async () => {
+    const appRoot = await createScratchDirectory("eve-parent-session-log-");
+    const world = createWorld({ activeGenerationId: () => "generation-a", appRoot });
+    connectWorkerToWorld(world, appRoot);
+    let runId: string;
+
+    try {
+      await world.start();
+      const created = await callWorld(world, "events.create", [
+        null,
+        {
+          eventData: {
+            allowReservedAttributes: true,
+            attributes: { "$eve.type": "session" },
+            deploymentId: "generation-a",
+            input: new Uint8Array(),
+            workflowName: workflowEntryReference.workflowId,
+          },
+          eventType: "run_created",
+          specVersion: 5,
+        },
+      ]);
+      runId = readCreatedRunId(created);
+      await callWorld(world, "events.create", [runId, { eventType: "run_started" }]);
+      const eventStreamName = defaultSessionEventStreamName(runId);
+      const writeEvent = async (event: HandleMessageStreamEvent, at: string) => {
+        await callWorld(world, "streams.write", [
+          runId,
+          eventStreamName,
+          encodeMessageStreamEvent(timestampHandleMessageStreamEvent(event, at)),
+        ]);
+      };
+      await writeEvent(
+        createStepStartedEvent({ sequence: 0, stepIndex: 0, turnId: "turn_1" }),
+        "2026-07-15T20:00:00.000Z",
+      );
+      await writeEvent(
+        createActionsRequestedEvent({
+          actions: [
+            {
+              callId: "call_weather",
+              input: { city: "San Francisco" },
+              kind: "tool-call",
+              toolName: "weather",
+            },
+          ],
+          sequence: 1,
+          stepIndex: 0,
+          turnId: "turn_1",
+        }),
+        "2026-07-15T20:00:00.010Z",
+      );
+      await writeEvent(
+        createActionResultEvent({
+          result: {
+            callId: "call_weather",
+            kind: "tool-result",
+            output: { forecast: "sunny" },
+            toolName: "weather",
+          },
+          sequence: 2,
+          stepIndex: 0,
+          turnId: "turn_1",
+        }),
+        "2026-07-15T20:00:00.025Z",
+      );
+      await writeEvent(
+        createStepCompletedEvent({
+          finishReason: "tool-calls",
+          sequence: 3,
+          stepIndex: 0,
+          turnId: "turn_1",
+          usage: { inputTokens: 10, outputTokens: 4 },
+        }),
+        "2026-07-15T20:00:00.030Z",
+      );
+      const context = new ContextContainer();
+      context.setVirtualContext(SessionLogIdKey, runId);
+      ensureDevelopmentSessionOutputCapture();
+      await contextStorage.run(context, async () => {
+        process.stdout.write("captured process output\n");
+        const sandbox = createOutputSandbox({
+          exitCode: 7,
+          stderr: "sandbox failure\n",
+          stdout: "sandbox output\n",
+        });
+        await sandbox.run({ command: "diagnostic" });
+      });
+      await flushDevelopmentSessionLogs();
+      await callWorld(world, "events.create", [
+        runId,
+        { eventData: { output: new Uint8Array() }, eventType: "run_completed" },
+      ]);
+    } finally {
+      await world.close();
+    }
+
+    const path = resolveSessionLogPath(appRoot, runId!);
+    const firstSource = await readFile(path, "utf8");
+    expect(firstSource).toContain("type=run_created");
+    expect(firstSource).toContain("type=run_started");
+    expect(firstSource).toContain("queueMs=");
+    expect(firstSource).toContain("type=step.started");
+    expect(firstSource).toContain("type=actions.requested timeToFirstOutputMs=10");
+    expect(firstSource).toContain("type=action.result durationMs=15");
+    expect(firstSource).toContain("type=step.completed durationMs=30");
+    expect(firstSource).toContain("call_weather");
+    expect(firstSource).toContain("forecast: 'sunny'");
+    expect(firstSource).toContain("[process.stdout]");
+    expect(firstSource).toContain("captured process output");
+    expect(firstSource).toContain("[sandbox.stdout sandbox=sbx_output]");
+    expect(firstSource).toContain("sandbox output");
+    expect(firstSource).toContain("[sandbox.stderr");
+    expect(firstSource).toContain("sandbox failure");
+    expect(firstSource).toContain("type=run_completed");
+    if (process.platform !== "win32") {
+      expect((await stat(resolveSessionLogDirectory(appRoot))).mode & 0o777).toBe(0o700);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
+
+    const restarted = createWorld({ activeGenerationId: () => "generation-b", appRoot });
+    try {
+      await restarted.start();
+    } finally {
+      await restarted.close();
+    }
+    const reconciledSource = await readFile(path, "utf8");
+    expect(reconciledSource.match(/type=run_created/g)).toHaveLength(1);
+    expect(reconciledSource.match(/type=run_started/g)).toHaveLength(1);
+    expect(reconciledSource.match(/type=run_completed/g)).toHaveLength(1);
+    expect(reconciledSource.match(/type=step.started/g)).toHaveLength(1);
+    expect(reconciledSource.match(/type=action.result/g)).toHaveLength(1);
+  });
+
+  it("does not create session logs when EVE_SESSION_LOGS=0", async () => {
+    const appRoot = await createScratchDirectory("eve-parent-session-log-disabled-");
+    process.env.EVE_SESSION_LOGS = "0";
+    const world = createWorld({ activeGenerationId: () => "generation-a", appRoot });
+    let runId: string;
+    try {
+      await world.start();
+      runId = readCreatedRunId(
+        await callWorld(world, "events.create", [
+          null,
+          {
+            eventData: {
+              allowReservedAttributes: true,
+              attributes: { "$eve.type": "session" },
+              deploymentId: "generation-a",
+              input: new Uint8Array(),
+              workflowName: workflowEntryReference.workflowId,
+            },
+            eventType: "run_created",
+            specVersion: 5,
+          },
+        ]),
+      );
+    } finally {
+      await world.close();
+    }
+
+    await expect(access(resolveSessionLogPath(appRoot, runId!))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("pins a turn delivery to its recorded generation", async () => {
@@ -274,7 +459,7 @@ describe("parent development Workflow World", () => {
     }
   });
 
-  it("rejects untrusted World requests on the call and stream routes", async () => {
+  it("rejects untrusted World, stream, and session-log requests", async () => {
     const appRoot = await createScratchDirectory("eve-parent-workflow-untrusted-");
     const world = createWorld({ activeGenerationId: () => "generation-a", appRoot });
 
@@ -300,6 +485,14 @@ describe("parent development Workflow World", () => {
         new Request(`http://localhost${DEVELOPMENT_WORKFLOW_STREAM_ROUTE}?runId=r&name=n`),
       );
       expect(stream?.status).toBe(401);
+
+      const sessionLog = await world.handleRequest(
+        new Request(`http://localhost${DEVELOPMENT_SESSION_LOG_ROUTE}`, {
+          body: encodeDevelopmentWorldValue({}),
+          method: "POST",
+        }),
+      );
+      expect(sessionLog?.status).toBe(401);
     } finally {
       await world.close();
     }
@@ -393,6 +586,43 @@ function readCreatedRunId(value: unknown): string {
     return value.run.runId;
   }
   throw new Error("Workflow World did not return the created run ID.");
+}
+
+function defaultSessionEventStreamName(runId: string): string {
+  return `strm_${runId.slice("wrun_".length)}_user`;
+}
+
+function createOutputSandbox(input: {
+  readonly exitCode: number;
+  readonly stderr: string;
+  readonly stdout: string;
+}) {
+  return buildSandboxSession({
+    id: "sbx_output",
+    async readFile() {
+      return null;
+    },
+    async removePath() {},
+    resolvePath(path) {
+      return path;
+    },
+    async spawn() {
+      const observer = createSandboxOutputObserver("sbx_output");
+      observer.write("stdout", Buffer.from(input.stdout));
+      observer.write("stderr", Buffer.from(input.stderr));
+      observer.close("stdout");
+      observer.close("stderr");
+      return {
+        async kill() {},
+        stderr: bufferToStream(Buffer.from(input.stderr)),
+        stdout: bufferToStream(Buffer.from(input.stdout)),
+        async wait() {
+          return { exitCode: input.exitCode };
+        },
+      };
+    },
+    async writeFile() {},
+  });
 }
 
 function createWorld(input: {

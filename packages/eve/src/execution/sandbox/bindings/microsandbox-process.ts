@@ -1,10 +1,12 @@
 import type { SandboxProcess } from "#shared/sandbox-session.js";
 import type { ExecHandle as MicrosandboxExecHandle } from "microsandbox";
+import { createSandboxOutputObserver } from "#execution/sandbox/output-events.js";
 
 const MICROSANDBOX_EXEC_POST_EXIT_DRAIN_MS = 100;
 
 export function adaptMicrosandboxExecToSandboxProcess(
   command: MicrosandboxExecHandle,
+  sandboxId?: string,
 ): SandboxProcess {
   let stdoutController: ReadableStreamDefaultController<Uint8Array> | undefined;
   let stderrController: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -15,6 +17,7 @@ export function adaptMicrosandboxExecToSandboxProcess(
     resolveFinished = resolve;
     rejectFinished = reject;
   });
+  const observer = sandboxId === undefined ? undefined : createSandboxOutputObserver(sandboxId);
 
   const stdout = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -41,8 +44,10 @@ export function adaptMicrosandboxExecToSandboxProcess(
 
         const event = result.value;
         if (event.kind === "stdout") {
+          observer?.write("stdout", event.data);
           stdoutController?.enqueue(event.data);
         } else if (event.kind === "stderr") {
+          observer?.write("stderr", event.data);
           stderrController?.enqueue(event.data);
         } else if (event.kind === "exited") {
           exitCode = event.code;
@@ -53,6 +58,8 @@ export function adaptMicrosandboxExecToSandboxProcess(
       stderrController?.error(error);
       rejectFinished?.(error);
     } finally {
+      observer?.close("stdout");
+      observer?.close("stderr");
       void iterator.return?.().catch(() => {});
       if (exitCode === undefined) {
         const error = new Error("Microsandbox command ended without an exit event.");

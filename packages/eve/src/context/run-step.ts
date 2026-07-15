@@ -4,6 +4,8 @@ import type { FrameworkContextProvider } from "#context/provider.js";
 import { connectionProvider } from "#context/providers/connection.js";
 import { sandboxProvider } from "#context/providers/sandbox.js";
 import { sessionProvider } from "#context/providers/session.js";
+import { SessionLogIdKey } from "#context/keys.js";
+import { ensureDevelopmentSessionOutputCapture } from "#internal/session-logs/output-capture.js";
 
 /**
  * Framework providers in dependency order.
@@ -38,6 +40,8 @@ export async function withContextScope<T>(
   let session = harnessSession;
 
   ctx.clearVirtualContext();
+  ctx.setVirtualContext(SessionLogIdKey, session.rootSessionId ?? session.sessionId);
+  ensureDevelopmentSessionOutputCapture();
 
   for (const provider of frameworkProviders) {
     const result = await provider.create(ctx, session);

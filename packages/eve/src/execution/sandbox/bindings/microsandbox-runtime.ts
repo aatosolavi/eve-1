@@ -243,7 +243,7 @@ export class MicrosandboxVm {
       options.abortSignal.addEventListener("abort", kill, { once: true });
     }
 
-    return adaptMicrosandboxExecToSandboxProcess(handle);
+    return adaptMicrosandboxExecToSandboxProcess(handle, this.id);
   }
 
   async stopAndSnapshot(snapshotName: string): Promise<void> {

@@ -6,7 +6,6 @@ import {
   HANDOFF_SECTIONS,
   initAgentDevHandoff,
   initAgentInstructions,
-  initAgentReplPrompt,
   initExtensionHandoff,
   initExtensionInstructions,
   SETUP_SECTIONS,
@@ -32,6 +31,7 @@ describe("initAgentInstructions", () => {
     expect(instructions).toContain("node_modules/eve/docs/");
     expect(instructions).toContain("resolve\nthe installed `eve` package location");
     expect(instructions).toContain("npx eve dev --no-ui");
+    expect(instructions).toContain("npx skills add vercel/eve");
     expect(instructions).not.toContain("npm run dev");
     expect(instructions).not.toContain("starts the dev server");
     // The shared renderer resolves every placeholder, even in the pre-scaffold guide.
@@ -73,24 +73,12 @@ describe("initAgentDevHandoff", () => {
     expect(handoff).toContain("@vercel/connect/eve");
     expect(handoff).toContain("defineTool");
 
-    // The REPL-versus-headless distinction survives the merge.
-    expect(handoff).toContain("HMR development server");
-    expect(handoff).toContain("does not start or control this coding-agent session");
-    expect(handoff).toMatch(/controllable\s+background process/);
+    // Headless dev exercises the real protocol; logs expose the persisted runtime evidence.
+    expect(handoff).toContain("npx eve logs <session-id> --no-follow");
+    expect(handoff).toContain("npx eve logs ls");
     expect(handoff).toContain("npm exec -- eve dev --no-ui");
     expect(handoff).toMatch(/give them the interactive\s+command/);
     expect(handoff).not.toContain("{{");
-  });
-});
-
-describe("initAgentReplPrompt", () => {
-  it("uses the shared guidance without interpolating the project path into the launch argument", () => {
-    const prompt = initAgentReplPrompt({ devCommand: "pnpm exec eve dev" });
-
-    expect(prompt).toContain("The project at `.` is already scaffolded.");
-    expect(prompt).toContain("What should the agent do?");
-    expect(prompt).toContain("pnpm exec eve dev --no-ui");
-    expect(prompt).not.toContain("{{");
   });
 });
 

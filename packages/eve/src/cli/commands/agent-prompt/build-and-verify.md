@@ -9,28 +9,33 @@ package docs are unavailable, use https://eve.dev/docs as a fallback. Read
 such as `connections`, `channels/slack`, or `guides/auth-and-route-protection`
 for the Vercel Connect flow.
 
+Install eve's coding-agent skill before editing so the harness has the same
+versioned workflow guidance:
+
+    npx skills add vercel/eve
+
 - Put the purpose in `agent/instructions.md` (the always-on system prompt),
   replacing the scaffold's placeholder with what the user said the agent should
   do.
 - Add a first typed tool under `agent/tools/` with `defineTool` from `eve/tools`
   and a Zod `inputSchema`.
 
-`{{devCommand}}` starts eve's HMR development server and opens the agent's
-terminal REPL. It does not start or control this coding-agent session, so don't
-use the bare command as a background verification process. Start eve without the
-terminal UI in a controllable background process instead:
+Start eve without the terminal UI, then exercise one representative turn
+through the documented session HTTP protocol:
 
     {{devCommand}} --no-ui
 
-Wait for the server URL, then exercise the HTTP API: create a session with
-`POST /eve/v1/session`, attach to `GET /eve/v1/session/:id/stream`, and send a
-follow-up with the returned `continuationToken`. Stop the dev process after
-verification.
+Use the returned `sessionId` to inspect its automatically recorded local log.
+To find another local run, list the available logs:
+
+    npx eve logs <session-id> --no-follow
+    npx eve logs ls
 
 When the user is ready to use their agent's REPL, give them the interactive
 command to run from the project directory:
 
     {{devCommand}}
 
-Verify the project's typecheck passes, adapt the model and provider to the user's
+Verify the project's typecheck passes, stop the headless development server,
+adapt the model and provider to the user's
 data and use case, and don't commit unless the user asks.

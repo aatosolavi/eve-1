@@ -23,6 +23,12 @@ import {
   DEVELOPMENT_WORLD_OPERATIONS,
   type DevelopmentWorldCall,
 } from "#internal/workflow/development-world-protocol.js";
+import { DevelopmentSessionLogRecorder } from "#internal/session-logs/recorder.js";
+import {
+  areSessionLogsEnabled,
+  developmentSessionLogEventSchema,
+  DEVELOPMENT_SESSION_LOG_ROUTE,
+} from "#internal/session-logs/protocol.js";
 
 /**
  * The application's one local Workflow World, owned by the CLI parent.
@@ -61,6 +67,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
   readonly #resolveActiveGenerationId: () => string;
   readonly #transportSecret: string;
   readonly #world: World;
+  readonly #sessionLogs: DevelopmentSessionLogRecorder | undefined;
   #closed = false;
   #started = false;
 
@@ -81,6 +88,9 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       dataDir: resolveLocalWorkflowWorldDataDirectory(input.appRoot),
       recoverActiveRuns: false,
     });
+    this.#sessionLogs = areSessionLogsEnabled()
+      ? new DevelopmentSessionLogRecorder({ appRoot: input.appRoot, world: this.#world })
+      : undefined;
   }
 
   async start(): Promise<void> {
@@ -105,6 +115,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     await this.#world.start?.();
     this.#started = true;
+    await this.#sessionLogs?.start();
     await reenqueueActiveDevelopmentRuns({
       enqueue: this.#queue.bind(this),
       prefix: deriveEveWorkflowQueuePrefix(this.#agentName),
@@ -119,6 +130,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     this.#closed = true;
     this.#started = false;
+    await this.#sessionLogs?.close();
     await this.#world.close?.();
   }
 
@@ -130,7 +142,33 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     if (url.pathname === DEVELOPMENT_WORKFLOW_STREAM_ROUTE) {
       return await this.#handleStream(request, url);
     }
+    if (url.pathname === DEVELOPMENT_SESSION_LOG_ROUTE) {
+      return await this.#handleSessionLog(request);
+    }
     return undefined;
+  }
+
+  async #handleSessionLog(request: Request): Promise<Response> {
+    if (!this.#isTrusted(request) || request.method !== "POST") {
+      return Response.json({ error: "Session log request is not trusted." }, { status: 401 });
+    }
+    if (this.#sessionLogs === undefined) {
+      return new Response(null, { status: 204 });
+    }
+    try {
+      const parsed = developmentSessionLogEventSchema.safeParse(
+        decodeDevelopmentWorldValue(await request.text()),
+      );
+      if (!parsed.success) {
+        return Response.json({ error: "Session log request is malformed." }, { status: 400 });
+      }
+      await this.#sessionLogs.record(parsed.data);
+      return new Response(null, { status: 204 });
+    } catch (error) {
+      return new Response(encodeDevelopmentWorldValue(serializeDevelopmentWorldError(error)), {
+        status: 500,
+      });
+    }
   }
 
   async #collectActiveTurnGenerationIds(): Promise<ReadonlySet<string>> {
@@ -231,6 +269,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       for (const chunk of args[2] as readonly (string | Uint8Array)[]) {
         await this.#world.streams.write(args[0] as string, args[1] as string, chunk);
       }
+      await this.#followSessionEventStream(args);
       return undefined;
     }
     const separator = call.operation.indexOf(".");
@@ -244,7 +283,31 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       // no-op rather than fail a caller probing for support.
       return undefined;
     }
-    return await Reflect.apply(operation, receiver, args);
+    const result = await Reflect.apply(operation, receiver, args);
+    if (call.operation === "streams.write" || call.operation === "streams.writeMulti") {
+      await this.#followSessionEventStream(args);
+    }
+    if (call.operation === "events.create") {
+      const runId = readCommittedEventRunId(result);
+      if (runId !== undefined) {
+        try {
+          await this.#sessionLogs?.reconcileRun(runId);
+        } catch (error) {
+          console.error(`[eve:dev] failed to reconcile local session log for ${runId}`, error);
+        }
+      }
+    }
+    return result;
+  }
+
+  async #followSessionEventStream(args: readonly unknown[]): Promise<void> {
+    const [runId, name] = args;
+    if (typeof runId !== "string" || typeof name !== "string") return;
+    try {
+      await this.#sessionLogs?.followSessionEventStream(runId, name);
+    } catch (error) {
+      console.error(`[eve:dev] failed to start session event listener for ${runId}`, error);
+    }
   }
 
   #isTrusted(request: Request): boolean {
@@ -284,6 +347,18 @@ function isDevelopmentWorldCall(value: unknown): value is DevelopmentWorldCall {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readCommittedEventRunId(value: unknown): string | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+  const event = isObject(value.event) ? value.event : undefined;
+  if (typeof event?.runId === "string") {
+    return event.runId;
+  }
+  const run = isObject(value.run) ? value.run : undefined;
+  return typeof run?.runId === "string" ? run.runId : undefined;
 }
 
 async function reenqueueActiveDevelopmentRuns(input: {

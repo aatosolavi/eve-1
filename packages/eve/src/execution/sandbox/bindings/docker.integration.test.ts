@@ -25,10 +25,12 @@ import type { DockerSandboxCreateOptions } from "#public/sandbox/docker-sandbox.
 import { SandboxTemplateNotProvisionedError } from "#public/definitions/sandbox-backend.js";
 import { useTemporaryDirectories } from "#internal/testing/use-temporary-app-roots.js";
 import { bufferToStream } from "#execution/sandbox/stream-utils.js";
+import { listenToSandboxOutput } from "#execution/sandbox/output-events.js";
 
 const createScratchDirectory = useTemporaryDirectories();
 
 type FakeResponse = Partial<DockerCommandResult> & {
+  readonly streamStderr?: string;
   readonly streamStdout?: string;
 };
 
@@ -65,12 +67,17 @@ function createFakeDockerCli(
         });
         return resolve(args);
       },
-      stream(args): DockerProcess {
+      stream(args, options): DockerProcess {
         calls.push({ args: [...args] });
         const partial = respond(args) ?? {};
+        const stdout = Buffer.from(partial.streamStdout ?? "", "utf8");
+        const stderr = Buffer.from(partial.streamStderr ?? "", "utf8");
+        options?.onOutput?.("stdout", stdout);
+        options?.onOutput?.("stderr", stderr);
+        options?.onOutputEnd?.();
         return {
-          stdout: bufferToStream(Buffer.from(partial.streamStdout ?? "", "utf8")),
-          stderr: bufferToStream(Buffer.alloc(0)),
+          stdout: bufferToStream(stdout),
+          stderr: bufferToStream(stderr),
           async wait() {
             return { exitCode: partial.exitCode ?? 0 };
           },
@@ -405,6 +412,30 @@ describe("createDockerSandboxBackend create", () => {
 });
 
 describe("docker session primitives", () => {
+  it("emits sandbox output from the backend process without replacing its streams", async () => {
+    const events: Array<{ stream: string; text: string }> = [];
+    const stopListening = listenToSandboxOutput(({ stream, text }) =>
+      events.push({ stream, text }),
+    );
+    const { handle } = await createRunningSessionHandle({
+      respond: (args) =>
+        args[0] === "exec" && args.includes("bash")
+          ? { exitCode: 7, streamStderr: "warning\n", streamStdout: "hello\n" }
+          : undefined,
+    });
+
+    try {
+      await handle.session.run({ command: "diagnostic" });
+    } finally {
+      stopListening();
+    }
+
+    expect(events).toEqual([
+      { stream: "stdout", text: "hello\n" },
+      { stream: "stderr", text: "warning\n" },
+    ]);
+  });
+
   async function createRunningSessionHandle(input: {
     readonly respond?: (args: readonly string[]) => FakeResponse | undefined;
     readonly options?: DockerSandboxCreateOptions;
