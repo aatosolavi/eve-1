@@ -233,6 +233,7 @@ describe("dispatchChannelRequest", () => {
   it("tags route sends with Vercel's request id", async () => {
     const runtimeForTest: Runtime = {
       cancelTurn: vi.fn(),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn(),
@@ -246,6 +247,7 @@ describe("dispatchChannelRequest", () => {
               auth: null,
               continuationToken: "route-token",
             });
+            await args.cancelTurn({ continuationToken: "route-token", turnId: "turn_1" });
             return new Response("ok");
           },
           fetch: async () => new Response("ok"),
@@ -274,11 +276,16 @@ describe("dispatchChannelRequest", () => {
     expect(vi.mocked(runtimeForTest.deliver).mock.calls[0]?.[0].requestId).toBe(
       "iad1::abc123-1710000000000-deadbeef",
     );
+    expect(runtimeForTest.cancelTurnByContinuationToken).toHaveBeenCalledWith({
+      continuationToken: "webhook:route-token",
+      turnId: "turn_1",
+    });
   });
 
   it("does not invent a channel request id when Vercel did not send one", async () => {
     const runtimeForTest: Runtime = {
       cancelTurn: vi.fn(),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn(),
@@ -320,6 +327,7 @@ describe("dispatchChannelRequest", () => {
   it("does not mutate route-owned run and deliver inputs", async () => {
     const runtimeForTest: Runtime = {
       cancelTurn: vi.fn().mockResolvedValue({ status: "cancelling" }),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_deliver" }),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn().mockResolvedValue({

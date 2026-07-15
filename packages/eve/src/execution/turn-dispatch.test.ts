@@ -152,7 +152,10 @@ describe("dispatchAndAwaitTurn", () => {
 
   it("re-buffers a forwarded delivery when the turn inbox is already gone", async () => {
     const state = createState("http:test");
-    const delivery: DeliverHookPayload = { kind: "deliver", payloads: [{ message: "relayed" }] };
+    const delivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ inputResponses: [{ requestId: "request-1", text: "relayed" }] }],
+    };
     vi.mocked(forwardTurnDeliveryStep).mockRejectedValue(
       Object.assign(new Error("inbox gone"), { name: "HookNotFoundError" }),
     );

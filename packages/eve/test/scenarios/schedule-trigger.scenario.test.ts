@@ -60,6 +60,9 @@ function createCapturingRuntime(captured: CapturedRun[]): Runtime {
     async cancelTurn() {
       throw new Error("cancelTurn should not be called in this scenario");
     },
+    async cancelTurnByContinuationToken() {
+      throw new Error("cancelTurnByContinuationToken should not be called in this scenario");
+    },
     async run(input) {
       captured.push({
         adapter: input.adapter,

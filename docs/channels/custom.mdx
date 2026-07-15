@@ -46,7 +46,8 @@ export default defineChannel({
 
 Declare routes with the `POST()` and `GET()` helpers. Each route handler receives the raw `Request` and a helpers object:
 
-- `send(message, { auth, continuationToken, state?, title? })` starts or resumes a session. `title` overrides the new workflow session's display title without changing the model message. Returns a `Session`.
+- `send(message, { auth, continuationToken, state?, title?, turnPolicy? })` starts or resumes a session. `title` overrides the new workflow session's display title without changing the model message. `turnPolicy` controls input admitted while work is active. Returns a `Session`.
+- `cancelTurn({ continuationToken, turnId? })` stops active work without supplying replacement input. The token uses the same channel-local format as `send()`.
 - `getSession(sessionId)` looks up an existing session. The returned `Session` exposes `getEventStream({ startIndex? })` for streaming.
 - `receive(channel, ...)` hands inbound work to a different channel for cross-channel hand-off.
 - `params` holds route parameters extracted from the path pattern.
@@ -54,6 +55,39 @@ Declare routes with the `POST()` and `GET()` helpers. Each route handler receive
 - `requestIp` is the client IP, or `null` when the host cannot provide it.
 
 Event handlers like `"message.completed"` are declared under the `events` key. They receive `(eventData, channel, ctx)`, where `eventData` is the event payload, `channel` carries platform handles and session continuation operations, and `ctx` is the eve `SessionContext`. Every channel kind shares this signature. The one exception is `session.failed`, which receives only `(eventData, channel)` with no `ctx`.
+
+## Control active turns
+
+`send()` defaults to `turnPolicy: "queue"`. If a turn is active, eve durably holds the input until that turn settles and then starts the next turn. Use this for ordered work where every response should finish. Input sent after the agent explicitly requests a response can satisfy that pending request; input queued earlier cannot accidentally answer a prompt raised later.
+
+Use `turnPolicy: "steer"` when a new message should change the active turn's direction:
+
+```ts
+POST("/message", async (req, { send }) => {
+  const body = await req.json();
+
+  const session = await send(body.message, {
+    auth: null,
+    continuationToken: body.threadId,
+    turnPolicy: "steer",
+  });
+
+  return Response.json({ sessionId: session.id });
+});
+```
+
+Steering is an input policy, not a second kind of cancellation. eve applies the message at the next safe step boundary and keeps the same logical turn. A model or tool call already in progress may reach that boundary first, and side effects that already happened are not rolled back. If the turn wins the completion race, eve preserves the message as input for the next turn.
+
+Use `cancelTurn()` for a stop action that has no replacement message:
+
+```ts
+POST("/threads/:threadId/stop", async (_req, { cancelTurn, params }) => {
+  const result = await cancelTurn({ continuationToken: params.threadId });
+  return Response.json(result);
+});
+```
+
+The result is `{ status: "cancelling" }` when the active turn accepted the request or `{ status: "no_active_turn" }` when the session is unknown, idle, parked, or already finished. An optional `turnId` guard prevents a delayed stop request from affecting a newer turn. Observe `turn.cancelled` on the event stream to confirm settlement.
 
 ## CORS
 
@@ -95,7 +129,7 @@ export default defineChannel({
 });
 ```
 
-`WS()` handlers receive the same helpers as HTTP route handlers: `send`, `getSession`, `receive`, `params`, `waitUntil`, and `requestIp`. The returned hooks are eve-owned structural types compatible with Nitro/H3 websocket routing, including `upgrade`, `open`, `message`, `close`, and `error`.
+`WS()` handlers receive the same helpers as HTTP route handlers: `send`, `cancelTurn`, `getSession`, `receive`, `params`, `waitUntil`, and `requestIp`. The returned hooks are eve-owned structural types compatible with Nitro/H3 websocket routing, including `upgrade`, `open`, `message`, `close`, and `error`.
 
 ### Node upgrade server escape hatch
 
@@ -201,7 +235,7 @@ When a parent agent dispatches a subagent, the framework forwards the parent's c
 
 ## Continuation tokens
 
-Each call to `send(message, { auth, continuationToken, state?, title? })` from a channel route addresses a session by its channel-local raw token. The framework prepends the channel name, derived from the file stem under `agent/channels/`, before handing the token to the runtime.
+Each call to `send(message, { auth, continuationToken, state?, title?, turnPolicy? })` from a channel route addresses a session by its channel-local raw token. The framework prepends the channel name, derived from the file stem under `agent/channels/`, before handing the token to the runtime.
 
 ```ts
 import { slackContinuationToken } from "eve/channels/slack";

@@ -34,6 +34,7 @@ import { attachRouteAgent } from "#internal/nitro/routes/channel-route-context.j
 
 const FAILURE_EVENT_TYPES = ["step.failed", "turn.failed", "session.failed"] as const;
 const WAIT_TOOL_NAME = "wait_for_cancel";
+const STEER_TOOL_NAME = "wait_for_steer";
 
 function buildSerializedContext(overrides: {
   channelKind: string;
@@ -114,6 +115,45 @@ function createWaitToolRuntime(agentName: string): WaitToolFixture {
   return { runtime, toolStarted, toolAborts: () => aborts, toolStarts: () => starts };
 }
 
+interface SteerToolFixture {
+  readonly runtime: TestRuntime;
+  readonly toolStarted: Promise<void>;
+  releaseTool(): void;
+}
+
+function createSteerToolRuntime(agentName: string): SteerToolFixture {
+  let releaseTool: (() => void) | undefined;
+  const released = new Promise<void>((resolve) => {
+    releaseTool = resolve;
+  });
+  let resolveStarted: (() => void) | undefined;
+  const toolStarted = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+  const steerTool: ResolvedToolDefinition = {
+    description: "Waits at a deterministic safe boundary for a steering test.",
+    async execute() {
+      resolveStarted?.();
+      await released;
+      return { released: true };
+    },
+    inputSchema: { additionalProperties: false, properties: {}, type: "object" },
+    logicalPath: `tools/${STEER_TOOL_NAME}.ts`,
+    name: STEER_TOOL_NAME,
+    sourceId: `tools/${STEER_TOOL_NAME}.ts`,
+    sourceKind: "module",
+  };
+  const runtime = createTestRuntime({ agent: { name: agentName }, tools: [steerTool] });
+  const manifestTool = runtime.manifest.tools.find((tool) => tool.name === STEER_TOOL_NAME);
+  if (manifestTool === undefined) {
+    throw new Error(`Expected ${STEER_TOOL_NAME} to be present in the test manifest.`);
+  }
+  runtime.moduleMap.nodes[ROOT_COMPILED_AGENT_NODE_ID]!.modules[manifestTool.sourceId] = {
+    default: { execute: steerTool.execute },
+  };
+  return { runtime, toolStarted, releaseTool: () => releaseTool?.() };
+}
+
 /** Polls the world until the given run reaches `completed`. */
 async function waitForRunCompletion(runId: string, timeout = 15_000): Promise<void> {
   const world = await getWorld();
@@ -155,6 +195,25 @@ async function waitForHookByToken(token: string, timeout = 15_000): Promise<{ ru
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for hook token "${token}".`);
+}
+
+/** Polls one run until the workflow world records receipt on a specific hook. */
+async function waitForHookReceipt(runId: string, token: string, timeout = 15_000): Promise<void> {
+  const world = await getWorld();
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const page = await world.events.list({
+      pagination: { limit: 1000 },
+      resolveData: "all",
+      runId,
+    });
+    const received = page.data.some(
+      (event) => event.eventType === "hook_received" && event.eventData.token === token,
+    );
+    if (received) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for hook receipt on "${token}".`);
 }
 
 /**
@@ -243,6 +302,9 @@ function createCancelRouteCaller(): (
     });
     const args = attachRouteAgent(
       {
+        cancelTurn: () => {
+          throw new Error("cancel route must not cancel by continuation token");
+        },
         send: () => {
           throw new Error("cancel route must not send");
         },
@@ -275,6 +337,61 @@ async function expectCancelResponse(
 }
 
 describe("turn cancellation integration", () => {
+  it("steers an in-flight tool turn without opening a second logical turn", async () => {
+    const fixture = createSteerToolRuntime("turn-steer-tool");
+    const continuationToken = "http:turn-steer-tool";
+
+    await fixture.runtime.run(async () => {
+      const run = await start(workflowEntry, [
+        {
+          input: { message: `Use the ${STEER_TOOL_NAME} tool.` },
+          serializedContext: buildSerializedContext({
+            channelKind: "http",
+            continuationToken,
+            mode: "conversation",
+          }),
+        },
+      ]);
+      const stream = captureTurnEvents(run);
+
+      try {
+        await fixture.toolStarted;
+        const steeringToken = `${run.runId}:turn-control:0:steer`;
+        const steeringHook = await waitForHookByToken(steeringToken);
+
+        await resumeHook(continuationToken, {
+          kind: "deliver",
+          payloads: [
+            { message: "Reply with the exact string `steered-in-place` and nothing else." },
+          ],
+          turnPolicy: "steer",
+        });
+        await waitForHookReceipt(steeringHook.runId, steeringToken);
+        fixture.releaseTool();
+
+        const events = await stream.nextTurn();
+
+        expect(events.at(-1)?.type).toBe("session.waiting");
+        expect(filterEventsByType(events, "turn.started")).toHaveLength(1);
+        expect(filterEventsByType(events, "session.waiting")).toHaveLength(1);
+        expect(filterEventsByType(events, "message.received")).toHaveLength(2);
+        expect(filterEventsByType(events, "message.received").at(-1)?.data.message).toBe(
+          "Reply with the exact string `steered-in-place` and nothing else.",
+        );
+        expect(
+          filterEventsByType(events, "message.completed").some(
+            (event) => event.data.message === "steered-in-place",
+          ),
+        ).toBe(true);
+        expectNoFailureEvents(events);
+      } finally {
+        fixture.releaseTool();
+        stream.dispose();
+        await run.cancel();
+      }
+    });
+  }, 60_000);
+
   it("cancels a turn mid-tool and accepts the next message normally", async () => {
     const fixture = createWaitToolRuntime("turn-cancel-tool");
     const continuationToken = "http:turn-cancel-tool";
@@ -348,6 +465,52 @@ describe("turn cancellation integration", () => {
       }
     });
   });
+
+  it("resolves a channel continuation token and cancels its active turn", async () => {
+    const fixture = createWaitToolRuntime("turn-cancel-continuation-token");
+    const continuationToken = "http:turn-cancel-continuation-token";
+    const runtime = createWorkflowRuntime({
+      compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
+    });
+
+    await fixture.runtime.run(async () => {
+      const run = await start(workflowEntry, [
+        {
+          input: { message: `Use the ${WAIT_TOOL_NAME} tool.` },
+          serializedContext: buildSerializedContext({
+            channelKind: "http",
+            continuationToken,
+            mode: "conversation",
+          }),
+        },
+      ]);
+      const stream = captureTurnEvents(run);
+
+      try {
+        await waitForHookByToken(sessionCancelHookToken(run.runId));
+        await fixture.toolStarted;
+
+        await expect(
+          runtime.cancelTurnByContinuationToken({ continuationToken, turnId: "turn_0" }),
+        ).resolves.toEqual({ status: "cancelling" });
+
+        const cancelledTurn = await stream.nextTurn();
+
+        expect(cancelledTurn.at(-1)?.type).toBe("session.waiting");
+        expect(filterEventsByType(cancelledTurn, "turn.cancelled")).toHaveLength(1);
+        expectNoFailureEvents(cancelledTurn);
+        expect(fixture.toolAborts()).toBe(1);
+
+        await waitForHookSweep(sessionCancelHookToken(run.runId));
+        await expect(runtime.cancelTurnByContinuationToken({ continuationToken })).resolves.toEqual(
+          { status: "no_active_turn" },
+        );
+      } finally {
+        stream.dispose();
+        await run.cancel();
+      }
+    });
+  }, 60_000);
 
   it("cancels a turn through the eve channel cancel route", async () => {
     const fixture = createWaitToolRuntime("turn-cancel-route");

@@ -39,6 +39,7 @@ import {
   createCompactionCompletedEvent,
   createCompactionRequestedEvent,
   createInputRequestedEvent,
+  createMessageReceivedEvent,
   createResultCompletedEvent,
   createStepStartedEvent,
 } from "#protocol/message.js";
@@ -481,7 +482,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     // First step of a turn: open a new parent span. Continuation steps
     // restore the parent from session state via resolveStepOtelContext.
     let turnSpan: Span | undefined;
-    if (tracer && hasStepInput(input)) {
+    if (tracer && hasStepInput(input) && input?.steering !== true) {
       const functionId = telemetryConfig?.functionId ?? agentName;
       const attributes: Record<string, string> = {
         "eve.version": eveVersion,
@@ -589,7 +590,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
 
     // --- Turn preamble ------------------------------------------------------
 
-    if (emit && hasStepInput(input)) {
+    if (emit && hasStepInput(input) && input?.steering !== true) {
       emissionState = await emitTurnPreamble(
         emit,
         input ?? {},
@@ -601,6 +602,14 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       if (turnSpan) {
         turnSpan.setAttribute("eve.turn.id", emissionState.turnId);
       }
+    } else if (emit && input?.steering === true && input.message !== undefined) {
+      await emit(
+        createMessageReceivedEvent({
+          message: input.message,
+          sequence: emissionState.sequence,
+          turnId: emissionState.turnId,
+        }),
+      );
     }
 
     session = pending.session;
@@ -1916,7 +1925,7 @@ async function handleStepResult(input: {
         }),
       );
 
-      if (config.mode === "conversation") {
+      if (config.mode === "conversation" && config.steerSignal?.aborted !== true) {
         emissionState = await emitTurnEpilogue(
           emit,
           emissionState,
@@ -1927,7 +1936,10 @@ async function handleStepResult(input: {
       }
     }
 
-    return { next: null, session: parkedSession };
+    return {
+      next: config.steerSignal?.aborted === true ? runStep : null,
+      session: parkedSession,
+    };
   }
 
   // --- Park on authorization request ------------------------------------------
@@ -1985,7 +1997,8 @@ async function handleStepResult(input: {
     !calledFinalOutput &&
     (continuationMessages.at(-1)?.role === "tool" ||
       normalizedProviderHistory.outcomeEndsResponse ||
-      hasDeferredStepInput(nextSession));
+      hasDeferredStepInput(nextSession) ||
+      config.steerSignal?.aborted === true);
   if (continueLoop) {
     if (emit) {
       emissionState = advanceStep(emissionState);

@@ -17,6 +17,7 @@ function createMockRunHandle(): RunHandle {
 function createRuntime(deliverError: unknown): Runtime {
   return {
     cancelTurn: vi.fn(),
+    cancelTurnByContinuationToken: vi.fn(),
     deliver: vi.fn().mockRejectedValue(deliverError),
     run: vi.fn().mockResolvedValue(createMockRunHandle()),
     getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
@@ -49,22 +50,41 @@ describe("createSendFn", () => {
     warn.mockRestore();
   });
 
-  it("warns and falls back to a new session when delivery fails unexpectedly", async () => {
+  it("does not start a second session when delivery fails unexpectedly", async () => {
     const runtime = createRuntime(new Error("boom"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const send = createSendFn(runtime, ADAPTER, "test");
-    const session = await send("hello", {
+    await expect(
+      send("hello", {
+        auth: null,
+        continuationToken: "token",
+      }),
+    ).rejects.toThrow("boom");
+    expect(runtime.run).not.toHaveBeenCalled();
+  });
+
+  it("forwards the authored turn policy to an existing session", async () => {
+    const runtime = createRuntime(undefined);
+    vi.mocked(runtime.deliver).mockResolvedValue({ sessionId: "existing-session-id" });
+
+    const send = createSendFn(runtime, ADAPTER, "test");
+    await send("change course", {
       auth: null,
       continuationToken: "token",
+      turnPolicy: "steer",
     });
 
-    expect(session.id).toBe("mock-session-id");
-    expect(warn).toHaveBeenCalledTimes(1);
-    const payload = warn.mock.calls[0]?.[0];
-    expect(String(payload)).toContain("deliver failed");
-
-    warn.mockRestore();
+    expect(runtime.deliver).toHaveBeenCalledWith({
+      auth: null,
+      continuationToken: "test:token",
+      payload: {
+        context: undefined,
+        inputResponses: undefined,
+        message: "change course",
+        outputSchema: undefined,
+      },
+      turnPolicy: "steer",
+    });
   });
 
   it("rejects inputResponses when no active session exists", async () => {
@@ -86,6 +106,7 @@ describe("createSendFn", () => {
     const context = ["thread background"];
     const deliverRuntime: Runtime = {
       cancelTurn: vi.fn(),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
@@ -118,6 +139,7 @@ describe("createSendFn", () => {
   it("adds channel request ids to deliver and run inputs when provided", async () => {
     const deliverRuntime: Runtime = {
       cancelTurn: vi.fn(),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
@@ -145,6 +167,7 @@ describe("createSendFn", () => {
     } as const;
     const deliverRuntime: Runtime = {
       cancelTurn: vi.fn(),
+      cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),

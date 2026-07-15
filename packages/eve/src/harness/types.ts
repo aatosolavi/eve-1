@@ -140,6 +140,8 @@ export interface StepInput {
    * produced by channels.
    */
   readonly runtimeActionResults?: readonly RuntimeActionResult[];
+  /** Runtime marker for replacement input within the current logical turn. */
+  readonly steering?: true;
 }
 
 /**
@@ -218,6 +220,8 @@ export type HandleEventFn = (
 export interface ToolLoopHarnessConfig {
   /** Cancellation signal for the active turn. */
   readonly abortSignal?: AbortSignal;
+  /** Signals that replacement input must be consumed before the turn settles. */
+  readonly steerSignal?: AbortSignal;
   /**
    * Session-level capabilities. The harness reads
    * {@link SessionCapabilities.requestInput} when assembling the

@@ -150,6 +150,49 @@ describe("turnWorkflow", () => {
     );
   });
 
+  it("feeds accepted steering input into the next boundary of the same turn", async () => {
+    const activeState = createSessionState({
+      emissionState: { sequence: 0, sessionStarted: true, stepIndex: 1, turnId: "turn_0" },
+    });
+    const steeringDelivery = {
+      kind: "deliver",
+      payloads: [{ message: "change course" }],
+      turnPolicy: "steer",
+    } as const;
+    installInbox([], {
+      steeringPayloads: [{ delivery: steeringDelivery, requestId: "steer-1" }],
+    });
+    vi.mocked(turnStep)
+      .mockResolvedValueOnce({
+        action: "continue",
+        serializedContext: { state: "before-steer" },
+        sessionState: activeState,
+      })
+      .mockResolvedValueOnce({
+        action: "done",
+        output: "new direction",
+        serializedContext: { state: "done" },
+        sessionState: activeState,
+      });
+    const { input } = createInput({
+      driverCapabilities: { steering: true, turnInbox: true },
+      sessionState: activeState,
+    });
+
+    await turnWorkflow(input);
+
+    expect(vi.mocked(turnStep).mock.calls[0]?.[0].steerSignal?.aborted).toBe(true);
+    expect(vi.mocked(turnStep).mock.calls[1]?.[0].input).toEqual(steeringDelivery);
+    expect(resumeHookMock).toHaveBeenCalledWith("turn-token", {
+      kind: "turn-steering-ready",
+      steeringToken: "turn-token:steer",
+    });
+    expect(resumeHookMock).toHaveBeenCalledWith("turn-token", {
+      kind: "turn-steering-accepted",
+      requestId: "steer-1",
+    });
+  });
+
   it("parks when an authorization is pending", async () => {
     const sessionState = createSessionState();
     vi.mocked(turnStep).mockResolvedValueOnce({
@@ -886,12 +929,14 @@ function installInbox(
     readonly cancelPayloads?: readonly unknown[];
     readonly claimError?: unknown;
     readonly conflict?: { readonly runId: string } | null;
+    readonly steeringPayloads?: readonly unknown[];
   } = {},
 ): InboxMock {
   const inbox = createInboxMock(values, options);
   installHookDispatch([inbox], {
     conflict: options.cancelConflict ?? null,
     payloads: options.cancelPayloads ?? [],
+    steeringPayloads: options.steeringPayloads,
   });
   return inbox;
 }
@@ -907,13 +952,16 @@ function installHookDispatch(
   cancelOptions: {
     readonly conflict?: { readonly runId: string } | null;
     readonly payloads?: readonly unknown[];
+    readonly steeringPayloads?: readonly unknown[];
   } = {},
 ): void {
   const queue = [...inboxes];
   createHookMock.mockImplementation((input: { token: string }) =>
     input.token.endsWith(":cancel")
       ? createCancelHookMock(input.token, cancelOptions)
-      : queue.shift()?.hook,
+      : input.token.endsWith(":steer")
+        ? createCancelHookMock(input.token, { payloads: cancelOptions.steeringPayloads })
+        : queue.shift()?.hook,
   );
 }
 

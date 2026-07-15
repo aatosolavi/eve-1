@@ -67,13 +67,18 @@ export class TurnExecutionCursor {
   }
 
   /** Builds the next atomic turn-step input from the cursor's current state. */
-  createStepInput(input: HookPayload | undefined, abortSignal?: AbortSignal): TurnStepInput {
+  createStepInput(
+    input: HookPayload | undefined,
+    abortSignal?: AbortSignal,
+    steerSignal?: AbortSignal,
+  ): TurnStepInput {
     return {
       abortSignal,
       input,
       parentWritable: this.parentWritable,
       serializedContext: this.currentSerializedContext,
       sessionState: this.currentSessionState,
+      steerSignal,
     };
   }
 

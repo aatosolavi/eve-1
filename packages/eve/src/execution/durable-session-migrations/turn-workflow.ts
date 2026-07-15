@@ -22,6 +22,8 @@ export const TURN_WORKFLOW_INPUT_VERSION = 1;
 export interface TurnStepInput {
   /** Cancellation signal forwarded into the turn step. */
   readonly abortSignal?: AbortSignal;
+  /** Live signal set when replacement input is waiting at the next boundary. */
+  readonly steerSignal?: AbortSignal;
   readonly input: HookPayload | undefined;
   readonly parentWritable: WritableStream<Uint8Array>;
   readonly serializedContext: Record<string, unknown>;
@@ -39,6 +41,7 @@ export interface TurnWorkflowInput {
   readonly driverCapabilities?: {
     readonly turnInbox?: true;
     readonly cancelledTurnSettle?: true;
+    readonly steering?: true;
   };
   readonly mode: RunMode;
   readonly stepInput: TurnStepInput;
@@ -60,7 +63,7 @@ export function createTurnWorkflowInput(input: TurnWorkflowDispatchInput): TurnW
   return {
     capabilities: input.capabilities,
     completionToken: input.completionToken,
-    driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
+    driverCapabilities: { cancelledTurnSettle: true, steering: true, turnInbox: true },
     mode: input.mode,
     stepInput: {
       input: input.delivery,

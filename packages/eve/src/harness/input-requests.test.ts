@@ -669,7 +669,7 @@ describe("resolvePendingInput", () => {
     expect(result.rejectedActions).toBeUndefined();
   });
 
-  it("keeps a pending approval and queues an unrelated follow-up message", () => {
+  it("denies a pending approval and queues an unrelated follow-up message", () => {
     const session = setPendingInputBatch({
       event: { sequence: 7, stepIndex: 2, turnId: "turn_1" },
       requests: [
@@ -699,9 +699,16 @@ describe("resolvePendingInput", () => {
       session,
     });
 
-    expect(result.outcome).toBe("unresolved");
-    expect(result.rejectedActions).toBeUndefined();
-    expect(result.messages).toEqual([{ content: "previous", role: "user" }]);
+    expect(result.outcome).toBe("resolved");
+    expect(result.rejectedActions?.results).toEqual([
+      expect.objectContaining({
+        callId: "approval-call",
+        output: expect.objectContaining({
+          approval: { requestId: "approval-1", status: "ignored" },
+        }),
+      }),
+    ]);
+    expect(result.messages.at(-1)).toMatchObject({ role: "tool" });
     expect(hasDeferredStepInput(result.session)).toBe(true);
 
     const deferred = consumeDeferredStepInput({ session: result.session });

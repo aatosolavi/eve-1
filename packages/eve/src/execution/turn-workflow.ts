@@ -22,8 +22,13 @@ import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url
 import { normalizeSerializableError } from "#execution/workflow-errors.js";
 import { turnStep } from "#execution/workflow-steps.js";
 import { activeTurnId } from "#harness/active-turn-id.js";
+import { coalesceDeliveries } from "#harness/messages.js";
 import { resolveRuntimeActionResultsForKeys } from "#harness/runtime-actions.js";
 import type { RuntimeActionResult } from "#runtime/actions/types.js";
+import {
+  createTurnSteeringControl,
+  type TurnSteeringControl,
+} from "#execution/turn-steering-control.js";
 
 const TASK_MODE_WAIT_ERROR_MESSAGE = "Task mode cannot wait for follow-up input (`next: null`).";
 
@@ -81,6 +86,8 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
   let nextStepInput = input.stepInput.input;
   let ownsInbox = false;
   let cancellation: TurnCancellationControl | undefined;
+  let steering: TurnSteeringControl | undefined;
+  const pendingSteering: DeliverHookPayload[] = [];
 
   try {
     try {
@@ -103,8 +110,25 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
       });
     }
 
+    if (input.driverCapabilities?.steering === true) {
+      steering = await createTurnSteeringControl(`${input.completionToken}:steer`);
+      await cursor.send({ kind: "turn-steering-ready", steeringToken: steering.token });
+    }
+
     while (true) {
-      const result = await turnStep(cursor.createStepInput(nextStepInput, cancellation?.signal));
+      const forcedSteering = pendingSteering.length === 0 ? undefined : new AbortController();
+      forcedSteering?.abort();
+      const result = await turnStep(
+        cursor.createStepInput(
+          nextStepInput,
+          cancellation?.signal,
+          forcedSteering?.signal ?? steering?.signal,
+        ),
+      );
+
+      if (steering?.signal.aborted === true) {
+        pendingSteering.push(await acceptSteering(steering, cursor));
+      }
 
       if (result.action === "cancelled") {
         // No `canPark` check here: that gate rejects model-authored waits
@@ -114,6 +138,7 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
         // epilogue runs in the driver (`settleCancelledTurnStep`), not as
         // a step in this run, where queued cancel wakes could re-dispatch
         // it.
+        await settleSteeringAtTerminal(steering, cursor, bufferedDeliveries, pendingSteering);
         await cancellation?.dispose();
         await cursor.finish(
           { sessionState: cursor.sessionState },
@@ -124,6 +149,7 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
       }
 
       if (result.action === "done") {
+        await settleSteeringAtTerminal(steering, cursor, bufferedDeliveries, pendingSteering);
         await cancellation?.dispose();
         await cursor.finish(
           result,
@@ -170,6 +196,8 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
           iterator,
           nextDeliveryRequestId,
           pendingActionKeys,
+          pendingSteering,
+          steering,
         });
         if (results === "cancelled") {
           // The next turnStep observes the aborted signal and settles
@@ -182,6 +210,12 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
       }
 
       if (result.action === "park") {
+        if (pendingSteering.length > 0 && activeTurnId(result.sessionState.emissionState) !== "") {
+          await cursor.adopt(result);
+          nextStepInput = takePendingSteering(pendingSteering);
+          continue;
+        }
+
         const canPark =
           result.hasPendingAuthorization ||
           (result.hasPendingInputBatch && input.capabilities?.requestInput === true) ||
@@ -189,6 +223,7 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
 
         if (!canPark) throw new Error(TASK_MODE_WAIT_ERROR_MESSAGE);
 
+        await settleSteeringAtTerminal(steering, cursor, bufferedDeliveries, pendingSteering);
         await cancellation?.dispose();
         await cursor.finish(
           result,
@@ -202,7 +237,8 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
       }
 
       await cursor.adopt(result);
-      nextStepInput = undefined;
+      nextStepInput =
+        pendingSteering.length === 0 ? undefined : takePendingSteering(pendingSteering);
     }
   } catch (error) {
     await cursor.send({ error: normalizeSerializableError(error), kind: "turn-error" });
@@ -214,6 +250,7 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
     // terminal result publishes so the next turn's claim never races this
     // run's teardown; this backstop covers the error path.
     if (cancellation !== undefined) await cancellation.dispose();
+    if (steering !== undefined) await steering.dispose();
     if (ownsInbox) await disposeHook(inbox);
   }
 }
@@ -231,6 +268,8 @@ async function waitForRuntimeActionResults(input: {
   readonly iterator: AsyncIterator<TurnInboxPayload>;
   readonly nextDeliveryRequestId: () => string;
   readonly pendingActionKeys: readonly string[];
+  readonly pendingSteering: DeliverHookPayload[];
+  readonly steering: TurnSteeringControl | undefined;
 }): Promise<readonly RuntimeActionResult[] | "cancelled"> {
   let pendingDeliveryRequest: string | undefined;
   const results: RuntimeActionResult[] = [...input.initialResults];
@@ -267,9 +306,14 @@ async function waitForRuntimeActionResults(input: {
     // by disposal in teardown; pre-attach a handler so a late rejection
     // never surfaces as unhandled.
     nextPromise.catch(() => {});
-    const next = await (input.cancellation === undefined
-      ? nextPromise
-      : Promise.race([nextPromise, input.cancellation.requested]));
+    const waits: Array<Promise<IteratorResult<TurnInboxPayload> | "cancel" | "steer">> = [
+      nextPromise,
+    ];
+    if (input.cancellation !== undefined) waits.push(input.cancellation.requested);
+    if (input.steering !== undefined) {
+      waits.push(input.steering.requested.then(() => "steer" as const));
+    }
+    const next = await Promise.race(waits);
     if (next === "cancel") {
       if (pendingDeliveryRequest !== undefined) {
         // Release the raced public input back to the driver so it stays
@@ -280,6 +324,23 @@ async function waitForRuntimeActionResults(input: {
         });
       }
       return "cancelled";
+    }
+    if (next === "steer") {
+      const delivery = await acceptSteering(input.steering!, input.cursor);
+      if (input.cursor.sessionState.hasProxyInputRequests) {
+        const remainder = await routeDeliverToChildren({
+          auth: delivery.auth,
+          parentWritable: input.cursor.parentWritable,
+          payloads: delivery.payloads,
+          sessionState: input.cursor.sessionState,
+        });
+        if (remainder !== undefined) {
+          input.pendingSteering.push({ ...delivery, payloads: [remainder] });
+        }
+      } else {
+        input.pendingSteering.push(delivery);
+      }
+      continue;
     }
     if (next.done) throw new Error("Turn inbox closed before runtime actions completed.");
 
@@ -318,6 +379,40 @@ async function waitForRuntimeActionResults(input: {
         input.bufferedDeliveries.push({ ...value.delivery, payloads: [remainder] });
       }
     }
+  }
+}
+
+async function acceptSteering(
+  steering: TurnSteeringControl,
+  cursor: TurnExecutionCursor,
+): Promise<DeliverHookPayload> {
+  const accepted = await steering.accept();
+  await cursor.send({ kind: "turn-steering-accepted", requestId: accepted.requestId });
+  return accepted.delivery;
+}
+
+function takePendingSteering(deliveries: DeliverHookPayload[]): DeliverHookPayload {
+  const delivery = coalesceDeliveries(deliveries.splice(0));
+  return { ...delivery, turnPolicy: "steer" };
+}
+
+async function settleSteeringAtTerminal(
+  steering: TurnSteeringControl | undefined,
+  cursor: TurnExecutionCursor,
+  bufferedDeliveries: DeliverHookPayload[],
+  pendingSteering: DeliverHookPayload[],
+): Promise<void> {
+  if (steering !== undefined) {
+    await steering.dispose();
+    await Promise.resolve();
+    if (steering.signal.aborted) {
+      const accepted = await steering.accept({ rearm: false });
+      await cursor.send({ kind: "turn-steering-accepted", requestId: accepted.requestId });
+      pendingSteering.push(accepted.delivery);
+    }
+  }
+  if (pendingSteering.length > 0) {
+    bufferedDeliveries.push({ ...takePendingSteering(pendingSteering), turnPolicy: "queue" });
   }
 }
 

@@ -134,6 +134,14 @@ export interface DeliverHookPayload {
   readonly requestId?: string;
   readonly kind: "deliver";
   readonly payloads: readonly DeliverPayload[];
+  /** Admission policy for a delivery received while a turn is active. */
+  readonly turnPolicy?: TurnPolicy;
+}
+
+/** Runtime-only command delivered through a session's continuation hook. */
+export interface SessionCommandHookPayload {
+  readonly command: "resolve";
+  readonly kind: "session-command";
 }
 
 /**
@@ -199,6 +207,7 @@ export interface SubagentAuthorizationEventHookPayload {
  */
 export type HookPayload =
   | DeliverHookPayload
+  | SessionCommandHookPayload
   | RuntimeActionResultHookPayload
   | SubagentAuthorizationEventHookPayload
   | SubagentInputRequestHookPayload;
@@ -338,6 +347,16 @@ export interface DeliverInput {
   readonly requestId?: string;
   readonly continuationToken: string;
   readonly payload: DeliverPayload;
+  /** Controls how this delivery is admitted when a turn is already active. */
+  readonly turnPolicy?: TurnPolicy;
+}
+
+/** Admission policy for input delivered while a session is processing a turn. */
+export type TurnPolicy = "queue" | "steer";
+
+export interface CancelTurnByContinuationTokenInput {
+  readonly continuationToken: string;
+  readonly turnId?: string;
 }
 
 /**
@@ -381,6 +400,11 @@ export interface Runtime {
 
   /** Requests cancellation of a session's in-flight turn. */
   cancelTurn(input: CancelTurnInput): Promise<CancelTurnResult>;
+
+  /** Resolves a continuation token and cancels that session's active turn. */
+  cancelTurnByContinuationToken(
+    input: CancelTurnByContinuationTokenInput,
+  ): Promise<CancelTurnResult>;
 
   /**
    * Delivers a follow-up message to a parked session.

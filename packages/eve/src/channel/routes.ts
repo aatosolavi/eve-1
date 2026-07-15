@@ -1,7 +1,12 @@
 import type { UserContent } from "ai";
 
 import type { CrossChannelReceiveFn } from "#channel/cross-channel-receive.js";
-import type { SessionAuthContext, SessionCallback } from "#channel/types.js";
+import type {
+  CancelTurnResult,
+  SessionAuthContext,
+  SessionCallback,
+  TurnPolicy,
+} from "#channel/types.js";
 import type { InputResponse } from "#runtime/input/types.js";
 import type { Session } from "#channel/session.js";
 import type { RunMode } from "#shared/run-mode.js";
@@ -12,13 +17,16 @@ type WebSocketHeaders = Headers | readonly (readonly [string, string])[] | Recor
 
 /**
  * Second argument passed to every route handler. `send` starts or continues a
- * session on this channel; `getSession` looks one up by id; `receive` hands
- * inbound work to a different channel; `params` contains the matched path
- * parameters; `waitUntil` keeps background work alive past the response;
- * `requestIp` is the client IP, or `null` when the host cannot provide it.
+ * session on this channel; `cancelTurn` stops active work; `getSession` looks
+ * one up by id; `receive` hands inbound work to a different channel; `params`
+ * contains the matched path parameters; `waitUntil` keeps background work
+ * alive past the response; `requestIp` is the client IP, or `null` when the
+ * host cannot provide it.
  */
 export interface RouteHandlerArgs<TState = undefined> {
   send: SendFn<TState>;
+  /** Stops the active turn addressed by this channel's continuation token. */
+  cancelTurn: CancelTurnFn;
   getSession: GetSessionFn;
   /**
    * Starts a session on a different channel to hand off inbound work (e.g. an
@@ -71,7 +79,19 @@ type BaseSendOptions = {
    * the first user message and is ignored when resuming an existing session.
    */
   title?: string;
+  /**
+   * Controls input admitted while a turn is active. `queue` waits for the
+   * current turn to finish; `steer` applies the input at its next safe step
+   * boundary without starting a new logical turn. Defaults to `queue`.
+   */
+  turnPolicy?: TurnPolicy;
 };
+
+/** Stops active work without supplying replacement input. */
+export type CancelTurnFn = (options: {
+  continuationToken: string;
+  turnId?: string;
+}) => Promise<CancelTurnResult>;
 
 /**
  * Options for {@link SendFn}. The channel owns its continuation-token

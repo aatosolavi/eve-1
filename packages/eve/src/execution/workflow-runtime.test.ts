@@ -129,6 +129,24 @@ describe("createWorkflowRuntime#deliver", () => {
       payloads: [{ message: "hello" }],
     });
   });
+
+  it("preserves the turn policy on the durable delivery", async () => {
+    resumeHookMock.mockResolvedValue({ runId: "owner-session" });
+
+    await buildRuntime().deliver({
+      continuationToken: "test:active-hook",
+      payload: { message: "change course" },
+      turnPolicy: "steer",
+    });
+
+    expect(resumeHookMock).toHaveBeenCalledWith("test:active-hook", {
+      auth: undefined,
+      kind: "deliver",
+      payloads: [{ message: "change course" }],
+      requestId: undefined,
+      turnPolicy: "steer",
+    });
+  });
 });
 
 describe("createWorkflowRuntime#cancelTurn", () => {
@@ -177,6 +195,41 @@ describe("createWorkflowRuntime#cancelTurn", () => {
     resumeHookMock.mockRejectedValue(failure);
 
     await expect(buildRuntime().cancelTurn({ sessionId: "session-1" })).rejects.toBe(failure);
+  });
+});
+
+describe("createWorkflowRuntime#cancelTurnByContinuationToken", () => {
+  it("resolves the token before addressing the session cancel hook", async () => {
+    resumeHookMock
+      .mockResolvedValueOnce({ runId: "session-1" })
+      .mockResolvedValueOnce({ runId: "turn-run" });
+    const runtime = createWorkflowRuntime({
+      compiledArtifactsSource: {} as RuntimeCompiledArtifactsSource,
+    });
+
+    await expect(
+      runtime.cancelTurnByContinuationToken({
+        continuationToken: "sms:thread-1",
+        turnId: "turn-2",
+      }),
+    ).resolves.toEqual({ status: "cancelling" });
+
+    expect(resumeHookMock.mock.calls).toEqual([
+      ["sms:thread-1", { command: "resolve", kind: "session-command" }],
+      ["session-1:cancel", { turnId: "turn-2" }],
+    ]);
+  });
+
+  it("returns no_active_turn when the continuation token is idle", async () => {
+    const { HookNotFoundError } = await import("#compiled/@workflow/errors/index.js");
+    resumeHookMock.mockRejectedValue(new HookNotFoundError("sms:missing"));
+    const runtime = createWorkflowRuntime({
+      compiledArtifactsSource: {} as RuntimeCompiledArtifactsSource,
+    });
+
+    await expect(
+      runtime.cancelTurnByContinuationToken({ continuationToken: "sms:missing" }),
+    ).resolves.toEqual({ status: "no_active_turn" });
   });
 });
 

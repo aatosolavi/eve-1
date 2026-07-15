@@ -25,6 +25,7 @@ export function createSendFn<TState = undefined>(
     const mode = (options as { mode?: SendOptions<TState>["mode"] }).mode ?? "conversation";
     const state = (options as { state?: TState }).state;
     const title = (options as { title?: string }).title;
+    const turnPolicy = (options as { turnPolicy?: SendOptions<TState>["turnPolicy"] }).turnPolicy;
     const rawToken = (options as { continuationToken: string }).continuationToken;
     const continuationToken = `${channelName}:${rawToken}`;
 
@@ -37,23 +38,22 @@ export function createSendFn<TState = undefined>(
     const message = serializeUrlFilePartsInMessage(rawMessage);
 
     try {
-      const deliverInput: DeliverInput = {
+      const deliverInputBase = {
         auth,
         continuationToken,
         requestId: metadata.requestId,
         payload: { inputResponses, message, context, outputSchema },
       };
+      const deliverInput: DeliverInput =
+        turnPolicy === undefined ? deliverInputBase : { ...deliverInputBase, turnPolicy };
       const { sessionId } = await runtime.deliver(deliverInput);
 
       return createSession(sessionId, rawToken, runtime);
     } catch (error) {
       // No-active-session is the expected resume-or-start signal. The
       // failure itself is logged in `deliver`; this only records the fallback.
-      if (!isRuntimeNoActiveSessionError(error)) {
-        log.warn("deliver failed, falling back to starting a new session", {
-          continuationToken,
-        });
-      }
+      if (!isRuntimeNoActiveSessionError(error)) throw error;
+      log.debug("no active session; starting a new session", { continuationToken });
     }
 
     if (inputResponses && inputResponses.length > 0) {

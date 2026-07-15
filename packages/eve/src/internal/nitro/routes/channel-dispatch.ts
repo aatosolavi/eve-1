@@ -187,6 +187,11 @@ function buildRouteArgs(
   const adapter = channel?.adapter ?? { kind: "channel" };
   const agent = createRouteAgent(bundle.runtime, requestId);
   const send = createSendFn(bundle.runtime, adapter, channelName, { requestId });
+  const cancelTurn: RouteHandlerArgs["cancelTurn"] = async (options) =>
+    await bundle.runtime.cancelTurnByContinuationToken({
+      continuationToken: `${channelName}:${options.continuationToken}`,
+      turnId: options.turnId,
+    });
   const getSession = createGetSessionFn(bundle.runtime);
   const receive = createCrossChannelReceiveFn(
     bundle.runtime,
@@ -197,6 +202,7 @@ function buildRouteArgs(
     attachAgentInfoRouteResponse(
       {
         send,
+        cancelTurn,
         getSession,
         receive,
         params,

@@ -97,7 +97,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-`options` accepts `{ thread, auth?, title?, mode?, callback?, adapterName? }`. `title` sets the eve session's display title without changing the model message; `auth` attaches an authenticated principal to the turn.
+`options` accepts `{ thread, auth?, title?, mode?, callback?, adapterName?, turnPolicy? }`. `title` sets the eve session's display title without changing the model message; `auth` attaches an authenticated principal to the turn. Pass `turnPolicy: "steer"` when a new inbound message should redirect an active turn at its next safe step boundary. The default, `"queue"`, waits for the active turn to settle.
 
 ### Delivery
 

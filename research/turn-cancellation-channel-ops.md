@@ -1,32 +1,31 @@
 ---
 issue: https://github.com/vercel/eve/issues/483
-status: proposed
+status: implemented
 last_updated: "2026-07-15"
 ---
 
-# Turn cancellation for custom channels
+# Active-turn control for channel authors
 
 ## Summary
 
-Chat-style webhooks often receive several short messages while an agent is
-still responding. Plain `send()` queues those messages, so the agent can emit
-an obsolete answer before it processes the newer context. Custom channels need
-two operations:
+Custom channels expose two distinct operations:
 
-- `send(payload, { supersede: "turn" })` queues the payload and cancels only
-  the turn that was already active;
-- `cancelTurn({ continuationToken, turnId? })` supports explicit stop commands.
+- `send(input, { turnPolicy: "queue" | "steer" })` supplies user input;
+- `cancelTurn({ continuationToken, turnId? })` stops work without replacement input.
 
-The layer-2 runtime operation cancels by session id. Channel operations also
-need a race-safe continuation-token lookup and delivery primitive. They cannot
-be composed safely from today's independent hook resumes.
+The default `"queue"` policy preserves ordered turns. `"steer"` redirects the
+active logical turn at its next safe step boundary. There is no public
+`"interrupt"` policy: aborting obsolete provider work is an implementation
+choice, not an end-user intent distinct from steering.
 
 ## Authoring API
 
 ```ts
+export type TurnPolicy = "queue" | "steer";
+
 export interface SendOptions<TState> {
   // Existing fields omitted.
-  supersede?: "turn";
+  turnPolicy?: TurnPolicy;
 }
 
 export interface RouteHandlerArgs<TState> {
@@ -39,137 +38,66 @@ export interface CancelTurnResult {
 }
 ```
 
-`"cancelling"` means a registered cancellation hook accepted the request, not
-that cancellation has settled or necessarily matched the caller's guarded
-turn. `"no_active_turn"` covers unknown, idle, parked, swept, and otherwise
-uncancellable sessions. Both are successful outcomes.
+## Observable semantics
 
-The one-member `supersede` union leaves room for a future
-`supersede: "session"` reset operation without defining its semantics here.
+### Queue
 
-## Example
+`"queue"` is the default. Input admitted during active work is held for the
+next turn. An explicitly addressed input response may satisfy a request that
+is already pending, but input admitted before a later request cannot answer
+that request.
 
-```ts
-export default defineChannel({
-  routes: [
-    POST("/webhooks/imessage", async (req, { send, waitUntil }) => {
-      const inbound = await verifyAndParse(req);
-      if (inbound instanceof Response) return inbound;
+### Steer
 
-      waitUntil(
-        send(
-          { message: inbound.text },
-          {
-            auth: null,
-            continuationToken: inbound.conversationId,
-            supersede: "turn",
-          },
-        ),
-      );
-      return new Response(null, { status: 200 });
-    }),
-  ],
-  events: {
-    "message.completed": async (data, channel) => {
-      if (data.finishReason !== "tool-calls" && data.message) {
-        await channel.imessage.sendText(data.message);
-      }
-    },
-  },
-});
-```
+`"steer"` keeps the active `turnId`. The current atomic model or tool step may
+finish, then eve supplies the steering delivery before the turn can settle.
+The continued step emits the new `message.received` under the same turn and
+does not emit another `turn.started`.
 
-Filtering `finishReason: "tool-calls"` avoids sending pre-tool narration as a
-final reply. Cancellation does not retract outbound side effects: if a handler
-has already sent content, eve cannot take it back. A channel that requires a
-strict no-superseded-output guarantee must buffer output until it observes the
-turn's terminal event.
+Steering is durable and single-flight. The driver consumes a delivery only
+after the active turn's private steering inbox accepts it. If turn settlement
+wins the race, the delivery is returned to the session queue and becomes the
+next turn instead of being lost. Multiple accepted steering messages preserve
+delivery order and may coalesce at one boundary.
 
-## Required semantics
+### Cancel
 
-### A superseding send must not cancel itself
+`cancelTurn()` namespaces the channel-local continuation token, resolves its
+current durable session, and resumes that session's cancellation hook. It
+never starts a session or manufactures a user message.
 
-The payload must be durably attached to the existing session before the
-operation reports success. Cancellation must target the turn observed before
-that delivery, using its `turnId`. If the session advances before cancellation
-commits, the guard turns the cancellation into a no-op instead of cancelling
-the turn that contains the new payload.
-
-### Rekeying must not create a second session
-
-`ctx.session.setContinuationToken()` can replace the delivery hook while a
-webhook is in flight. Once the supersede operation resolves a continuation
-token to an existing session, a concurrent rekey must not make delivery fall
-through to `runtime.run()` and start a new history. The operation must either
-deliver to the resolved session or return an explicit retryable conflict.
-
-### Concurrent superseding sends must compose
-
-Every accepted payload is delivered exactly once. Several sends may cancel the
-same observed turn, and their payloads may be coalesced into the next turn in
-the order defined by the existing delivery queue. No request may silently
-retarget a newer turn.
-
-### Existing cancellation limits remain
-
-Task-mode and hook-conflict-degraded turns may have no current cancellation
-hook. Superseding delivery still succeeds in that case and behaves like plain
-queueing. Partial model output remains on the event stream, while durable model
-history keeps only content that had already settled. Already-executed tool or
-channel side effects remain; cancellation is not rollback.
+`"cancelling"` means the hook accepted the request; consumers observe
+`turn.cancelled` for settlement. `"no_active_turn"` covers unknown, idle,
+parked, swept, and otherwise uncancellable sessions. An optional `turnId`
+guard makes delayed requests benign rather than cancelling a newer turn.
 
 ## Runtime boundary
 
-Neither simple ordering is sufficient:
-
-- cancel then deliver leaves a gap where the channel token can rekey; the old
-  delivery can miss and incorrectly start a fresh session;
-- deliver then unguarded cancel can stop the new turn that already includes the
-  payload.
-
-The implementation therefore needs one runtime-owned composite operation:
-
 ```text
-channel send
-  │
-  ▼
-resolve token ──► existing session + observed active turn
-  │
-  ├─ durably deliver payload to that session
-  └─ cancel only the observed turn id
-       │
-       └─ session advanced? guard mismatch, benign no-op
+public continuation hook
+  ├─ queue ───────────────► driver buffer ─────► next turn
+  ├─ steer ─► private turn inbox ─► next safe step in active turn
+  └─ resolve command ─────► session id ────────► cancel hook
 ```
 
-The exact World implementation may be transactional or use a stable
-session-addressed inbox, but the observable invariants above are required.
-`Runtime.cancelTurn({ sessionId, turnId? })` remains the primitive for explicit
-session-id cancellation; channel token resolution belongs above it.
+The active turn acknowledges each forwarded steering delivery. This handshake
+is the ownership boundary that prevents completion, re-key, and hook-disposal
+races from dropping input or creating a second session.
 
-## Testing
+## HITL rules
 
-- Unit-test result mapping and continuation-token namespacing.
-- Prove delivery commits before the guarded cancellation is issued.
-- Race `setContinuationToken()` against superseding delivery and assert the
-  payload stays on the original session with no fallback run.
-- Race turn settlement against superseding delivery and assert a newer turn is
-  never cancelled.
-- Exercise concurrent superseding sends and verify exactly-once delivery and
-  deterministic coalescing.
-- Cover idle, parked HITL, task-mode, stale `turnId`, and degraded turns.
-- Add an e2e custom-channel fixture that supersedes a hanging turn and answers
-  the complete coalesced input once.
+- A structured response can resolve the matching pending request.
+- A freeform message admitted before a request stays queued and cannot answer
+  that later request.
+- Continuing with freeform input while a tool approval is pending denies the
+  obsolete tool action, then replays the message as context on the next step.
+- Steering received while a delegated child is already waiting is routed
+  through the existing child-input path; any unconsumed remainder returns to
+  the parent turn.
 
-## Out of scope
+## Limits
 
-- Session reset, `/new`, and `supersede: "session"`.
-- Descendant cancellation cascade.
-- Cancellation from in-band event handlers.
-- Built-in channel debounce policy.
-- Retraction of already-sent channel messages or completed tool side effects.
-
-## Delivery
-
-Land the runtime composite and its race tests before exposing either public
-channel API. The public additions require a patch changeset and channel
-authoring documentation.
+Steering and cancellation do not roll back completed tools, channel sends, or
+other side effects. Partial streamed output remains observable. Descendant
+cancellation cascade, session reset, and retraction of already-sent channel
+messages remain out of scope.

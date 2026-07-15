@@ -13,6 +13,7 @@ import {
   resolveSessionLimitContinuation,
 } from "#harness/session-limit-continuation.js";
 import type { HarnessSession, SessionStateMap, StepInput } from "#harness/types.js";
+import { compactStepInput } from "#harness/compact-step-input.js";
 
 const PENDING_INPUT_BATCH_KEY = "eve.runtime.pendingInputBatch";
 const APPROVED_TOOLS_KEY = "eve.runtime.hitl.approvedTools";
@@ -155,7 +156,11 @@ export function resolvePendingInput(input: {
     return { outcome: "unresolved", messages: baseHistory, session };
   }
 
-  if (resolvesApprovalBatch && hasUnansweredApproval({ pendingBatch, responses })) {
+  if (
+    resolvesApprovalBatch &&
+    resolvedStepInput?.message === undefined &&
+    hasUnansweredApproval({ pendingBatch, responses })
+  ) {
     session = queueDeferredStepInput(session, compactStepInput(resolvedStepInput));
     return { deferredMessage: true, outcome: "unresolved", messages: baseHistory, session };
   }
@@ -172,6 +177,18 @@ export function resolvePendingInput(input: {
 
     const rejectedActions = buildRejectedActionBatch(pendingBatch, []);
     session = clearPendingInputBatch(session);
+
+    if (resolvesApprovalBatch) {
+      session = queueDeferredStepInput(session, compactStepInput(resolvedStepInput));
+      return {
+        deferredContext: (resolvedStepInput.context?.length ?? 0) > 0 ? true : undefined,
+        deferredMessage: true,
+        outcome: "resolved",
+        messages,
+        rejectedActions,
+        session,
+      };
+    }
 
     return {
       consumedMessage: resolvedStepInput?.messageConsumed,
@@ -251,7 +268,11 @@ function resolveTextMessageInput(
   pendingBatch: PendingInputBatch,
   stepInput: StepInput | undefined,
 ): (StepInput & { readonly messageConsumed?: boolean }) | undefined {
-  if (typeof stepInput?.message !== "string" || (stepInput.inputResponses?.length ?? 0) > 0) {
+  if (
+    stepInput?.steering === true ||
+    typeof stepInput?.message !== "string" ||
+    (stepInput.inputResponses?.length ?? 0) > 0
+  ) {
     return stepInput;
   }
 
@@ -266,40 +287,6 @@ function resolveTextMessageInput(
     messageConsumed: true,
     message: undefined,
   });
-}
-
-function compactStepInput(
-  input: (StepInput & { readonly messageConsumed?: boolean }) | undefined,
-): StepInput & { readonly messageConsumed?: boolean } {
-  if (input === undefined) {
-    return {};
-  }
-
-  const result: {
-    context?: StepInput["context"];
-    inputResponses?: StepInput["inputResponses"];
-    message?: StepInput["message"];
-    messageConsumed?: boolean;
-    outputSchema?: StepInput["outputSchema"];
-  } = {};
-
-  if ((input.context?.length ?? 0) > 0) {
-    result.context = input.context;
-  }
-  if ((input.inputResponses?.length ?? 0) > 0) {
-    result.inputResponses = input.inputResponses;
-  }
-  if (input.message !== undefined) {
-    result.message = input.message;
-  }
-  if (input.messageConsumed === true) {
-    result.messageConsumed = true;
-  }
-  if (input.outputSchema !== undefined) {
-    result.outputSchema = input.outputSchema;
-  }
-
-  return result;
 }
 
 function hasUnansweredApproval(input: {

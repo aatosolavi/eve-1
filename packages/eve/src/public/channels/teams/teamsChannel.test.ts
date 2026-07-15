@@ -38,6 +38,7 @@ async function firePost(
       method: "POST",
     }),
     {
+      cancelTurn: vi.fn(),
       getSession: vi.fn(),
       params: {},
       receive: vi.fn(),

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
 import { forwardTurnDeliveryStep } from "#execution/forward-turn-delivery-step.js";
+import { forwardTurnSteeringStep } from "#execution/forward-turn-steering-step.js";
 import type { SessionDeliveryHook } from "#execution/session-delivery-hook.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { TurnControlReceiver } from "#execution/turn-control-receiver.js";
@@ -17,6 +18,10 @@ vi.mock("./forward-turn-delivery-step.js", () => ({
   forwardTurnDeliveryStep: vi.fn(),
 }));
 
+vi.mock("./forward-turn-steering-step.js", () => ({
+  forwardTurnSteeringStep: vi.fn(),
+}));
+
 describe("TurnControlReceiver", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -24,7 +29,10 @@ describe("TurnControlReceiver", () => {
   });
 
   it("forwards a buffered delivery and consumes it once the turn accepts", async () => {
-    const delivery: DeliverHookPayload = { kind: "deliver", payloads: [{ message: "hello" }] };
+    const delivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ inputResponses: [{ requestId: "req-1", text: "hello" }] }],
+    };
     installControlHook([
       deliveryRequest("req-1"),
       { kind: "turn-delivery-accepted", requestId: "req-1" },
@@ -43,7 +51,10 @@ describe("TurnControlReceiver", () => {
   });
 
   it("re-buffers the outstanding delivery when the turn cancels its request", async () => {
-    const delivery: DeliverHookPayload = { kind: "deliver", payloads: [{ message: "hello" }] };
+    const delivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ inputResponses: [{ requestId: "req-1", text: "hello" }] }],
+    };
     installControlHook([
       deliveryRequest("req-1"),
       { kind: "turn-delivery-cancelled", requestId: "req-1" },
@@ -94,17 +105,127 @@ describe("TurnControlReceiver", () => {
 
     await expect(runReceiver([])).rejects.toThrow("boom");
   });
+
+  it("forwards steer input to the active turn and consumes it after acknowledgement", async () => {
+    const delivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ message: "change course" }],
+      turnPolicy: "steer",
+    };
+    let acknowledge: (() => void) | undefined;
+    const acknowledgement = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
+    installControlHookFactory([
+      async () => ({
+        done: false,
+        value: { kind: "turn-steering-ready", steeringToken: "turn-steer" },
+      }),
+      async () => {
+        await acknowledgement;
+        return {
+          done: false,
+          value: { kind: "turn-steering-accepted", requestId: "turn-control:steer:0" },
+        };
+      },
+      async () => ({ done: false, value: parkResult() }),
+    ]);
+    vi.mocked(forwardTurnSteeringStep).mockImplementationOnce(async () => acknowledge?.());
+    const consumeNext = vi.fn();
+    const deliveryHook = createDeliveryHook({
+      consumeNext,
+      next: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: delivery })
+        .mockImplementation(() => new Promise(() => {})),
+    });
+
+    const action = await runReceiver([], deliveryHook);
+
+    expect(forwardTurnSteeringStep).toHaveBeenCalledWith({
+      payload: { delivery, requestId: "turn-control:steer:0" },
+      steeringToken: "turn-steer",
+    });
+    expect(consumeNext).toHaveBeenCalledOnce();
+    expect(action.kind).toBe("park");
+  });
+
+  it("buffers queue input while the active turn continues", async () => {
+    const delivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ message: "later" }],
+      turnPolicy: "queue",
+    };
+    let finish: (() => void) | undefined;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    installControlHookFactory([
+      async () => ({
+        done: false,
+        value: { kind: "turn-steering-ready", steeringToken: "turn-steer" },
+      }),
+      async () => {
+        await finished;
+        return { done: false, value: parkResult() };
+      },
+    ]);
+    const consumeNext = vi.fn(() => finish?.());
+    const deliveryHook = createDeliveryHook({
+      consumeNext,
+      next: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: delivery })
+        .mockImplementation(() => new Promise(() => {})),
+    });
+    const buffered: DeliverHookPayload[] = [];
+
+    await runReceiver(buffered, deliveryHook);
+
+    expect(buffered).toEqual([delivery]);
+    expect(forwardTurnSteeringStep).not.toHaveBeenCalled();
+  });
+
+  it("rekeys the public delivery hook after steering is armed", async () => {
+    installControlHook([
+      { kind: "turn-steering-ready", steeringToken: "turn-steer" },
+      { continuationToken: "http:rekeyed", kind: "turn-continuation-token" },
+      parkResult(),
+    ]);
+    const deliveryHook = createDeliveryHook();
+
+    await runReceiver([], deliveryHook);
+
+    expect(deliveryHook.rekey).toHaveBeenCalledWith("http:rekeyed");
+  });
 });
 
 function runReceiver(
   bufferedDeliveries: DeliverHookPayload[],
+  deliveryHook = createDeliveryHook(),
 ): ReturnType<TurnControlReceiver["waitForAction"]> {
   const receiver = new TurnControlReceiver({
     bufferedDeliveries,
-    deliveryHook: createDeliveryHook(),
+    deliveryHook,
     token: "turn-control",
   });
   return receiver.waitForAction().finally(() => receiver.dispose());
+}
+
+function installControlHookFactory(
+  values: Array<() => Promise<IteratorResult<TurnControlPayload>>>,
+): void {
+  const queue = [...values];
+  createHookMock.mockReturnValue({
+    token: "turn-control",
+    dispose: vi.fn(),
+    [Symbol.asyncIterator]() {
+      return {
+        next: () => queue.shift()?.() ?? Promise.resolve({ done: true, value: undefined }),
+        return: vi.fn(async () => ({ done: true, value: undefined })),
+      };
+    },
+  });
 }
 
 function deliveryRequest(requestId: string): TurnControlPayload {

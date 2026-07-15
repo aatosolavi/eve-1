@@ -11,6 +11,12 @@ export type TurnInboxPayload =
       readonly requestId: string;
     };
 
+/** One public steering delivery forwarded to an active turn. */
+export interface TurnSteeringPayload {
+  readonly delivery: DeliverHookPayload;
+  readonly requestId: string;
+}
+
 /** Control payloads emitted from an active turn to its session driver. */
 export type TurnControlPayload =
   | {
@@ -27,7 +33,9 @@ export type TurnControlPayload =
       readonly requestId: string;
     }
   | { readonly kind: "turn-delivery-accepted"; readonly requestId: string }
-  | { readonly kind: "turn-delivery-cancelled"; readonly requestId: string };
+  | { readonly kind: "turn-delivery-cancelled"; readonly requestId: string }
+  | { readonly kind: "turn-steering-ready"; readonly steeringToken: string }
+  | { readonly kind: "turn-steering-accepted"; readonly requestId: string };
 
 /** Sends one lifecycle payload to the session driver's control hook. */
 export async function sendTurnControlStep(input: {

@@ -7,6 +7,7 @@ import {
 
 import type {
   CancelTurnInput,
+  CancelTurnByContinuationTokenInput,
   CancelTurnResult,
   DeliverInput,
   GetEventStreamOptions,
@@ -183,13 +184,37 @@ export function createWorkflowRuntime(config: {
       }
     },
 
+    async cancelTurnByContinuationToken(
+      input: CancelTurnByContinuationTokenInput,
+    ): Promise<CancelTurnResult> {
+      let sessionId: string;
+      try {
+        const hook = normalizeWorkflowHook(
+          await resumeHook(input.continuationToken, {
+            command: "resolve",
+            kind: "session-command",
+          } satisfies HookPayload),
+        );
+        sessionId = hook.runId;
+      } catch (error) {
+        if (isInactiveCancelTarget(error)) return { status: "no_active_turn" };
+        throw error;
+      }
+
+      return await this.cancelTurn({ sessionId, turnId: input.turnId });
+    },
+
     async deliver(input: DeliverInput): Promise<{ sessionId: string }> {
-      const hookPayload: Extract<HookPayload, { kind: "deliver" }> = {
+      const hookPayloadBase = {
         auth: input.auth,
-        kind: "deliver",
+        kind: "deliver" as const,
         payloads: [input.payload],
         requestId: input.requestId,
       };
+      const hookPayload: Extract<HookPayload, { kind: "deliver" }> =
+        input.turnPolicy === undefined
+          ? hookPayloadBase
+          : { ...hookPayloadBase, turnPolicy: input.turnPolicy };
       try {
         const hook = normalizeWorkflowHook(await resumeHook(input.continuationToken, hookPayload));
         return { sessionId: hook.runId };

@@ -30,7 +30,11 @@ import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { InstrumentationStepStartedEventInput } from "#public/instrumentation/index.js";
 import type { RunMode } from "#shared/run-mode.js";
 import { compactMessages, shouldCompact } from "#harness/compaction.js";
-import { getHarnessEmissionState, isHarnessBetweenTurns } from "#harness/emission.js";
+import {
+  getHarnessEmissionState,
+  isHarnessBetweenTurns,
+  setHarnessEmissionState,
+} from "#harness/emission.js";
 import {
   getPendingAuthorization,
   modelFacingAuthorizationOutput,
@@ -564,6 +568,43 @@ function createGatewayModelCallError(input: {
 }
 
 describe("createToolLoopHarness", () => {
+  it("keeps steering input inside the active logical turn", async () => {
+    setupMockAgent({
+      finishReason: "stop",
+      response: { messages: [{ content: "old direction", role: "assistant" }] },
+      text: "old direction",
+      toolCalls: [],
+      toolResults: [],
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const { emit, events } = createEventCollector();
+    const runStep = createToolLoopHarness(
+      createTestConfig("conversation", emit, { steerSignal: controller.signal }),
+    );
+    const session = setHarnessEmissionState(createTestSession(), {
+      sequence: 0,
+      sessionStarted: true,
+      stepIndex: 1,
+      turnId: "turn_0",
+    });
+
+    const result = await runStep(session, {
+      message: "change course",
+      steering: true,
+    });
+
+    expect(typeof result.next).toBe("function");
+    expect(getHarnessEmissionState(result.session.state)).toMatchObject({
+      sequence: 0,
+      stepIndex: 2,
+      turnId: "turn_0",
+    });
+    expect(events.filter((event) => event.type === "message.received")).toHaveLength(1);
+    expect(events.some((event) => event.type === "turn.started")).toBe(false);
+    expect(events.some((event) => event.type === "turn.completed")).toBe(false);
+  });
+
   it("parks when model finishes with stop", async () => {
     setupMockAgent({
       finishReason: "stop",
@@ -6528,15 +6569,11 @@ describe("createToolLoopHarness", () => {
       message: "Hi instead.",
     });
 
-    expect(firstResult.next).toBeNull();
-    expect(generateCalls).toEqual([]);
+    expect(typeof firstResult.next).toBe("function");
+    expect(generateCalls).toHaveLength(1);
     expect(hasDeferredStepInput(firstResult.session)).toBe(true);
 
-    const deniedResult = await createToolLoopHarness(config)(firstResult.session, {
-      inputResponses: [{ requestId: "approval-1", optionId: "deny" }],
-    });
-
-    expect(typeof deniedResult.next).toBe("function");
+    const deniedResult = firstResult;
     expect(generateCalls[0]).toEqual([
       {
         content: [
@@ -6559,13 +6596,13 @@ describe("createToolLoopHarness", () => {
           {
             approvalId: "approval-1",
             approved: false,
-            reason: "Tool execution was denied.",
+            reason: "Ignored because the user continued without responding.",
             type: "tool-approval-response",
           },
           {
             output: {
               type: "execution-denied",
-              reason: "Tool execution was denied.",
+              reason: "Ignored because the user continued without responding.",
             },
             toolCallId: "call-1",
             toolName: "bash",
@@ -6937,22 +6974,19 @@ describe("createToolLoopHarness", () => {
     });
 
     // Step 1: user sends "Do something else" while approval is pending.
-    // Approval remains pending; message is deferred.
+    // The approval is denied automatically and the message is deferred.
     const firstResult = await createToolLoopHarness(config)(session, {
       message: "Do something else",
     });
-    expect(firstResult.next).toBeNull();
-    expect(generateCalls).toEqual([]);
+    expect(typeof firstResult.next).toBe("function");
+    expect(generateCalls).toHaveLength(1);
 
-    // Step 2: user denies the approval; the deferred message is NOT in this call.
-    const deniedResult = await createToolLoopHarness(config)(firstResult.session, {
-      inputResponses: [{ requestId: "approval-1", optionId: "deny" }],
-    });
-    expect(typeof deniedResult.next).toBe("function");
+    // Step 1 resolves only the denial; the deferred message is not in this call.
+    const deniedResult = firstResult;
     const step2Last = generateCalls[0]?.at(-1);
     expect(step2Last?.role).toBe("tool");
 
-    // Step 3: harness consumes the deferred message.
+    // Step 2: harness consumes the deferred message.
     const secondResult = await createToolLoopHarness(config)(deniedResult.session);
     expect(secondResult.next).toBeNull();
 

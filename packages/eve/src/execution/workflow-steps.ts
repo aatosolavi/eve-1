@@ -220,6 +220,9 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
       }
     }
     resolved = results.length === 0 ? undefined : results.reduce(coalesceTurnInputs);
+    if (resolved !== undefined && input.input.turnPolicy === "steer") {
+      resolved = { ...resolved, steering: true };
+    }
   } else if (input.input?.kind === "runtime-action-result") {
     recordSubagentUsageSpans(input.input.results);
     resolved = { runtimeActionResults: input.input.results };
@@ -364,6 +367,7 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
             nodeId: bundle.nodeId,
           },
           node: bundle.graph.root,
+          steerSignal: input.steerSignal,
           workflowMaxSubagents: refreshedSession.workflowMaxSubagents,
         });
         return step(refreshedSession, stepInput);

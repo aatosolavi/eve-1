@@ -113,6 +113,7 @@ async function firePost(
       method: "POST",
     }),
     {
+      cancelTurn: vi.fn(),
       getSession: vi.fn() as any,
       params: {},
       receive: vi.fn() as any,
@@ -167,6 +168,7 @@ describe("chatSdkChannel", () => {
     const response = await get.handler(
       new Request("https://example.com/eve/v1/test?crc_token=abc123", { method: "GET" }),
       {
+        cancelTurn: vi.fn(),
         getSession: vi.fn() as any,
         params: {},
         receive: vi.fn() as any,

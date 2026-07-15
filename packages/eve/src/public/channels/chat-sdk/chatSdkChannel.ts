@@ -132,6 +132,7 @@ export interface ChatSdkSendOptions {
   readonly auth?: SessionAuthContext | null;
   readonly callback?: SendOptions<ChatSdkChannelState>["callback"];
   readonly mode?: SendOptions<ChatSdkChannelState>["mode"];
+  readonly turnPolicy?: SendOptions<ChatSdkChannelState>["turnPolicy"];
   readonly thread: SerializedThread | Thread | string;
   readonly title?: string;
   /**
@@ -558,6 +559,9 @@ async function bridgeSend<TAdapters extends ChatSdkAdapters>(
   }
   if (options.title) {
     sendOptions.title = options.title;
+  }
+  if (options.turnPolicy) {
+    sendOptions.turnPolicy = options.turnPolicy;
   }
   return active.send(input, sendOptions);
 }

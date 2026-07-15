@@ -3,6 +3,7 @@ import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 import type { DeliverHookPayload } from "#channel/types.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { forwardTurnDeliveryStep } from "#execution/forward-turn-delivery-step.js";
+import { forwardTurnSteeringStep } from "#execution/forward-turn-steering-step.js";
 import { closeHookIterator, disposeHook } from "#execution/hook-ownership.js";
 import type { NextDriverAction } from "#execution/next-driver-action.js";
 import type { SessionDeliveryHook } from "#execution/session-delivery-hook.js";
@@ -17,6 +18,8 @@ export class TurnControlReceiver {
   private readonly controlIterator: AsyncIterator<TurnControlPayload>;
   private readonly deliveryHook: SessionDeliveryHook;
   private pendingControl: Promise<IteratorResult<TurnControlPayload>> | null = null;
+  private steeringSequence = 0;
+  private steeringToken: string | undefined;
 
   constructor(input: {
     readonly bufferedDeliveries: DeliverHookPayload[];
@@ -43,18 +46,68 @@ export class TurnControlReceiver {
   /** Services control messages until the active turn returns its terminal driver action. */
   async waitForAction(): Promise<NextDriverAction> {
     while (true) {
+      if (this.steeringToken !== undefined) {
+        const winner = await Promise.race([
+          this.getControlPromise().then((value) => ({ kind: "control" as const, value })),
+          this.deliveryHook.next().then((value) => ({ kind: "delivery" as const, value })),
+        ]);
+
+        if (winner.kind === "delivery") {
+          if (winner.value.done) {
+            throw new Error("Session delivery hook closed while a turn was active.");
+          }
+          const value = winner.value.value;
+          if (value.kind !== "deliver") {
+            this.deliveryHook.consumeNext();
+            continue;
+          }
+          if (value.turnPolicy !== "steer") {
+            this.deliveryHook.consumeNext();
+            this.bufferedDeliveries.push(value);
+            continue;
+          }
+
+          const terminal = await this.forwardSteering(value);
+          if (terminal !== undefined) return terminal;
+          continue;
+        }
+
+        this.consumeControl();
+        if (winner.value.done) {
+          throw new Error("Turn control hook closed before delivering a result.");
+        }
+        const terminal = await this.handleControl(winner.value.value);
+        if (terminal !== undefined) return terminal;
+        continue;
+      }
+
       const payload = await this.nextControl(
         "Turn control hook closed before delivering a result.",
       );
 
-      const terminal = this.readTerminalControl(payload);
+      const terminal = await this.handleControl(payload);
       if (terminal !== undefined) return terminal;
-
-      if (payload.kind === "turn-delivery-request") {
-        const resolved = await this.serviceDeliveryRequest(payload);
-        if (resolved !== undefined) return resolved;
-      }
     }
+  }
+
+  private async handleControl(payload: TurnControlPayload): Promise<NextDriverAction | undefined> {
+    const terminal = this.readTerminalControl(payload);
+    if (terminal !== undefined) return terminal;
+
+    if (payload.kind === "turn-steering-ready") {
+      this.steeringToken = payload.steeringToken;
+      return undefined;
+    }
+
+    if (payload.kind === "turn-continuation-token") {
+      await this.deliveryHook.rekey(payload.continuationToken);
+      return undefined;
+    }
+
+    if (payload.kind === "turn-delivery-request") {
+      return await this.serviceDeliveryRequest(payload);
+    }
+    return undefined;
   }
 
   private bufferTurnDeliveries(
@@ -100,12 +153,55 @@ export class TurnControlReceiver {
     return payload.action;
   }
 
+  private async forwardSteering(
+    delivery: DeliverHookPayload,
+  ): Promise<NextDriverAction | undefined> {
+    const requestId = `${this.control.token}:steer:${String(this.steeringSequence++)}`;
+    try {
+      await forwardTurnSteeringStep({
+        payload: { delivery, requestId },
+        steeringToken: this.steeringToken!,
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "HookNotFoundError")) throw error;
+      this.deliveryHook.consumeNext();
+      this.bufferedDeliveries.push({ ...delivery, turnPolicy: "queue" });
+      return undefined;
+    }
+
+    this.deliveryHook.consumeNext();
+    return await this.awaitForwardedSteering(requestId, delivery);
+  }
+
+  private async awaitForwardedSteering(
+    requestId: string,
+    outstanding: DeliverHookPayload,
+  ): Promise<NextDriverAction | undefined> {
+    while (true) {
+      const payload = await this.nextControl(
+        "Turn control hook closed before resolving a steering delivery.",
+      );
+      if (payload.kind === "turn-steering-accepted" && payload.requestId === requestId) {
+        return undefined;
+      }
+      if (payload.kind === "turn-result") {
+        this.bufferedDeliveries.push({ ...outstanding, turnPolicy: "queue" });
+      }
+      const terminal = await this.handleControl(payload);
+      if (terminal !== undefined) return terminal;
+    }
+  }
+
   private async serviceDeliveryRequest(
     request: DeliveryRequest,
   ): Promise<NextDriverAction | undefined> {
     await this.deliveryHook.rekey(request.continuationToken);
 
-    let delivery = this.bufferedDeliveries.shift();
+    // Only an explicitly addressed response may cross a request that was
+    // raised after the delivery was admitted. Freeform input already buffered
+    // for `queue` belongs to the next parent turn; input arriving after this
+    // request is armed may answer it below.
+    let delivery = takeExplicitInputResponse(this.bufferedDeliveries);
     while (delivery === undefined) {
       const winner = await Promise.race([
         this.getControlPromise().then((value) => ({ kind: "control" as const, value })),
@@ -193,4 +289,14 @@ export class TurnControlReceiver {
       if (terminal !== undefined) return terminal;
     }
   }
+}
+
+function takeExplicitInputResponse(
+  deliveries: DeliverHookPayload[],
+): DeliverHookPayload | undefined {
+  const index = deliveries.findIndex((delivery) =>
+    delivery.payloads.some((payload) => (payload.inputResponses?.length ?? 0) > 0),
+  );
+  if (index < 0) return undefined;
+  return deliveries.splice(index, 1)[0];
 }
