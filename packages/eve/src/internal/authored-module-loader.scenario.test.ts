@@ -101,6 +101,30 @@ describe("loadAuthoredModuleNamespace", () => {
     expect(moduleNamespace.result).toBe("directory-index");
   });
 
+  it("loads authored modules with dynamic relative imports", async () => {
+    const app = await scenarioApp({
+      files: {
+        "agent/lib/dynamic-value.ts": 'export const value = "dynamic-relative-import";\n',
+        "agent/tools/use_dynamic_value.ts": [
+          "export async function readValue() {",
+          '  const { value } = await import("../lib/dynamic-value");',
+          "  return value;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      name: "dynamic-relative-import",
+    });
+
+    const moduleNamespace = await loadAuthoredModuleNamespace(
+      join(app.appRoot, "agent", "tools", "use_dynamic_value.ts"),
+    );
+
+    await expect((moduleNamespace.readValue as () => Promise<string>)()).resolves.toBe(
+      "dynamic-relative-import",
+    );
+  });
+
   it("resolves extensionless CommonJS requires with dotted JavaScript basenames", async () => {
     const app = await scenarioApp({
       files: {

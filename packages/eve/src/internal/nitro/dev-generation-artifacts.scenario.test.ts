@@ -17,7 +17,7 @@ import { useScenarioApp } from "#internal/testing/scenario-app.js";
 describe("development generation artifacts", () => {
   const scenarioApp = useScenarioApp();
 
-  it("executes its ESM external closure after the original source and dependencies are removed", async () => {
+  it("executes dynamic imports and its ESM external closure after source removal", async () => {
     const app = await scenarioApp({
       dependencies: {
         "fixture-bundled": "1.0.0",
@@ -33,13 +33,13 @@ describe("development generation artifacts", () => {
         ].join("\n"),
         "agent/instructions.md": "Use the available tools.",
         "agent/tools/read_value.mjs": [
-          'import { bundledValue } from "fixture-bundled";',
+          'import { readBundledValue } from "fixture-bundled";',
           'import { externalValue } from "fixture-external/feature";',
           "",
           "export default {",
           '  description: "Read dependency values.",',
-          "  execute() {",
-          "    return `${bundledValue}:${externalValue}`;",
+          "  async execute() {",
+          "    return `${await readBundledValue()}:${externalValue}`;",
           "  },",
           "};",
           "",
@@ -84,10 +84,10 @@ describe("development generation artifacts", () => {
     const toolSourceId = compileResult.manifest.tools[0]?.sourceId;
     expect(toolSourceId).toBeDefined();
     const tool = moduleMap.nodes[ROOT_COMPILED_AGENT_NODE_ID]?.modules[toolSourceId!] as {
-      default: { execute(): string };
+      default: { execute(): Promise<string> };
     };
 
-    expect(tool.default.execute()).toBe(
+    await expect(tool.default.execute()).resolves.toBe(
       "bundled-original:serde-original:external-original:payload-original",
     );
   });
@@ -238,8 +238,11 @@ async function writeDependencyFixture(appRoot: string): Promise<string> {
     join(bundledRoot, "index.mjs"),
     [
       '"use workflow";',
-      'import { serdeMarker } from "@workflow/serde";',
-      "export const bundledValue = `bundled-original:${serdeMarker}`;",
+      // Generation bundles are one file, so bundled dynamic imports must be inlined.
+      "export async function readBundledValue() {",
+      '  const { serdeMarker } = await import("@workflow/serde");',
+      "  return `bundled-original:${serdeMarker}`;",
+      "}",
       "",
     ].join("\n"),
   );

@@ -284,6 +284,7 @@ async function buildAuthoredModuleBundle(
       tsconfig: tsconfigPath,
       write: false,
       output: {
+        codeSplitting: false,
         comments: false,
         format: "esm",
         sourcemap: configuration.sourcemap,
