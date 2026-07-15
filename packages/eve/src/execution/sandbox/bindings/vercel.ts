@@ -39,8 +39,8 @@ import {
 import {
   isVercelSandboxMissingError,
   isVercelSnapshotUnavailableError,
-  isVercelSnapshottingError,
 } from "#execution/sandbox/bindings/vercel-errors.js";
+import { ensureWithConcurrentSnapshotPolling } from "#execution/sandbox/bindings/vercel-snapshot-poll.js";
 import { getNamedVercelSandbox } from "#execution/sandbox/bindings/vercel-lookup.js";
 import { normalizeVercelReadStream } from "#execution/sandbox/bindings/vercel-read-stream.js";
 import { writeSandboxSeedFiles } from "#execution/sandbox/bindings/local-backend-utils.js";
@@ -189,64 +189,20 @@ interface EnsureTemplateInput {
 async function ensureTemplateWithUnavailableRetry(
   input: EnsureTemplateInput,
 ): Promise<EnsureTemplateOutcome> {
+  const attempt = () =>
+    ensureWithConcurrentSnapshotPolling({
+      attempt: () => ensureTemplate(input),
+      log: input.log,
+      templateKey: input.templateKey,
+    });
   try {
-    return await ensureTemplateWaitingForConcurrentSnapshot(input);
+    return await attempt();
   } catch (error) {
     if (!isVercelSnapshotUnavailableError(error) && !isVercelSandboxMissingError(error)) {
       throw error;
     }
     input.log?.("cached template disappeared; rebuilding sandbox template");
-    return await ensureTemplateWaitingForConcurrentSnapshot(input);
-  }
-}
-
-/*
- * How long to keep polling for a concurrent build's in-progress snapshot
- * before giving up, and how long to wait between polls. Taking a snapshot
- * is a compress-and-upload-to-S3 operation that can run for tens of
- * seconds, so we wait generously rather than fail a build over a transient
- * race that resolves on its own. We can't poll the snapshot object's
- * status directly (its id isn't published until the snapshot completes),
- * so each poll re-probes `ensureTemplate`.
- */
-const SNAPSHOTTING_POLL_DEADLINE_MS = 120_000;
-const SNAPSHOTTING_POLL_INTERVAL_MS = 5_000;
-
-/**
- * Polls `ensureTemplate` while it keeps failing with a `sandbox_snapshotting`
- * 422. Template keys are content-derived, so a name collision means the
- * concurrent build is producing the identical image: once its snapshot
- * finishes, the next probe reuses it instead of rebuilding. Other errors
- * propagate at once; exceeding the deadline throws, naming the template.
- */
-async function ensureTemplateWaitingForConcurrentSnapshot(
-  input: EnsureTemplateInput,
-): Promise<EnsureTemplateOutcome> {
-  let waitedMs = 0;
-  for (;;) {
-    try {
-      return await ensureTemplate(input);
-    } catch (error) {
-      if (!isVercelSnapshottingError(error)) {
-        throw error;
-      }
-      if (waitedMs >= SNAPSHOTTING_POLL_DEADLINE_MS) {
-        throw new Error(
-          `Gave up after ${Math.round(SNAPSHOTTING_POLL_DEADLINE_MS / 1_000)}s waiting for an ` +
-            `in-progress snapshot of sandbox template "${input.templateKey}" to complete. A ` +
-            "concurrent build is snapshotting the same template and it did not finish in time; " +
-            "retry the build, or rerun once the other build has completed.",
-          { cause: error },
-        );
-      }
-      input.log?.(
-        `sandbox template "${input.templateKey}" is being snapshotted by a concurrent build; ` +
-          `waited ${Math.round(waitedMs / 1_000)}s of ` +
-          `${Math.round(SNAPSHOTTING_POLL_DEADLINE_MS / 1_000)}s, polling again`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, SNAPSHOTTING_POLL_INTERVAL_MS));
-      waitedMs += SNAPSHOTTING_POLL_INTERVAL_MS;
-    }
+    return await attempt();
   }
 }
 
