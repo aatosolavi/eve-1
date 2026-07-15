@@ -271,6 +271,7 @@ async function waitForRuntimeActionResults(input: {
   readonly pendingSteering: DeliverHookPayload[];
   readonly steering: TurnSteeringControl | undefined;
 }): Promise<readonly RuntimeActionResult[] | "cancelled"> {
+  let pendingInboxRead: Promise<IteratorResult<TurnInboxPayload>> | undefined;
   let pendingDeliveryRequest: string | undefined;
   const results: RuntimeActionResult[] = [...input.initialResults];
 
@@ -301,11 +302,14 @@ async function waitForRuntimeActionResults(input: {
       });
     }
 
-    const nextPromise = input.iterator.next();
-    // When a cancel wins the race, the dangling inbox `next()` is dropped
-    // by disposal in teardown; pre-attach a handler so a late rejection
-    // never surfaces as unhandled.
-    nextPromise.catch(() => {});
+    if (pendingInboxRead === undefined) {
+      pendingInboxRead = input.iterator.next();
+      // When a cancel wins the race, the dangling inbox `next()` is dropped
+      // by disposal in teardown; pre-attach a handler so a late rejection
+      // never surfaces as unhandled.
+      pendingInboxRead.catch(() => {});
+    }
+    const nextPromise = pendingInboxRead;
     const waits: Array<Promise<IteratorResult<TurnInboxPayload> | "cancel" | "steer">> = [
       nextPromise,
     ];
@@ -342,6 +346,7 @@ async function waitForRuntimeActionResults(input: {
       }
       continue;
     }
+    pendingInboxRead = undefined;
     if (next.done) throw new Error("Turn inbox closed before runtime actions completed.");
 
     const value = next.value;

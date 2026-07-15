@@ -567,6 +567,83 @@ describe("turnWorkflow", () => {
     );
   });
 
+  it("reuses the pending inbox read when steering wins a runtime-action race", async () => {
+    const pendingState = createSessionState();
+    const completedState = createSessionState();
+    const steeringDelivery = {
+      kind: "deliver",
+      payloads: [{ message: "change course" }],
+      turnPolicy: "steer",
+    } as const;
+    let resolveInbox: ((result: IteratorResult<unknown>) => void) | undefined;
+    const inboxRead = new Promise<IteratorResult<unknown>>((resolve) => {
+      resolveInbox = resolve;
+    });
+    const next = vi
+      .fn()
+      .mockReturnValueOnce(inboxRead)
+      .mockImplementation(() => new Promise<IteratorResult<unknown>>(() => {}));
+    const inbox = createInboxMock([], { next });
+    installHookDispatch([inbox], {
+      steeringPayloads: [{ delivery: steeringDelivery, requestId: "steer-1" }],
+    });
+    vi.mocked(dispatchRuntimeActionsStep).mockResolvedValue({
+      results: [],
+      sessionState: pendingState,
+    });
+    vi.mocked(turnStep)
+      .mockResolvedValueOnce({
+        action: "park",
+        hasPendingAuthorization: false,
+        hasPendingInputBatch: false,
+        pendingRuntimeActionKeys: ["subagent-call:delegate:call-1"],
+        serializedContext: { state: "pending" },
+        sessionState: pendingState,
+      })
+      .mockResolvedValueOnce({
+        action: "done",
+        output: "parent output",
+        serializedContext: { state: "done" },
+        sessionState: completedState,
+      });
+    const { input } = createInput({
+      driverCapabilities: { steering: true, turnInbox: true },
+      mode: "task",
+      sessionState: pendingState,
+    });
+
+    const workflow = turnWorkflow(input);
+    await vi.waitFor(() => {
+      expect(resumeHookMock).toHaveBeenCalledWith("turn-token", {
+        kind: "turn-steering-accepted",
+        requestId: "steer-1",
+      });
+    });
+    expect(next).toHaveBeenCalledOnce();
+
+    resolveInbox?.({
+      done: false,
+      value: {
+        kind: "runtime-action-result",
+        results: [
+          {
+            callId: "call-1",
+            kind: "subagent-result",
+            output: "child output",
+            subagentName: "delegate",
+          },
+        ],
+      },
+    });
+    await workflow;
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(vi.mocked(turnStep).mock.calls[1]?.[0].input).toEqual({
+      kind: "runtime-action-result",
+      results: [expect.objectContaining({ callId: "call-1", output: "child output" })],
+    });
+  });
+
   it("keeps dynamic-workflow child dispatch and immediate remote failures in the same turn", async () => {
     const pendingState = createSessionState();
     const completedState = createSessionState();
@@ -1002,15 +1079,19 @@ function createInboxMock(
   options: {
     readonly claimError?: unknown;
     readonly conflict?: { readonly runId: string } | null;
+    readonly next?: () => Promise<IteratorResult<unknown>>;
   } = {},
 ): InboxMock {
   const queue = [...values];
   const dispose = vi.fn();
-  const createIterator = vi.fn(() => ({
-    next: vi.fn(async () => {
+  const next =
+    options.next ??
+    vi.fn(async () => {
       const value = queue.shift();
       return value === undefined ? { done: true, value: undefined } : { done: false, value };
-    }),
+    });
+  const createIterator = vi.fn(() => ({
+    next,
     return: vi.fn(async () => ({ done: true, value: undefined })),
   }));
   const hook = {
