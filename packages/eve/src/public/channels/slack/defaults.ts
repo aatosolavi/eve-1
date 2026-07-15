@@ -31,6 +31,7 @@ import type { InputRequest } from "#runtime/input/types.js";
 const log = createLogger("slack.defaults");
 const REASONING_TYPING_REFRESH_INTERVAL_MS = 5_000;
 const REASONING_TYPING_MIN_PROGRESS_CHARS = 4;
+const SONIC_TIMING_FOOTER_PATTERN = /(?:^|(?:\r?\n)+):sonic-speed: Time elapsed: [^\r\n]+\s*$/u;
 
 /**
  * Workspace-scoped projection of the Slack actor that produced
@@ -194,11 +195,12 @@ export const defaultEvents: SlackChannelInternalEvents = {
       return;
     }
     channel.state.pendingToolCallMessage = null;
-    if (!event.message) {
+    const message = event.message?.replace(SONIC_TIMING_FOOTER_PATTERN, "");
+    if (!message) {
       await channel.thread.startTyping();
       return;
     }
-    await channel.thread.post(event.message);
+    await channel.thread.post(message);
   },
 
   async "turn.failed"(event, channel, _ctx) {

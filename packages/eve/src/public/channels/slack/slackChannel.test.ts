@@ -275,18 +275,23 @@ describe("slackChannel() default event handlers", () => {
     vi.useRealTimers();
   });
 
-  it("message.completed posts the agent message via Slack API", async () => {
+  it("message.completed preserves non-terminal sonic timing text", async () => {
     const adapter = withState(
       getAdapter(slackChannel({ credentials: { botToken: "xoxb-test" } })),
       THREAD_STATE,
     );
     const ctx = buildAdapterContext(adapter, stubAccessor());
+    const message = [
+      "Hello from the agent",
+      ":sonic-speed: Time elapsed: 42s",
+      "This non-terminal line stays in the reply.",
+    ].join("\n");
 
     await callEvent(
       adapter,
       makeEvent("message.completed", {
         finishReason: "stop",
-        message: "Hello from the agent",
+        message,
         sequence: 0,
         stepIndex: 0,
         turnId: "t1",
@@ -301,6 +306,31 @@ describe("slackChannel() default event handlers", () => {
     expect(body).toMatchObject({
       channel: "C01",
       thread_ts: "1700000000.000001",
+      markdown_text: message,
+    });
+  });
+
+  it("message.completed omits the sonic timing footer", async () => {
+    const adapter = withState(
+      getAdapter(slackChannel({ credentials: { botToken: "xoxb-test" } })),
+      THREAD_STATE,
+    );
+    const ctx = buildAdapterContext(adapter, stubAccessor());
+
+    await callEvent(
+      adapter,
+      makeEvent("message.completed", {
+        finishReason: "stop",
+        message: "Hello from the agent\n\n:sonic-speed: Time elapsed: 42s",
+        sequence: 0,
+        stepIndex: 0,
+        turnId: "t1",
+      }),
+      ctx,
+    );
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(parseSlackRequestBody(init as RequestInit)).toMatchObject({
       markdown_text: "Hello from the agent",
     });
   });
