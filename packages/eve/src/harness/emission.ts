@@ -41,7 +41,7 @@ import {
   createRuntimeActionRequestFromToolCall,
   resolveToolCallInputObject,
 } from "#harness/runtime-actions.js";
-import { createInvalidToolCallInputError } from "#harness/tool-call-input-errors.js";
+import { getInvalidToolCallInputs } from "#harness/tool-call-input-errors.js";
 import type {
   RuntimeActionRequest,
   RuntimeToolResultActionResult,
@@ -332,7 +332,6 @@ export function normalizeAssistantStepFinishReason(
 interface EmittedStreamContent {
   readonly emittedActionCallIds: ReadonlySet<string>;
   readonly handledInlineToolResultCallIds: ReadonlySet<string>;
-  readonly invalidInputToolCallIds: ReadonlySet<string>;
   readonly inlineAuthorizationResults: readonly TypedToolResult<ToolSet>[];
   readonly trailingInlineToolResultParts: readonly InlineToolResultPart[];
 }
@@ -394,7 +393,6 @@ async function consumeStreamContent(
   const emittedActionResultCallIds = new Set<string>();
   const providerToolCallIdsSeen = new Set<string>();
   const handledInlineToolResultCallIds = new Set<string>();
-  const invalidInputToolCallIds = new Set<string>();
   const inlineAuthorizationResults: TypedToolResult<ToolSet>[] = [];
   const trailingInlineToolResultParts: InlineToolResultPart[] = [];
 
@@ -479,35 +477,33 @@ async function consumeStreamContent(
   };
 
   const emitToolCall = async (toolCall: TypedToolCall<ToolSet>): Promise<void> => {
-    if (
-      options === undefined ||
-      toolCall.invalid === true ||
-      options.excludedActionToolNames.has(toolCall.toolName)
-    ) {
+    if (options === undefined || options.excludedActionToolNames.has(toolCall.toolName)) {
       return;
     }
 
-    try {
-      await emitActionRequest(
-        createRuntimeActionRequestFromToolCall({
-          toolCall,
-          tools: options.tools,
-        }),
-      );
-    } catch (error) {
-      if (error instanceof TypeError) {
-        const toolError = createInvalidToolCallInputError({ error, toolCall });
-        invalidInputToolCallIds.add(toolCall.toolCallId);
-        if (currentMessage.trim().length > 0) {
-          await flushCurrentMessage();
-        }
-        await emitActionResult(createRuntimeToolResultFromToolError(toolError));
-        handledInlineToolResultCallIds.add(toolCall.toolCallId);
-        trailingInlineToolResultParts.push(createToolResultMessagePartFromToolError(toolError));
+    const { callIds, toolErrors } = getInvalidToolCallInputs({ toolCalls: [toolCall] });
+    if (callIds.has(toolCall.toolCallId)) {
+      // AI-SDK-invalid calls carry no synthesized error: the SDK feeds its
+      // own tool-error back to the model on the next step.
+      const toolError = toolErrors.at(0);
+      if (toolError === undefined) {
         return;
       }
-      throw error;
+      if (currentMessage.trim().length > 0) {
+        await flushCurrentMessage();
+      }
+      await emitActionResult(createRuntimeToolResultFromToolError(toolError));
+      handledInlineToolResultCallIds.add(toolCall.toolCallId);
+      trailingInlineToolResultParts.push(createToolResultMessagePartFromToolError(toolError));
+      return;
     }
+
+    await emitActionRequest(
+      createRuntimeActionRequestFromToolCall({
+        toolCall,
+        tools: options.tools,
+      }),
+    );
   };
 
   for await (const part of fullStream) {
@@ -688,7 +684,6 @@ async function consumeStreamContent(
   return {
     emittedActionCallIds,
     handledInlineToolResultCallIds,
-    invalidInputToolCallIds,
     inlineAuthorizationResults,
     trailingInlineToolResultParts,
   };

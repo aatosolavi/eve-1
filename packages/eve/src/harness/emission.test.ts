@@ -587,7 +587,7 @@ describe("emitStreamContent action requests", () => {
         type: "action.result",
       }),
     ]);
-    expect([...result.invalidInputToolCallIds]).toEqual(["call-bad"]);
+    expect([...result.handledInlineToolResultCallIds]).toEqual(["call-bad"]);
     expect(result.trailingInlineToolResultParts).toEqual([
       {
         output: { type: "error-text", value: message },

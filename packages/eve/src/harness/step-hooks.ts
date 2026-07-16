@@ -31,6 +31,7 @@ import {
   type PromptCachePath,
 } from "#harness/prompt-cache.js";
 import { createRuntimeActionRequestFromToolCall } from "#harness/runtime-actions.js";
+import { getInvalidToolCallInputs } from "#harness/tool-call-input-errors.js";
 import type { RuntimeToolResultActionResult } from "#runtime/actions/types.js";
 import type { HarnessEmitFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
 import { contextStorage } from "#context/container.js";
@@ -57,9 +58,7 @@ export type HarnessStepResult = Pick<
   | "toolCalls"
   | "toolResults"
   | "usage"
-> & {
-  readonly invalidInputToolCallIds?: ReadonlySet<string>;
-};
+>;
 
 // ---------------------------------------------------------------------------
 // Hook builder input / output
@@ -195,12 +194,12 @@ export function buildStepHooks(input: StepHooksInput): StepHooks {
  * from a captured step result.
  *
  * Tool calls and results that match `excludedActionToolNames`, belong to
- * tool-approval requests, or are marked `invalid` by the AI SDK (e.g. the
- * model emitted unparsable JSON) are filtered out of the emitted events.
- * The AI SDK feeds the invalid-call error back to the model on the next
- * step via `step.response.messages` so it can retry with well-formed
- * arguments — the runtime event stream only sees successfully parsed
- * tool calls.
+ * tool-approval requests, or fail input classification
+ * ({@link getInvalidToolCallInputs}: AI-SDK-invalid or non-object input) are
+ * filtered out of the emitted events. Their error feedback reaches the model
+ * on the next step via `step.response.messages` so it can retry with
+ * well-formed arguments — the runtime event stream only sees successfully
+ * parsed tool calls.
  *
  * `handledInlineToolResultCallIds` contains results emitted by
  * `emitStreamContent` or sent to authorization. Skip them here.
@@ -211,7 +210,6 @@ export async function emitStepActions(
   step: HarnessStepResult,
   options: {
     readonly emittedActionCallIds?: ReadonlySet<string>;
-    readonly excludedActionCallIds?: ReadonlySet<string>;
     readonly excludedActionToolNames: ReadonlySet<string>;
     readonly handledInlineToolResultCallIds?: ReadonlySet<string>;
     readonly tools: ToolLoopHarnessConfig["tools"];
@@ -222,16 +220,17 @@ export async function emitStepActions(
       .filter(isProviderExecutedToolCall)
       .map((toolCall) => toolCall.toolCallId),
   );
+  const invalidInputToolCallIds = getInvalidToolCallInputs({
+    excludedToolNames: options.excludedActionToolNames,
+    toolCalls: step.toolCalls as TypedToolCall<ToolSet>[],
+  }).callIds;
   const excludedCallIds = new Set<string>([
-    ...(options.excludedActionCallIds ?? []),
+    ...invalidInputToolCallIds,
     ...providerExecutedCallIds,
     ...extractToolApprovalInputRequests({
       content: (step.content ?? []) as ContentPart<ToolSet>[],
-      excludedCallIds: options.excludedActionCallIds,
+      excludedCallIds: invalidInputToolCallIds,
     }).map((request) => request.action.callId),
-    ...(step.toolCalls as TypedToolCall<ToolSet>[])
-      .filter(isInvalidToolCall)
-      .map((toolCall) => toolCall.toolCallId),
   ]);
 
   const isExcluded = (toolCallId: string, toolName: string): boolean =>
@@ -314,20 +313,6 @@ export async function emitStepActions(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Returns true when the AI SDK marked the tool call `invalid` (typically
- * because the model emitted unparsable JSON or targeted an unknown tool).
- *
- * Invalid calls have a raw-string or partial `input` payload that cannot
- * satisfy the runtime-action contract. The AI SDK synthesizes a tool-error
- * result for the next model step automatically; callers must skip invalid
- * calls when projecting to `RuntimeActionRequest` values or the harness
- * will throw on the JSON-object invariant.
- */
-export function isInvalidToolCall(toolCall: TypedToolCall<ToolSet>): boolean {
-  return toolCall.invalid === true;
-}
 
 function isProviderExecutedToolCall(toolCall: TypedToolCall<ToolSet>): boolean {
   return toolCall.providerExecuted === true;

@@ -14,7 +14,6 @@ import {
   ToolLoopAgent,
   type ToolSet,
   type TypedToolCall,
-  type TypedToolError,
   type TypedToolResult,
 } from "ai";
 import { isScheduleAppAuth } from "#channel/schedule-auth.js";
@@ -148,13 +147,8 @@ import {
   resolvePendingRuntimeActions,
   setPendingRuntimeActionBatch,
 } from "#harness/runtime-actions.js";
-import { getInvalidToolCallInputError } from "#harness/tool-call-input-errors.js";
-import {
-  buildStepHooks,
-  emitStepActions,
-  type HarnessStepResult,
-  isInvalidToolCall,
-} from "#harness/step-hooks.js";
+import { getInvalidToolCallInputs, isInvalidToolCall } from "#harness/tool-call-input-errors.js";
+import { buildStepHooks, emitStepActions, type HarnessStepResult } from "#harness/step-hooks.js";
 import {
   buildToolApproval,
   buildToolSetFromDefinitions,
@@ -915,7 +909,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           const {
             emittedActionCallIds,
             handledInlineToolResultCallIds,
-            invalidInputToolCallIds,
             inlineAuthorizationResults,
             trailingInlineToolResultParts,
           } = await emitStreamContent(emit, emissionState, streamResult.fullStream, {
@@ -937,7 +930,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           }
           await emitStepActions(emit, emissionState, stepResult, {
             emittedActionCallIds,
-            excludedActionCallIds: invalidInputToolCallIds,
             excludedActionToolNames,
             handledInlineToolResultCallIds,
             tools: advertisedHarnessTools,
@@ -950,7 +942,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
             toolResultsByCallId.set(toolResult.toolCallId, toolResult);
           }
           return withAccumulatedResponseMessages({
-            invalidInputToolCallIds,
             responseMessages: appendMissingToolResultMessages({
               append: trailingInlineToolResultParts,
               responseMessages: accumulatedResponseMessages,
@@ -1494,7 +1485,6 @@ type ToolResultPart = Extract<ToolResponsePart, { type: "tool-result" }>;
 type StepResponseMessage = HarnessStepResult["response"]["messages"][number];
 
 function withAccumulatedResponseMessages(input: {
-  readonly invalidInputToolCallIds?: ReadonlySet<string>;
   readonly responseMessages: readonly StepResponseMessage[];
   readonly stepResult: HarnessStepResult;
   readonly toolResults?: readonly TypedToolResult<ToolSet>[];
@@ -1510,9 +1500,6 @@ function withAccumulatedResponseMessages(input: {
   return {
     content: stepResult.content,
     finishReason: stepResult.finishReason,
-    ...(input.invalidInputToolCallIds === undefined
-      ? {}
-      : { invalidInputToolCallIds: input.invalidInputToolCallIds }),
     providerMetadata: stepResult.providerMetadata,
     response: {
       ...stepResult.response,
@@ -1536,25 +1523,6 @@ function appendMissingToolResultMessages(input: {
     ...input.responseMessages,
     ...(append.length > 0 ? [{ role: "tool" as const, content: [...append] }] : []),
   ] satisfies StepResponseMessage[];
-}
-
-function getInvalidToolCallInputErrors(input: {
-  readonly toolCalls: readonly TypedToolCall<ToolSet>[];
-}): readonly TypedToolError<ToolSet>[] {
-  const errors: TypedToolError<ToolSet>[] = [];
-
-  for (const toolCall of input.toolCalls) {
-    if (toolCall.toolName === FINAL_OUTPUT_TOOL_NAME) {
-      continue;
-    }
-
-    const toolError = getInvalidToolCallInputError({ toolCall });
-    if (toolError !== undefined) {
-      errors.push(toolError);
-    }
-  }
-
-  return errors;
 }
 
 function extractToolResultCallIds(messages: readonly StepResponseMessage[]): ReadonlySet<string> {
@@ -1772,13 +1740,15 @@ async function handleStepResult(input: {
     result.finishReason !== "tool-calls" &&
     result.toolCalls.length === 0 &&
     hasEmptyDeliverySentinel(resolvedStepOutput);
-  const invalidInputToolErrors = getInvalidToolCallInputErrors({
-    toolCalls: result.toolCalls as TypedToolCall<ToolSet>[],
-  });
-  const invalidInputToolCallIds = new Set([
-    ...(result.invalidInputToolCallIds ?? []),
-    ...invalidInputToolErrors.map((toolError) => toolError.toolCallId),
-  ]);
+  // `final_output` is exempt from the JSON-object contract check: its
+  // well-formed input is validated against the turn's output schema, which
+  // may be a non-object. AI-SDK-invalid calls (unparsable argument JSON) are
+  // still classified regardless of name.
+  const { callIds: invalidInputToolCallIds, toolErrors: invalidInputToolErrors } =
+    getInvalidToolCallInputs({
+      excludedToolNames: new Set([FINAL_OUTPUT_TOOL_NAME]),
+      toolCalls: result.toolCalls as TypedToolCall<ToolSet>[],
+    });
   const rawResponseMessages = emptyDelivery
     ? []
     : appendMissingToolResultMessages({
@@ -1846,7 +1816,6 @@ async function handleStepResult(input: {
     tools: config.tools,
   });
   const pendingRuntimeActions = ((result.toolCalls ?? []) as TypedToolCall<ToolSet>[])
-    .filter((toolCall) => !isInvalidToolCall(toolCall))
     .filter((toolCall) => !invalidInputToolCallIds.has(toolCall.toolCallId))
     .filter((toolCall) => config.tools.get(toolCall.toolName)?.runtimeAction !== undefined)
     .filter((toolCall) => {
@@ -2029,10 +1998,15 @@ const OUTPUT_SCHEMA_NOT_FULFILLED = {
 /**
  * The structured value the model delivered by calling the framework
  * `final_output` tool, or `undefined` when the terminal turn ended in prose.
+ *
+ * AI-SDK-invalid calls are skipped: their `input` is the raw unparsable
+ * argument string, not a schema-validated value. The SDK's synthesized
+ * tool-error keeps the loop going so the model can retry.
  */
 function extractFinalOutput(result: HarnessStepResult): JsonValue | undefined {
-  return (result.toolCalls ?? []).find((call) => call.toolName === FINAL_OUTPUT_TOOL_NAME)
-    ?.input as JsonValue | undefined;
+  return (result.toolCalls ?? []).find(
+    (call) => call.toolName === FINAL_OUTPUT_TOOL_NAME && !isInvalidToolCall(call),
+  )?.input as JsonValue | undefined;
 }
 
 /**

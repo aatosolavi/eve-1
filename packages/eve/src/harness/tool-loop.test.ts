@@ -1518,6 +1518,67 @@ describe("createToolLoopHarness", () => {
     expect(result.next).toEqual({ done: true, output: { summary: "Done" } });
   });
 
+  it("retries instead of terminating when the model emits unparsable final_output arguments", async () => {
+    // The AI SDK marks a `final_output` call `invalid` when it cannot parse
+    // the argument JSON; `input` stays the raw string and never saw schema
+    // validation. The harness must feed the SDK's synthesized tool-error back
+    // to the model instead of terminating the task with the garbage string.
+    setupMockAgent({
+      content: [],
+      finishReason: "tool-calls",
+      response: {
+        messages: [
+          {
+            content: [
+              {
+                input: {},
+                toolCallId: "final-output-1",
+                toolName: "final_output",
+                type: "tool-call",
+              },
+            ],
+            role: "assistant",
+          },
+          {
+            content: [
+              {
+                output: {
+                  type: "error-text",
+                  value: "AI_InvalidToolInputError: Invalid input for tool final_output",
+                },
+                toolCallId: "final-output-1",
+                toolName: "final_output",
+                type: "tool-result",
+              },
+            ],
+            role: "tool",
+          },
+        ],
+      },
+      text: "",
+      toolCalls: [
+        {
+          input: '{"summary": "Do',
+          invalid: true,
+          toolCallId: "final-output-1",
+          toolName: "final_output",
+          type: "tool-call",
+        },
+      ],
+      toolResults: [],
+    });
+
+    const config = createTestConfig("task");
+    const runStep = createToolLoopHarness(config);
+    const session = createTestSession({ outputSchema: { type: "object" } });
+
+    const result = await runStep(session, { message: "Hi" });
+
+    // The synthesized tool-error ends the response, so the loop continues
+    // with another model step; the raw string must never become the output.
+    expect(typeof result.next).toBe("function");
+  });
+
   it("fails a task turn as an error when structured output is not produced", async () => {
     setupMockAgent({
       finishReason: "stop",
@@ -7050,6 +7111,82 @@ describe("createToolLoopHarness", () => {
       },
       type: "input.requested",
     });
+  });
+
+  it("does not emit input.requested for an invalid ask_question tool call", async () => {
+    // The AI SDK marks a tool call `invalid` when it cannot parse the model's
+    // argument JSON; `input` stays a raw string and the SDK synthesizes the
+    // tool-error result itself. The harness must exclude the call from
+    // input-request projection instead of crashing the step on the
+    // JSON-object invariant.
+    setupMockAgent({
+      content: [],
+      finishReason: "tool-calls",
+      response: {
+        messages: [
+          {
+            content: [
+              {
+                input: {},
+                toolCallId: "question-1",
+                toolName: "ask_question",
+                type: "tool-call",
+              },
+            ],
+            role: "assistant",
+          },
+          {
+            content: [
+              {
+                output: {
+                  type: "error-text",
+                  value: "AI_InvalidToolInputError: Invalid input for tool ask_question",
+                },
+                toolCallId: "question-1",
+                toolName: "ask_question",
+                type: "tool-result",
+              },
+            ],
+            role: "tool",
+          },
+        ],
+      },
+      text: "",
+      toolCalls: [
+        {
+          input: '{"prompt": "Continue?',
+          invalid: true,
+          toolCallId: "question-1",
+          toolName: "ask_question",
+          type: "tool-call",
+        },
+      ],
+      toolResults: [],
+    });
+
+    const { emit, events } = createEventCollector();
+    const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
+    const session = createTestSession({
+      agent: {
+        modelReference: { id: "test-model" },
+        system: "You are a test assistant.",
+        tools: [
+          {
+            description: "Ask the user a question.",
+            name: "ask_question",
+            inputSchema: { type: "object" },
+          },
+        ],
+      },
+    });
+
+    const result = await runStep(session, { message: "Choose for me." });
+
+    // The synthesized tool-error ends the response, so the loop continues
+    // with another model step rather than parking on user input.
+    expect(typeof result.next).toBe("function");
+    expect(events.some((event) => event.type === "input.requested")).toBe(false);
+    expect(events.some((event) => event.type === "step.failed")).toBe(false);
   });
 
   it("emits compaction.requested and compaction.completed when compaction triggers", async () => {
