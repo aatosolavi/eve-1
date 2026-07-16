@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   areSessionLogsEnabled,
+  developmentSessionLogBatchSchema,
   developmentSessionLogEventSchema,
   isSafeSessionLogId,
 } from "#internal/session-logs/protocol.js";
@@ -39,5 +40,22 @@ describe("development session log protocol", () => {
         type: "process.output",
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts bounded output batches", () => {
+    expect(
+      developmentSessionLogBatchSchema.safeParse({
+        events: [
+          {
+            at: "2026-07-15T20:00:00.000Z",
+            sessionId: "wrun_session",
+            stream: "stdout",
+            text: "hello\n",
+            type: "process.output",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(developmentSessionLogBatchSchema.safeParse({ events: [] }).success).toBe(false);
   });
 });

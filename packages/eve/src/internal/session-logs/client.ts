@@ -12,8 +12,10 @@ import {
 import { encodeDevelopmentWorldValue } from "#internal/workflow/development-world-codec.js";
 
 const WORKFLOW_LOCAL_BASE_URL_ENV = "WORKFLOW_LOCAL_BASE_URL";
+const MAX_BATCH_SIZE = 256;
 
-let pendingWrite: Promise<void> = Promise.resolve();
+let pendingEvents: DevelopmentSessionLogEvent[] = [];
+let pendingWrite: Promise<void> | undefined;
 
 export function readActiveSessionLogId(): string | undefined {
   return contextStorage.getStore()?.get(SessionLogIdKey);
@@ -28,18 +30,12 @@ export function writeDevelopmentSessionLog(event: DevelopmentSessionLogEvent): P
     return Promise.resolve();
   }
 
-  pendingWrite = pendingWrite.then(async () => {
-    try {
-      await postEvent(event);
-    } catch {
-      // A recorder failure must not alter model, tool, or sandbox behavior.
-    }
-  });
-  return pendingWrite;
+  pendingEvents.push(event);
+  return scheduleDrain();
 }
 
 export function flushDevelopmentSessionLogs(): Promise<void> {
-  return pendingWrite;
+  return pendingWrite ?? (pendingEvents.length === 0 ? Promise.resolve() : scheduleDrain());
 }
 
 export function canWriteDevelopmentSessionLogs(): boolean {
@@ -50,7 +46,28 @@ export function canWriteDevelopmentSessionLogs(): boolean {
   );
 }
 
-async function postEvent(event: DevelopmentSessionLogEvent): Promise<void> {
+function scheduleDrain(): Promise<void> {
+  pendingWrite ??= Promise.resolve().then(drainPendingEvents);
+  return pendingWrite;
+}
+
+async function drainPendingEvents(): Promise<void> {
+  try {
+    while (pendingEvents.length > 0) {
+      const events = pendingEvents.splice(0, MAX_BATCH_SIZE);
+      try {
+        await postEvents(events);
+      } catch {
+        // A recorder failure must not alter model, tool, or sandbox behavior.
+      }
+    }
+  } finally {
+    pendingWrite = undefined;
+    if (pendingEvents.length > 0) void scheduleDrain();
+  }
+}
+
+async function postEvents(events: readonly DevelopmentSessionLogEvent[]): Promise<void> {
   const baseUrl = process.env[WORKFLOW_LOCAL_BASE_URL_ENV];
   const secret = process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV];
   if (baseUrl === undefined || secret === undefined) {
@@ -59,7 +76,7 @@ async function postEvent(event: DevelopmentSessionLogEvent): Promise<void> {
 
   const url = new URL(DEVELOPMENT_SESSION_LOG_ROUTE, baseUrl);
   const response = await fetch(url, {
-    body: encodeDevelopmentWorldValue(event),
+    body: encodeDevelopmentWorldValue({ events }),
     headers: { [DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER]: secret },
     method: "POST",
   });

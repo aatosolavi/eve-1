@@ -26,7 +26,7 @@ import {
 import { DevelopmentSessionLogRecorder } from "#internal/session-logs/recorder.js";
 import {
   areSessionLogsEnabled,
-  developmentSessionLogEventSchema,
+  developmentSessionLogBatchSchema,
   DEVELOPMENT_SESSION_LOG_ROUTE,
 } from "#internal/session-logs/protocol.js";
 
@@ -115,7 +115,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     await this.#world.start?.();
     this.#started = true;
-    await this.#sessionLogs?.start();
+    this.#sessionLogs?.start();
     await reenqueueActiveDevelopmentRuns({
       enqueue: this.#queue.bind(this),
       prefix: deriveEveWorkflowQueuePrefix(this.#agentName),
@@ -156,13 +156,13 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       return new Response(null, { status: 204 });
     }
     try {
-      const parsed = developmentSessionLogEventSchema.safeParse(
+      const parsed = developmentSessionLogBatchSchema.safeParse(
         decodeDevelopmentWorldValue(await request.text()),
       );
       if (!parsed.success) {
         return Response.json({ error: "Session log request is malformed." }, { status: 400 });
       }
-      await this.#sessionLogs.record(parsed.data);
+      await this.#sessionLogs.appendOutputEvents(parsed.data.events);
       return new Response(null, { status: 204 });
     } catch (error) {
       return new Response(encodeDevelopmentWorldValue(serializeDevelopmentWorldError(error)), {
@@ -269,7 +269,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       for (const chunk of args[2] as readonly (string | Uint8Array)[]) {
         await this.#world.streams.write(args[0] as string, args[1] as string, chunk);
       }
-      await this.#followSessionEventStream(args);
+      this.#observeSessionEventStream(args);
       return undefined;
     }
     const separator = call.operation.indexOf(".");
@@ -285,29 +285,21 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     const result = await Reflect.apply(operation, receiver, args);
     if (call.operation === "streams.write" || call.operation === "streams.writeMulti") {
-      await this.#followSessionEventStream(args);
+      this.#observeSessionEventStream(args);
     }
     if (call.operation === "events.create") {
       const runId = readCommittedEventRunId(result);
       if (runId !== undefined) {
-        try {
-          await this.#sessionLogs?.reconcileRun(runId);
-        } catch (error) {
-          console.error(`[eve:dev] failed to reconcile local session log for ${runId}`, error);
-        }
+        this.#sessionLogs?.observeRunCommitted(runId);
       }
     }
     return result;
   }
 
-  async #followSessionEventStream(args: readonly unknown[]): Promise<void> {
+  #observeSessionEventStream(args: readonly unknown[]): void {
     const [runId, name] = args;
     if (typeof runId !== "string" || typeof name !== "string") return;
-    try {
-      await this.#sessionLogs?.followSessionEventStream(runId, name);
-    } catch (error) {
-      console.error(`[eve:dev] failed to start session event listener for ${runId}`, error);
-    }
+    this.#sessionLogs?.observeSessionEventStream(runId, name);
   }
 
   #isTrusted(request: Request): boolean {

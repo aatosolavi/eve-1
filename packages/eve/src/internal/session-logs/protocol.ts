@@ -2,6 +2,7 @@ import { z } from "#compiled/zod/index.js";
 
 export const EVE_SESSION_LOGS_ENV = "EVE_SESSION_LOGS";
 export const DEVELOPMENT_SESSION_LOG_ROUTE = "/eve/v1/dev/internal/session-log";
+export const DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE = "/eve/v1/dev/internal/session-log/flush";
 
 export const sessionLogIdSchema = z
   .string()
@@ -35,6 +36,14 @@ export const developmentSessionLogEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export type DevelopmentSessionLogEvent = z.infer<typeof developmentSessionLogEventSchema>;
+
+export const developmentSessionLogBatchSchema = z
+  .object({
+    events: z.array(developmentSessionLogEventSchema).min(1).max(256),
+  })
+  .strict();
+
+export type DevelopmentSessionLogBatch = z.infer<typeof developmentSessionLogBatchSchema>;
 
 /** Session recording is on by default and disabled only by `EVE_SESSION_LOGS=0`. */
 export function areSessionLogsEnabled(

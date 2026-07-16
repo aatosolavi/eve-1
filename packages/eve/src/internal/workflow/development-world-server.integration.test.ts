@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildSandboxSession } from "#execution/sandbox/session.js";
+import { getWorkflowRunStreamId } from "#compiled/@workflow/core/util.js";
 import { createSandboxOutputObserver } from "#execution/sandbox/output-events.js";
 import { bufferToStream } from "#execution/sandbox/stream-utils.js";
 import { turnWorkflowReference, workflowEntryReference } from "#execution/workflow-runtime.js";
@@ -105,7 +106,7 @@ describe("parent development Workflow World", () => {
       ]);
       runId = readCreatedRunId(created);
       await callWorld(world, "events.create", [runId, { eventType: "run_started" }]);
-      const eventStreamName = defaultSessionEventStreamName(runId);
+      const eventStreamName = getWorkflowRunStreamId(runId);
       const writeEvent = async (event: HandleMessageStreamEvent, at: string) => {
         await callWorld(world, "streams.write", [
           runId,
@@ -586,10 +587,6 @@ function readCreatedRunId(value: unknown): string {
     return value.run.runId;
   }
   throw new Error("Workflow World did not return the created run ID.");
-}
-
-function defaultSessionEventStreamName(runId: string): string {
-  return `strm_${runId.slice("wrun_".length)}_user`;
 }
 
 function createOutputSandbox(input: {

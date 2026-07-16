@@ -89,6 +89,7 @@ const { configureDevelopmentNitroRoutes, configureProductionNitroRoutes } =
   await import("./configure-nitro-routes.js");
 const { EVE_DEV_DISPATCH_SCHEDULE_ROUTE_PATTERN, EVE_HEALTH_ROUTE_PATH, EVE_INFO_ROUTE_PATH } =
   await import("#protocol/routes.js");
+const { DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE } = await import("#internal/session-logs/protocol.js");
 
 function createNitroStub(
   input: { buildDir?: string; dev?: boolean; rootDir?: string } = {},
@@ -333,6 +334,26 @@ describe("Nitro route configuration", () => {
       expect.objectContaining({
         route: "/eve/v1/dev/runtime-artifacts",
       }),
+    );
+  });
+
+  it("registers the worker session-log flush route only in dev mode", async () => {
+    const devNitro = createNitroStub({ dev: true });
+    const prodNitro = createNitroStub({ dev: false });
+
+    await configureDevelopmentNitroRoutes(devNitro, createPreparedHost());
+    await configureProductionNitroRoutes(prodNitro, createPreparedHost(), "app");
+
+    expect(devNitro.options.handlers).toContainEqual({
+      handler: `#eve-route${DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE}`,
+      method: "POST",
+      route: DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE,
+    });
+    expect(devNitro.options.virtual[`#eve-route${DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE}`]).toContain(
+      "handleDevSessionLogFlushRequest(event.req)",
+    );
+    expect(prodNitro.options.handlers).not.toContainEqual(
+      expect.objectContaining({ route: DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE }),
     );
   });
 
