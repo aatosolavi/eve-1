@@ -1,552 +1,280 @@
 ---
 issue: https://github.com/vercel/eve/issues/512
-last_updated: "2026-07-02"
+last_updated: "2026-07-10"
 status: proposed
 ---
 
-# `Loop`: decouple the agent loop from durable-execution orchestration
+# Decouple eve's agent loop from durable execution
 
-## Summary
+## Decision
 
-The agent loop — deliver input, call the model, execute tools, wait for humans, repeat — is not
-written anywhere as a loop. It is smeared across four layers (`workflowEntry` driver,
-`turnWorkflow` child, `turnStep`, `createToolLoopHarness`), each directly coupled to Workflow
-DevKit primitives (`"use workflow"`, `"use step"`, `createHook`, `getWritable`, `start`). Control
-flow is inverted: the harness _returns_ instead of awaiting, encoding "why I stopped" into flags
-buried in `session.state` (`pendingRuntimeActionKeys`, `hasPendingInputBatch`,
-`hasPendingAuthorization`, `pendingWorkflowInterrupt`); higher layers decode those flags to pick
-the next dispatch. Every stop reason grew its own hook protocol — session delivery hook (with
-rekey races), auth hook, turn inbox, turn control token, driver-delivery handshake — and all state
-is ferried as `serializedContext` + `DurableSessionState` blobs through every boundary.
+Adopt two eve-owned domain programs, `runSession` and `runTurn`, over one
+internal `LoopBackend` execution port. The port has typed generation and tool
+methods, handle-returning turn and session spawns, and an owned event stream.
 
-This research proposes a `Loop` interface analogous to `workflow`'s `World`, with the same
-ownership direction: the core owns all control flow, the implementation provides primitives. The
-agent loop becomes two plain programs — `runSession` and `runTurn` — that contain the entire
-orchestration, including failure handling and result propagation. The durable-execution
-implementation provides hooks (`Loop`: receive input, generate a stream, execute a tool, spawn a
-child run, emit) plus one generic trampoline that executes whatever program it is handed. The
-implementation never contains orchestration; the programs never touch durable-execution
-primitives. The loop should be understandable at a glance; the substrate should be swappable
-(Workflow DevKit today, in-memory for tests and fast local dev).
+Three executable adapters validate this boundary: inline JavaScript, Workflow
+DevKit, and Temporal. All run the same programs and nine-test conformance
+suite. This validates the program/adapter split; it does not yet validate a
+production migration. The remaining gates are listed below rather than hidden
+behind the interface.
 
-## Current shape
+Workflow remains the default durable backend because it is already integrated
+with eve's compiler, host, and public stream. Inline becomes the reference
+non-durable interpreter. Temporal is a feasible optional backend, not a
+drop-in replacement.
 
-```
-Runtime.run()
-  └─ workflowEntry            "use workflow"  (pinned to starting deployment)
-       ├─ createSessionStep
-       ├─ session delivery hook + auth hook  (createHook, rekey races)
-       └─ per turn: dispatchAndAwaitTurn ── TurnControlReceiver ⇆ control hook
-            └─ turnWorkflow   "use workflow"  (child run, latest deployment)
-                 ├─ turn inbox hook + TurnExecutionCursor
-                 └─ loop: turnStep  "use step"
-                      ├─ readDurableSession / deserializeContext
-                      ├─ adapter deliver → StepInput
-                      ├─ createToolLoopHarness step   (model call + tool exec inside
-                      │    AI SDK ToolLoopAgent; parks via `next: null` + state flags)
-                      └─ serializeContext / createDurableSessionState → DurableStepResult
+## Why the current boundary is insufficient
+
+Today the loop is distributed across four execution levels:
+
+```text
+workflow-runtime
+  -> workflowEntry             session lifetime and public input
+     -> turnWorkflow           one logical turn and local child waits
+        -> turnStep            model, tools, events, snapshot commit
+           -> tool-loop        generation and request handling
 ```
 
-Consequences:
+The host surface starts in
+[`workflow-runtime.ts`](../packages/eve/src/execution/workflow-runtime.ts), the
+session driver lives in
+[`workflow-entry.ts`](../packages/eve/src/execution/workflow-entry.ts), turns
+run through [`turn-workflow.ts`](../packages/eve/src/execution/turn-workflow.ts),
+and [`workflow-steps.ts`](../packages/eve/src/execution/workflow-steps.ts)
+rehydrates and commits state. Model calls, ordinary tool side effects, adapter
+callbacks, and event writes occur before the step result commits. The code
+therefore establishes ordering, not one transaction across effects and state.
 
-- No single file shows the loop. Reading "what happens on a turn" requires holding five protocols
-  in your head (`NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload`, `HookPayload`,
-  `DurableStepResult`).
-- The harness cannot be tested as a loop without the workflow bundler; unit tests poke at state
-  flags instead of observable behavior.
-- Tool execution happens inside the AI SDK's `ToolLoopAgent`, so HITL approval, runtime-action
-  dispatch, and parallel tool execution are all bolted on around it rather than expressed by the
-  loop.
-- `tool-loop.ts` is 2,248 lines because it hosts the loop, the effects, the recovery pipeline, and
-  the parking encodings at once.
+The current split also threads both `DurableSessionState` and
+`serializedContext` through the durable boundary. Any replacement needs one
+explicit commit rule, not another layer that keeps the two cursors implicit.
 
-## Proposed authoring API
+## Ownership
 
-### Ownership: programs call hooks, never the reverse
+```text
+PrototypeRuntime                 test-facing run controller
+  -> adapter                     engine mechanics
+     -> runSession               session domain transitions
+        -> spawnTurn().wait()
+           -> runTurn            turn domain transitions
+              -> parent Stream   borrowed handle
+              -> spawnChild()    fresh child Stream
+     -> checkpoint protocol      revisions, lease, relay, acknowledgement
+```
 
-A loop body is a **program**: plain, deterministic, substrate-agnostic async code that owns its
-control flow end to end. The implementation is passive — it supplies the hooks a program calls
-and a trampoline that starts the program it was handed. Control is never deferred downward: the
-implementation cannot run a turn, publish a result, or fail a session, because none of that logic
-lives there.
+- `runSession` owns session lifetime, public input, turn dispatch, buffering,
+  and the public terminal result.
+- `runTurn` owns generation, eve-executed tools, approvals, subagents, balanced
+  history, and the logical result of one turn.
+- `LoopBackend` exposes only the execution operations those programs require.
+  It contains no `step`, `Activity`, `Hook`, or `Signal` vocabulary.
+- An adapter owns engine-specific child startup, suspension, checkpoint relay,
+  acknowledgement, retry, stream binding, lifecycle persistence, and
+  serialization.
+- The prototype service supplies scripted effects and the canonical event
+  store. It is test infrastructure, not part of the proposed public API.
+
+The executable contract is the source of truth in
+[`types.ts`](../packages/eve/src/internal/testing/loop-prototype/types.ts).
+The port surface is reproduced verbatim below; `SessionState` and the
+input/outcome payload types are not copied because abbreviated duplicates
+would drift.
+
+## Contract decisions
+
+### The port at a glance
+
+The two programs are plain async functions over one closed port:
 
 ```ts
-/** A loop program: plain orchestration code, owned by eve core. */
-export type LoopProgram<I, O> = (loop: Loop, input: I) => Promise<O>;
+runSession(backend: LoopBackend, input: SessionProgramInput): Promise<TerminalOutcome>;
+runTurn(backend: LoopBackend, input: TurnProgramInput): Promise<TurnOutcome>;
 ```
 
-### The `Loop` hook interface
+Everything the loop can do is enumerable on `LoopBackend`:
 
 ```ts
-/**
- * The hooks a durable-execution implementation provides. Members marked
- * "parks" suspend the run durably. Nothing here dispatches, publishes, or
- * finalizes — those verbs belong to the programs.
- */
-export interface Loop {
-  /**
-   * Runs a program as a detached durable child run (latest deployment) and
-   * returns its result. The child's `return` value IS the publication —
-   * there is no publish hook. Parks.
-   */
-  spawn<I, O>(program: LoopProgram<I, O>, input: I): Promise<O>;
+interface LoopBackend {
+  readonly executionId: ExecutionId;
+  readonly stream: Stream;
 
-  /**
-   * Resolves external input through the channel adapter. With no pending
-   * delivery, waits for the next one addressed to this run (token derived
-   * from the `session` the program passes in). Parks. Attachment staging
-   * happens here: FilePart bytes are written into the session sandbox
-   * (created lazily on first use, identity on `session.sandboxState`) and
-   * replaced with `eve-sandbox:` refs, so history never carries raw bytes.
-   */
-  receiveInput(input: {
-    delivery?: DeliverPayload;
-    session: SessionState;
-  }): Promise<StepInput | undefined>;
+  checkpoint(state: SessionState): Promise<void>;
+  executeTool(request: ApprovalRequest | ToolRequest): Promise<RequestResult>;
+  finish(outcome: TerminalOutcome): Promise<void>;
+  generate(input: GenerateInput): Promise<GeneratedTurn>;
+  receive(): Promise<Delivery>;
+  spawnChild(input: DelegatedSessionInput): ChildHandle;
+  spawnTurn(input: TurnProgramInput): TurnHandle;
+}
 
-  /**
-   * One model call: never executes tools, never parks. Owns per-call prompt
-   * composition, toolset assembly, compaction, sandbox hydration, and the
-   * event-stream relay — in a fixed order documented below.
-   */
-  generateStream(input: ModelCallInput): Promise<ModelTurn>; // { messages, requests }
+interface Stream {
+  append(event: StreamEvent): Promise<void>;
+}
 
-  /** Sandbox-backed tools execute inside the session sandbox. */
-  executeTool(input: ToolExecInput): Promise<ToolExecResult>;
+interface TurnHandle {
+  readonly id: ChildId;
+  wait(): Promise<TurnOutcome>;
+}
 
-  createSession(input: SessionCreateInput): Promise<SessionState>;
-
-  /** Emits one control-plane event to the session event stream. */
-  emit(event: HandleMessageStreamEvent): Promise<void>;
+interface ChildHandle {
+  readonly id: ChildId;
+  wait(): Promise<TerminalOutcome>;
 }
 ```
 
-`spawn` is the load-bearing hook. It expresses both durable boundaries eve has:
-
-- **turn**: `loop.spawn(runTurn, { delivery, session })` — the pinned session run gets turn code
-  from the latest deployment;
-- **subagent**: `loop.spawn(runSession, toSubagentInput(session, request))` — a subagent is not a
-  special mechanism, it is the session program run as a child.
-
-Because `spawn` returns the child's result, the entire result-publication machinery
-(`NextDriverAction` today) disappears from the API. The wire envelope `spawn` uses — serialized
-`(program, input)` in, serialized result/error out, `SessionState` inside both — is the closed
-cross-deployment contract, with the usual evolution rule (new optional fields OK, no
-destructure-and-rebuild).
-
-Deliberately absent: a HITL hook. Waits that need a human end the turn — the turn returns a
-`park` result and the session re-spawns a fresh turn when input arrives, exactly like today. An
-in-turn `await requestInput(…)` was considered and rejected: a turn parked on an approval for a
-week would resume into week-old code, eroding the property that every turn runs the latest
-deployment.
-
-```ts
-/**
- * The serializable cross-run state, threaded explicitly through `spawn`:
- * in via the program's input, out via its result. Subsumes today's
- * `DurableSessionState` + serialized runtime context. The runtime-context
- * slice is opaque to programs — only the hook implementation reads or
- * writes it, and it is reconciled exclusively at spawn boundaries, so it
- * cannot diverge from the in-run cursor.
- */
-export type SessionState = {
-  /* sessionId, continuationToken, history, state, context (opaque), … */
-};
-```
-
-### The programs
-
-This is the entire orchestration surface. Note that terminal failure handling is inside the
-program — the trampoline only rethrows:
-
-```ts
-export async function runSession(loop: Loop, input: SessionRunInput): Promise<unknown> {
-  try {
-    let session = await loop.createSession(input);
-    let delivery: DeliverPayload | undefined = input.initialDelivery;
-
-    while (true) {
-      const result = await loop.spawn(runTurn, { delivery, session });
-      session = result.session;
-
-      if (result.kind === "done") return result.output;
-
-      // "park": the turn ended awaiting a human. Wait for input, then
-      // re-spawn a fresh turn — on the latest deployment.
-      delivery = await loop.receiveInput({ session }); // ← the park
-    }
-  } catch (error) {
-    await loop.emit(createSessionFailedEvent(error)); // terminal failure is loop-owned
-    throw error;
-  }
-}
-
-export async function runTurn(loop: Loop, input: TurnRunInput): Promise<TurnRunResult> {
-  let { session } = input;
-  // Adapter deliver + attachment staging into the sandbox (bytes → refs).
-  let stepInput = await loop.receiveInput({ delivery: input.delivery, session });
-
-  while (true) {
-    // Emission, prompt composition, toolset assembly, compaction, and sandbox
-    // hydration happen inside, in the fixed order documented below.
-    const { messages, requests } = await loop.generateStream({ session, stepInput });
-    session = appendHistory(session, messages);
-    if (requests.length === 0) return { kind: "done", output: finalOutput(messages), session };
-
-    // Requests that need a human (tool approvals, questions, authorization)
-    // end the turn; input.requested was already emitted by generateStream.
-    const wait = pendingExternalWait(requests);
-    if (wait !== undefined) return { kind: "park", pending: wait, session };
-
-    const results = await Promise.all(
-      requests.map((request) => executeRequest(loop, session, request)),
-    );
-    session = appendHistory(session, toToolResults(results));
-    stepInput = undefined;
-  }
-}
-
-export type TurnRunResult =
-  | { kind: "done"; output: unknown; isError?: boolean; session: SessionState }
-  | { kind: "park"; pending: PendingExternalWait; session: SessionState };
-```
-
-Elided for brevity: the full `runSession` also fires the session lifecycle callback (today's
-`fireSessionCallbackStep`) on both terminal paths, through an effect hook.
-
-`executeRequest` pattern-matches the closed request union and awaits each arm explicitly:
-
-```ts
-switch (request.kind) {
-  case "tool-call":
-    return loop.executeTool({ request, session });
-  case "subagent-call":
-    return loop.spawn(runSession, toSubagentInput(session, request)); // a subagent IS a session
-  case "workflow-action":
-    return awaitWorkflowAction(loop, session, request);
-}
-```
-
-The key un-inversion: `generateStream` is a pure hook — `(history, tools, options) → { messages,
-requests }` — that never executes tools and never parks. Tool execution and subagent waits are
-explicit `await`s in the program; human waits are an explicit `park` return carrying what is
-pending — not flags buried in `session.state` and decoded three layers up. The model-call
-recovery pipeline, compaction, and emission stay inside the `generateStream` implementation,
-shrinking `tool-loop.ts` to the hook it actually is.
-
-### Inside `generateStream`: emission, prompt, and sandbox order
-
-The hook hides mechanism, not sequence. The order below is today's `tool-loop.ts` order, kept
-verbatim — several of these points are load-bearing:
-
-1. **`turn.started` preamble** (first call of a turn only). Every emitted event follows the same
-   two-stage path: adapter handler transform first, then the durable-stream write.
-2. **Compaction check** — before the model call, so compacted messages flow into the history the
-   program keeps; emits `compaction.requested` / `compaction.completed`.
-3. **`step.started`** — deliberately emitted **before** toolset assembly: dynamic tool resolvers
-   subscribed to `step.started` can add or replace tools for this very call.
-4. **Toolset assembly** — authored tools + provider tools + dynamic tools + framework tools
-   (`final-output` when a schema is in effect) + sandbox host tools, with approval wrappers.
-5. **System prompt composition.** The base prompt (agent instructions + the available-skills
-   section) is composed once at bundle resolution (`runtime/prompt/compose.ts`) and re-stamped
-   from the **current deployment** every turn — never read back from history. Per-call additions
-   layer on top: dynamic instruction messages, pending skill announcements, prompt-cache
-   breakpoints. The final request assembly — instructions + messages + tools into a provider
-   payload — happens inside the AI SDK.
-6. **Sandbox hydration** — `eve-sandbox:` refs in history are hydrated to inline bytes for this
-   call only; history stays ref-only. (The write side happened at `receiveInput` staging; the
-   sandbox itself is created lazily on first use and its identity rides `session.sandboxState`.)
-7. **The stream** — model output relayed event-by-event through the adapter to the durable
-   stream as it arrives; provider-executed tools (web search, code execution) resolve inline
-   here as messages, not as `requests`.
-8. **Request extraction + step epilogue** — tool calls, subagent calls, and human waits are
-   projected into the closed request union; `turn.completed` is emitted by the program's terminal
-   path.
-
-Everything after this point — executing the requests — is the program's job, and its events
-(`action.started` / `action.result`) are emitted by `executeTool` / `spawn` as they run.
-
-### Implementations
-
-- **Workflow** (`#execution/`): one generic trampoline workflow executes any registered program;
-  `spawn` starts the trampoline on the latest deployment and awaits the child's result over a
-  private hook; parking hooks wrap `createHook` with the existing ownership-claim and rekey-race
-  semantics; every other hook binds to a `"use step"` function. All of today's choreography
-  (`SessionDeliveryHook`, `TurnControlReceiver`, `TurnExecutionCursor`, `NextDriverAction`
-  publication) is private to this implementation. The addendum shows the satisfaction in code.
-- **Memory** (`#internal/testing/` first, potentially `eve dev` later): `spawn` calls the program
-  directly, `receiveInput` awaits an in-process queue, every other hook executes inline. The
-  whole loop — including HITL, subagent, and parallel-child ordering — becomes unit-testable in
-  milliseconds with no bundler, no subprocess, no hooks.
-
-## Externally observable semantics (unchanged)
-
-- The channel/client surface (`Runtime.run` / `deliver` / `getEventStream`), the protocol event
-  stream, continuation-token semantics, HITL request/response shapes, task-vs-conversation park
-  rules, and subagent delegation semantics do not change.
-- The two-run shape survives: the session run is pinned to its starting deployment; children
-  start on the latest deployment. The `spawn` envelope (+ `SessionState`) replaces
-  `NextDriverAction` as the closed cross-deployment contract.
-- Delivery ordering guarantees survive: public input arriving while a turn awaits a subagent is
-  still relayed through a request/accept/cancel handshake (private to the workflow
-  implementation), and unconsumed deliveries re-buffer ahead of later arrivals.
-
-## Invariants
-
-1. **Frozen session program and trampoline.** `runSession` and the trampoline replay on old
-   deployments for the session's entire life. Both must stay tiny; the program treats the
-   threaded `SessionState` as opaque (pass by reference, never destructure-and-rebuild).
-2. **Closed `spawn` envelope.** Serialized program reference + input in, serialized result/error
-   out. New optional fields OK; new shapes need a version bump and migrator, exactly like
-   `DurableSessionState` today.
-3. **Turn side keeps speaking to legacy drivers.** In-flight sessions started before this change
-   have pinned drivers that dispatch `turnWorkflow` and read `NextDriverAction` /
-   `TurnControlPayload`. The workflow implementation keeps a compatibility arm (as
-   `runLegacyTurnWorkflow` does today) until those sessions drain.
-4. **Hook token semantics survive inside the parking hooks.** Rekey must preserve the existing
-   race behavior: a delivery committed to the old token before disposal still resolves; a later
-   delivery loses to `hook_disposed` and triggers resume-or-start at the runtime layer.
-5. **Single stream owner.** The session run owns the public event stream; children write through
-   the parent writable. `loop.emit` (and the stream emission inside `generateStream`) is the only
-   write path.
-6. **State explicit at run boundaries, private within runs.** The cross-run `SessionState` is
-   threaded visibly through `spawn`; within a run, program-local variables are durable via
-   deterministic replay and the runtime-context cursor stays inside the hook implementation.
-
-## What gets deleted or absorbed
-
-| Today                                                                                                         | After                                                                    |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `NextDriverAction`, `TurnControlPayload`, `TurnInboxPayload` protocols                                        | the `spawn` envelope + implementation-private mailboxes                  |
-| Turn dispatch and subagent dispatch as separate mechanisms                                                    | one `spawn` hook; a subagent is `spawn(runSession, …)`                   |
-| `TurnControlReceiver`, `TurnExecutionCursor`, `SessionDeliveryHook`, hook-ownership choreography in loop code | private to the workflow implementation                                   |
-| Parking flags in `session.state` decoded by `derivePendingState`                                              | request union from `generateStream` + explicit `pending` on the park arm |
-| Tool execution inside AI SDK `ToolLoopAgent`                                                                  | `executeTool` hook; SDK used for the model call only                     |
-| `serializedContext` + `sessionState` ferried through every step result                                        | one `SessionState` threaded through `spawn`; private cursor within a run |
-
-## Risks
-
-Both gate phase 2. Investigated against the Workflow DevKit runtime source and today's dispatch
-path; each is narrower than it first appears, but real.
-
-1. **Concurrent waits under replay — supported by the engine, unproven at eve's scale.** No loop
-   semantics change: today the same concurrency exists _inside_ one `turnStep` (the AI SDK
-   executes a step's tool calls as they stream in), invisible to the engine. The refactor lifts
-   it one level, to `Promise.all` over memoized steps — which the DevKit is designed for: replay
-   matches steps by correlation id (deterministic monotonic ULIDs minted in invocation order),
-   not sequence position; the suspension handler dispatches pending steps as parallel queue
-   invocations; and `awaitEarlierDeliveries` / `pendingDeliveryBarriers` exist specifically to
-   keep `Promise.race` over steps, waits, and hooks aligned with the committed event log. Eve
-   already races hook reads inside a workflow body today
-   (`TurnControlReceiver.serviceDeliveryRequest`). What changes is the retry unit, strictly for
-   the better: a step is at-least-once, so today a crash mid-batch re-invokes the whole
-   `turnStep` — the model is called again and completed tools re-execute their side effects —
-   whereas per-tool steps replay `generateStream` from the log and re-run only the tool that
-   didn't finish. The residuals: (a) programs must order request arrays deterministically before
-   `.map(…)`, since ids are minted in invocation order; (b) cost — one step per tool call plus
-   spawn events grows the event log that replays on every wake of a long-lived session. The
-   spike is a determinism validation plus an event-log/replay cost measurement, with sequential
-   execution as the cheap fallback.
-2. **Parallel-child wait topology — decided: one reply channel per spawn.** Fire-and-forget
-   children that outlive the parent turn exist only on the legacy pinned-driver path (the
-   `dispatch-runtime-actions` arm); the current turn-owned path already awaits children in-turn
-   (`waitForRuntimeActionResults`), which awaited `spawn` matches exactly — including public
-   input during a long child run waiting for the turn. What changes is the wait topology: today
-   one central loop services one shared inbox for all children, correlating payloads by key.
-   Each spawn instead gets its own `replyTo` channel carrying everything child→parent — proxied
-   HITL requests, continuation-token updates, the terminal result — so a channel has exactly one
-   waiter and misattribution is unrepresentable. The shared-inbox alternative was rejected: key
-   correlation on a shared channel is why `resolveRuntimeActionResultsForKeys` and the
-   delivery-request-id uniqueness dance exist today, and concurrent waiters on one iterator
-   would need the `SessionDeliveryHook`-style arbitration this refactor deletes. Public input
-   still arrives on the session's public token and routes to children via proxy routing entries,
-   as `routeDeliverToChildren` does today. Legacy compat is invariant 3.
-
-A corollary worth recording: turn runs already live for the full duration of child sessions —
-which can park on their own HITL for days — so "turns always run fresh code" only ever held for
-direct HITL. The park-vs-await split above preserves exactly today's line, no more.
-
-## Phasing
-
-1. **Extract the seam.** Define `Loop`/`LoopProgram`/`SessionState`/`TurnRunResult`, the program
-   registry, and the trampoline; implement the workflow hooks over the existing steps and hooks;
-   rewrite `workflowEntry`'s driver loop as `runSession`. Before deleting
-   `session-delivery-hook.ts` and `turn-control-receiver.ts`, port their race coverage (rekey
-   races, retired-hook draining, delivery re-buffering, forwarded-delivery accept/cancel) to
-   implementation-level tests — the scenario suite alone does not pin these semantics. Add the
-   guard-invariant rule for program modules (import allowlist; no side-effecting imports) in the
-   same phase so determinism is mechanically enforced from the first program.
-2. **Un-invert the turn.** Spike the two risks above; then split `tool-loop.ts` into the pure
-   `generateStream` hook plus program-level request execution; rewrite `turnWorkflow` as
-   `runTurn`; collapse subagent dispatch into `spawn`; keep the legacy-driver arm.
-3. **Memory implementation.** Land the in-process hooks and move HITL/subagent/authorization
-   ordering coverage from scenario tests down to program-level unit tests.
-
-## Open questions
-
-- Program identity across deployments: `spawn` serializes a program reference, so programs need a
-  stable registry (name → program). What is the versioning story when a program's input/result
-  shape changes while old sessions still spawn it?
-- Does subagent-as-`spawn(runSession)` preserve today's child observability — independent child
-  event streams and `$eve` lineage attributes? The hooks own streams and attributes, so likely
-  yes.
-- Does the memory implementation become the `eve dev` fast path (skipping the local workflow
-  store for ephemeral sessions), or stay test-only?
-- Where does compaction live — inside the `generateStream` hook (today's placement) or as an
-  explicit hook call so it is visible in the turn program?
-- Can lifting tool execution out of `ToolLoopAgent` preserve provider-executed tools (web search,
-  code execution) that resolve inside the model stream? Likely yes — they arrive as inline results
-  on `messages`, not as `requests` — but this needs a spike.
-
-## Addendum: how the workflow implementation satisfies the API
-
-Concrete mapping onto Workflow DevKit, grounded in today's mechanics. Everything here is
-`#execution/`-private; the programs and the `Loop`/`LoopProgram` types live in a bundler-safe
-module (no node built-ins, no logging) since they execute inside `"use workflow"` bodies.
-
-### The trampoline: the only workflow entrypoint
-
-One generic workflow executes any registered program. It contains no session or turn knowledge —
-it resolves the program by name, builds the hooks, runs the program, and reports the return value
-(or error) to whoever spawned it:
-
-```ts
-export async function loopRun(envelope: SpawnEnvelope): Promise<unknown> {
-  "use workflow";
-
-  const program = resolveProgram(envelope.program); // eve-owned registry: name → LoopProgram
-  const loop = createWorkflowHooks({
-    runId: getWorkflowMetadata().workflowRunId,
-    writable: getWritable<Uint8Array>(),
-  });
-
-  try {
-    const result = await program(loop, envelope.input);
-    if (envelope.replyTo) await resumeParentStep(envelope.replyTo, { ok: true, result });
-    return result;
-  } catch (error) {
-    if (envelope.replyTo) {
-      await resumeParentStep(envelope.replyTo, {
-        error: normalizeSerializableError(error),
-        ok: false,
-      });
-    }
-    throw error;
-  }
-}
-```
-
-`SpawnEnvelope` — `{ program: string; input: unknown; replyTo?: string }` plus the result payload
-— is the closed cross-deployment contract (invariant 2). A root session is the same trampoline
-started by `Runtime.run` with no `replyTo`.
-
-The registry is resolved on the **child's** deployment: the pinned session run spawns by name,
-and the latest deployment supplies the program body. That is how turn code rotates while the
-session program stays frozen.
-
-### `spawn`: start on latest, await the result hook
-
-```ts
-async function spawn<I, O>(program: LoopProgram<I, O>, input: I): Promise<O> {
-  const replyTo = `${runId}:spawn:${String(spawnSeq++)}`; // replay-deterministic
-
-  // One "use step": start(loopRunReference, [{ program: nameOf(program),
-  // input, replyTo }], { deploymentId: "latest" }).
-  await spawnStep({ input, program: nameOf(program), replyTo });
-
-  // Wait on the replyTo channel until the child's terminal payload. One
-  // channel per spawn, one waiter per channel — everything child→parent
-  // rides it, so no payload can be attributed to the wrong wait:
-  //   input-request proxy        → emit input.requested on the parent's
-  //                                channel, record the routing entry
-  //   continuation-token updates → rekey the session inbox
-  //   delivery-request           → race inbox vs replyTo; forward through the
-  //                                request/accept/cancel handshake
-  //   { ok } / { error }         → return the result or rethrow
-  return awaitSpawnResult<O>(replyTo);
-}
-```
-
-Per-spawn channels retire today's shared-inbox correlation machinery outright:
-`resolveRuntimeActionResultsForKeys` and the delivery-request-id uniqueness scheme exist only
-because many children share one parent token. The mid-run relay is the one place parent and
-child hooks still cooperate: while a parent is parked in `spawn`, public input addressed to the
-session is relayed — to the spawned child through the request/accept/cancel handshake, or to a
-deeper descendant via the proxy routing entries (`routeDeliverToChildren` today). All of it is
-private to the hook implementation; neither program ever sees a control payload.
-
-### The parking hooks
-
-Every parking hook wraps a private mailbox over `createHook`, carrying today's semantics
-verbatim: construction claims ownership (`claimHookOwnership`); a wait advances the hook
-iterator; the resume side is unchanged — `Runtime.deliver`, auth callbacks, and spawned children
-all still call `resumeHook(token, payload)`. Session-level `receiveInput` rekeys to the
-continuation token carried by the `session` the program passes in (claim candidate, drain reads
-committed to the old token, dispose, keep the retired hook in the delivery race — the
-`SessionDeliveryHook` algorithm moves here unchanged, invariant 4).
-
-### Binding effect hooks to steps
-
-`"use step"` is a compile-time directive with devalue-serializable inputs and outputs, so a hook
-cannot close over live objects (the deserialized context, the adapter, resolved tools). Each
-effect hook calls a top-level step function, threading the runtime-context cursor — the one
-mutable slice inside a run (adapter state, dynamic resolvers) — in and adopting it back out.
-`TurnExecutionCursor`'s job, kept, but private to `createWorkflowHooks`. Replay-safe: memoized
-step results replay the same cursor transitions in the same order:
-
-```ts
-function createWorkflowHooks(env: HookEnv): Loop {
-  let context = env.initialContext; // runtime-context cursor, private
-  let spawnSeq = 0;
-  const adopt = <O>(r: StepOutcome<O>): O => {
-    context = r.context ?? context;
-    return r.output;
-  };
-
-  return {
-    spawn: /* above */,
-    receiveInput: async (input) => adopt(await receiveInputStep({ ...input, context })),
-    generateStream: async (input) =>
-      adopt(await generateStreamStep({ ...input, context, writable: env.writable })),
-    executeTool: async (input) => adopt(await executeToolStep({ ...input, context })),
-    createSession: async (input) => adopt(await createSessionStep({ ...input, context })),
-    emit: (event) => emitEventStep({ event, writable: env.writable }),
-  };
-}
-
-async function generateStreamStep(
-  input: ModelCallInput & { readonly context: SerializedContext /* … */ },
-): Promise<StepOutcome<ModelTurn>> {
-  "use step";
-  const ctx = await deserializeContext(input.context);
-  // hydrate bundle + adapter, resolve model/tools, stream events to the writable…
-  return { output: { messages, requests }, context: serializeContext(ctx) };
-}
-```
-
-The cursor's final value merges into the `SessionState` the program returns — reassembling the
-explicit contract at the run boundary happens inside `spawn`'s result path, not in program code.
-Programs never read or write the context slice (it is opaque, per the `SessionState` contract),
-so the cursor and the threaded value cannot diverge within a run.
-
-Step **outputs** shrink relative to today: `generateStreamStep` returns the turn's new messages
-and requests, not a full `DurableSessionState` snapshot per step. Step inputs still carry the
-session (including history) into each model call, as they do today; the full snapshot is written
-once, into the spawn result — the run boundary the cross-deployment contract actually needs
-(invariant 6).
-
-### What the substrate imposes
-
-- **Deterministic programs.** Programs replay inside `"use workflow"`: no `Date.now()`, no
-  randomness, no I/O outside `loop`, and hook tokens and spawn counters derived from replayed
-  state only. Enforced mechanically from phase 1 via the guard-invariant import allowlist on
-  program modules.
-- **Bundler-safe modules.** Anything imported into a program module must survive the workflow
-  bundler — same constraint `workflow-entry.ts` documents today.
-- **Emission split.** `loop.emit` is a step that writes the parent writable and is reserved for
-  control-plane events (`session.failed`, `subagent.called`); high-frequency stream emission
-  happens inside `generateStreamStep`, which holds the writer for the duration of the call.
-- **Stable ids and the legacy arm.** The trampoline keeps a version-stamp-free workflow id
-  (`STABLE_WORKFLOW_NAMES`) so pinned sessions route across deployments, and the implementation
-  keeps `runLegacyTurnWorkflow` + the old `workflowEntry`/`turnWorkflow` ids until pre-change
-  sessions drain.
+Operation identity, retry policy, checkpoint relay, acknowledgement, lease
+validation, event-log identity, sequence assignment, and backend run identity
+all live below this line, inside adapters and the shared support modules.
+
+### Checkpoint relay is below the port
+
+The programs call `checkpoint(state)` and never exchange revisions, leases, or
+acknowledgements. Each turn handle owns a shared `TurnCheckpointProtocol`
+([`checkpoint-protocol.ts`](../packages/eve/src/internal/testing/loop-prototype/checkpoint-protocol.ts))
+that validates parent-owned identity, monotonic revisions, exact redelivery,
+lease return, and terminal byte equality. The adapter persists each accepted update
+before acknowledging it and completes the lease return before `wait()`
+resolves.
+
+This remains a protocol lease, not a distributed lock. The prototype has no
+expiry or compare-and-swap store. Workflow and Temporal history record program
+progress; inline retains it only in memory.
+
+### Spawns return typed handles
+
+`spawnTurn(input)` returns a `TurnHandle`; `spawnChild(input)` returns a
+`ChildHandle`. Both expose the logical child ID immediately and put completion
+behind `wait()`. Backend run identity stays inside the adapter. The distinct
+handle types preserve child kind without a generic notice union or overloaded
+wait operation.
+
+Stream ownership is structural. A turn backend receives the same `Stream`
+handle as its parent. A delegated session backend receives a new stream. The
+programs no longer pass `borrow-parent` or `own` descriptors, log IDs, or event
+sequences. Each stream binds its log identity, and the event store assigns the
+next sequence while deduplicating by event ID.
+
+### Effects are typed and retry-aware
+
+The loop-visible effects are `generate(input): Promise<GeneratedTurn>` and
+`executeTool(request): Promise<RequestResult>`. Their definitions in
+[`effect-definitions.ts`](../packages/eve/src/internal/testing/loop-prototype/effect-definitions.ts)
+declare the operation-ID rule and retry/idempotency policy once, and the
+conformance suite derives operation IDs from that same module. The adapters may
+translate those calls into a wire `EffectCall`, but the programs never
+construct transport names, operation IDs, or retry policies.
+
+Input delivery is `receive()`, not an effect. Session initialization happens
+when the adapter starts the session. `finish(outcome)` verifies terminal state,
+records the callback, and publishes the terminal event. Declared effect
+exhaustion becomes a typed turn failure; ledger, codec, and engine failures
+still throw.
+
+The ambiguous-completion test commits an effect result before injecting
+response loss. Durable adapters make a second attempt but return the committed
+result without executing the effect again. Real effect integrations must
+provide the same idempotency boundary; an engine retry policy alone cannot.
+
+### Provider history stays balanced
+
+An assistant response with unresolved local requests lives in `OpenExchange`,
+outside `BalancedHistory`. It enters provider history only after every request
+has a terminal result. Unrelated input received during approval is buffered for
+the next turn rather than treated as denial.
+
+### Domain status is not engine status
+
+When `finish(outcome)` succeeds, one `TerminalOutcome` value drives eve's
+terminal event, callback, parent result, and public result. A domain-level
+failed outcome may be returned by a successfully completed Workflow or Temporal
+execution. Protocol and infrastructure errors throw and fail the engine
+execution. Publication across those surfaces is ordered but not atomic; that is
+a production gate below.
+
+## Backend assessment
+
+| Adapter  | What the prototype establishes                                                                        | Production consequence                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Inline   | Direct program execution, one attempt, process-local queues and events, deliberate state loss         | Reference interpreter and optional explicitly non-durable path                                |
+| Workflow | Real local World, steps, Hooks, child runs, checkpoint acknowledgement, and native writable mirroring | Smallest migration; compiler, host routes, cleanup, and stream semantics remain adapter-owned |
+| Temporal | Real local server and Worker, Activities, Signals, Child Workflows, and history inspection            | Requires an eve event store, Worker hosting, routing, and codec policy                        |
+
+Workflow and Temporal can recover program history as engine capabilities. The
+prototype does not claim a kill-and-restart recovery test.
+
+## Preserved semantics
+
+- A conversation replies and parks; a task returns a terminal result.
+- Each new turn may resolve current code while the long-lived session remains
+  pinned to a compatible contract.
+- A turn writes the session event log; a subagent owns an independent log.
+- Child IDs are observable before results, and results retain request order.
+- Human waits never commit an unresolved tool request into provider history.
+- Public input unrelated to a pending approval remains available to a later
+  turn.
+- Reader cancellation is not silently redefined as session cancellation.
+
+These are requirements for the migration. The prototypes exercise the subset
+listed in the [dated evidence record](./loop-interface-prototype-results.md).
+
+## Production gates
+
+1. **Delivery claim and rekey.** Port the existing claim, accept, cancel,
+   release, retired-hook drain, and continuation-token rekey races. The
+   prototypes intentionally use a fixed public address.
+2. **Terminal publication and live stream atomicity.** Choose an authoritative
+   event store and either an idempotent outbox or a documented at-least-once
+   publication contract for events, callback, result, and stream mirrors.
+   Workflow's prototype SQLite append and native writable write are not one
+   transaction.
+3. **Cross-deployment codec.** Parse and version every Hook, Signal, Activity,
+   and child boundary. The standalone codec unit test is not adapter adoption.
+4. **Version routing.** Prove pinned-session/latest-turn behavior against real
+   Vercel deployments and
+   [Temporal Worker Deployments](https://docs.temporal.io/production-deployment/worker-deployments/worker-versioning).
+   Local intent metadata is not routing evidence.
+5. **Cancellation and cleanup.** Define graceful session cancellation and prove
+   descendant cleanup. Workflow child runs started from steps can otherwise
+   outlive a canceled root.
+6. **Approval batches.** Either keep the prototype's restriction of one
+   approval-only unresolved batch or define ordered resumable mixed batches.
+7. **Real effect idempotency.** Establish provider/tool behavior when an
+   external call succeeds but eve loses the response before committing it.
+8. **Workflow child-start idempotency.** Deduplicate child creation by logical
+   child ID when `start()` succeeds but its enclosing step loses the result. A
+   retryable start step without a backend idempotency key can orphan a duplicate
+   run.
+9. **Build and host selection.** Package the eve-owned programs and selected
+   adapters, then prove that compiler output, session callbacks, schedules, and
+   runtime routes select a backend without importing Workflow mechanics
+   directly. Prototype code under `internal/testing` is intentionally excluded
+   from the published build.
+10. **Crash recovery.** Kill and restart a Worker while a session is parked and
+    while an effect response is ambiguous. Prove that the same logical run,
+    checkpoint, event sequence, and operation IDs resume without duplicated
+    externally visible work.
+11. **Private control delivery.** Give checkpoint, acknowledgement, and child
+    settlement notifications stable operation identities and receiver-side
+    deduplication. The Workflow prototype re-acknowledges identical checkpoints
+    and treats a missing Hook on a retried send as ambiguous success; that is a
+    local mechanism, not a production exactly-once proof.
+
+## Migration
+
+1. Land the shared programs and inline adapter as internal code and keep the
+   contract closed.
+2. Put current Workflow mechanics behind the adapter without changing public
+   delivery, callback, stream, or deployment behavior.
+3. Move the chosen adapters into the published build and route compiler and
+   host entry points through explicit backend selection.
+4. Add adversarial tests for every production gate before deleting the current
+   driver protocols.
+5. Migrate callers to explicit turn/session child operations and delete the old
+   generic abstraction in the same wave; eve is pre-1.0, so no legacy fallback
+   is justified.
+6. Treat Temporal as a later product and operations decision after event-store,
+   hosting, versioning, and codec ownership are explicit.
+
+The decision criteria are semantic equivalence, reader load, then operational
+cost. That ordering keeps the core small without pretending backend mechanics
+have disappeared.
