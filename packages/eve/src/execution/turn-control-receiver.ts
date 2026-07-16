@@ -88,12 +88,15 @@ export class TurnControlReceiver {
       if (winner.value.done) {
         throw new Error("Turn control hook closed before delivering a result.");
       }
-      const terminal = await this.handleControl(winner.value.value);
+      const terminal = await this.handleControl(winner.value.value, steeringToken);
       if (terminal !== undefined) return terminal;
     }
   }
 
-  private async handleControl(payload: TurnControlPayload): Promise<NextDriverAction | undefined> {
+  private async handleControl(
+    payload: TurnControlPayload,
+    steeringToken?: string,
+  ): Promise<NextDriverAction | undefined> {
     const terminal = this.readTerminalControl(payload);
     if (terminal !== undefined) return terminal;
 
@@ -103,7 +106,7 @@ export class TurnControlReceiver {
     }
 
     if (payload.kind === "turn-delivery-request") {
-      return await this.serviceDeliveryRequest(payload);
+      return await this.serviceDeliveryRequest(payload, steeringToken);
     }
     return undefined;
   }
@@ -169,12 +172,13 @@ export class TurnControlReceiver {
     }
 
     this.deliveryHook.consumeNext();
-    return await this.awaitForwardedSteering(requestId, delivery);
+    return await this.awaitForwardedSteering(requestId, delivery, steeringToken);
   }
 
   private async awaitForwardedSteering(
     requestId: string,
     outstanding: DeliverHookPayload,
+    steeringToken: string,
   ): Promise<NextDriverAction | undefined> {
     while (true) {
       const payload = await this.nextControl(
@@ -186,13 +190,14 @@ export class TurnControlReceiver {
       if (payload.kind === "turn-result") {
         this.bufferedDeliveries.push({ ...outstanding, turnPolicy: "queue" });
       }
-      const terminal = await this.handleControl(payload);
+      const terminal = await this.handleControl(payload, steeringToken);
       if (terminal !== undefined) return terminal;
     }
   }
 
   private async serviceDeliveryRequest(
     request: DeliveryRequest,
+    steeringToken?: string,
   ): Promise<NextDriverAction | undefined> {
     await this.deliveryHook.rekey(request.continuationToken);
 
@@ -231,9 +236,19 @@ export class TurnControlReceiver {
         throw new Error("Session delivery hook closed during a turn delivery request.");
       }
 
+      const value = winner.value.value;
+      if (value.kind !== "deliver") {
+        this.deliveryHook.consumeNext();
+        continue;
+      }
+      if (value.turnPolicy === "steer" && steeringToken !== undefined) {
+        const terminal = await this.forwardSteering(value, steeringToken);
+        if (terminal !== undefined) return terminal;
+        continue;
+      }
+
       this.deliveryHook.consumeNext();
-      if (winner.value.value.kind !== "deliver") continue;
-      delivery = winner.value.value;
+      delivery = value;
     }
 
     // Forwarding is provisional until the turn acknowledges it. If the inbox is

@@ -150,6 +150,74 @@ describe("TurnControlReceiver", () => {
     expect(action.kind).toBe("park");
   });
 
+  it("keeps a delivery request active while forwarding steer input", async () => {
+    const steeringDelivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ message: "change course" }],
+      turnPolicy: "steer",
+    };
+    const requestDelivery: DeliverHookPayload = {
+      kind: "deliver",
+      payloads: [{ message: "approval response" }],
+    };
+    let acknowledgeSteering: (() => void) | undefined;
+    const steeringAcknowledgement = new Promise<void>((resolve) => {
+      acknowledgeSteering = resolve;
+    });
+    let acknowledgeRequest: (() => void) | undefined;
+    const requestAcknowledgement = new Promise<void>((resolve) => {
+      acknowledgeRequest = resolve;
+    });
+    installControlHookFactory([
+      async () => ({
+        done: false,
+        value: { kind: "turn-steering-ready", steeringToken: "turn-steer" },
+      }),
+      async () => ({ done: false, value: deliveryRequest("req-1") }),
+      async () => {
+        await steeringAcknowledgement;
+        return {
+          done: false,
+          value: { kind: "turn-steering-accepted", requestId: "turn-control:steer:0" },
+        };
+      },
+      async () => {
+        await requestAcknowledgement;
+        return {
+          done: false,
+          value: { kind: "turn-delivery-accepted", requestId: "req-1" },
+        };
+      },
+      async () => ({ done: false, value: parkResult() }),
+    ]);
+    vi.mocked(forwardTurnSteeringStep).mockImplementationOnce(async () => acknowledgeSteering?.());
+    vi.mocked(forwardTurnDeliveryStep).mockImplementationOnce(async () => acknowledgeRequest?.());
+    const consumeNext = vi.fn();
+    const deliveryHook = createDeliveryHook({
+      consumeNext,
+      next: vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce({ done: false, value: steeringDelivery })
+        .mockResolvedValueOnce({ done: false, value: requestDelivery })
+        .mockImplementation(() => new Promise(() => {})),
+    });
+
+    const action = await runReceiver([], deliveryHook);
+
+    expect(forwardTurnSteeringStep).toHaveBeenCalledWith({
+      payload: { delivery: steeringDelivery, requestId: "turn-control:steer:0" },
+      steeringToken: "turn-steer",
+    });
+    expect(forwardTurnDeliveryStep).toHaveBeenCalledOnce();
+    expect(forwardTurnDeliveryStep).toHaveBeenCalledWith({
+      inboxToken: "turn-inbox",
+      payload: { delivery: requestDelivery, kind: "driver-delivery", requestId: "req-1" },
+    });
+    expect(consumeNext).toHaveBeenCalledTimes(2);
+    expect(action.kind).toBe("park");
+  });
+
   it("buffers queue input while the active turn continues", async () => {
     const delivery: DeliverHookPayload = {
       kind: "deliver",

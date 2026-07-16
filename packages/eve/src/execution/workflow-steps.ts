@@ -211,9 +211,12 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
   if (input.input?.kind === "deliver") {
     const results: StepInput[] = [];
     for (const payload of input.input.payloads) {
-      const result = adapter.deliver
+      let result = adapter.deliver
         ? await adapter.deliver(payload, adapterCtx)
         : defaultDeliverResult(payload);
+      if ((result === undefined || result === null) && input.input.turnPolicy === "steer") {
+        result = defaultDeliverResult(payload) ?? { message: "" };
+      }
 
       if (result !== undefined && result !== null) {
         results.push(result);

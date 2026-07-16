@@ -9,7 +9,7 @@ import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js
 import { serializeContext } from "#context/serialize.js";
 import { setPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
 import { getPendingAuthorization, setPendingAuthorization } from "#harness/authorization.js";
-import type { HarnessSession, StepResult } from "#harness/types.js";
+import type { HarnessSession, StepInput, StepResult } from "#harness/types.js";
 import { createEmptyHookRegistry } from "#runtime/hooks/registry.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import {
@@ -641,6 +641,68 @@ describe("turnStep", () => {
     expect(createDurableSessionState).toHaveBeenLastCalledWith({
       session: expect.objectContaining({ sessionId: "turn-step-session" }),
     });
+  });
+
+  it.each([
+    {
+      expected: { message: "change course", steering: true },
+      payload: { message: "change course" },
+    },
+    { expected: { message: "", steering: true }, payload: {} },
+  ])("projects steer input when the adapter suppresses delivery", async ({ expected, payload }) => {
+    const adapter: ChannelAdapter = {
+      kind: "suppress-steer",
+      deliver: vi.fn(),
+    };
+    const bundle = {
+      adapterRegistry: {
+        adaptersByKind: new Map([[adapter.kind, adapter]]),
+      },
+      compiledArtifactsSource: {} as never,
+      graph: {
+        nodesByNodeId: new Map(),
+        root: {
+          sandboxRegistry: { sandbox: null },
+          turnAgent: TestTurnAgent,
+        },
+      },
+      moduleMap: { nodes: {} },
+      hookRegistry: createEmptyHookRegistry(),
+      resolvedAgent: { config: {} },
+      subagentRegistry: {},
+      toolRegistry: {},
+      turnAgent: TestTurnAgent,
+    } as never;
+    vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue(bundle);
+    installSessionStoreMocks([createStubSession()]);
+    let observedInput: StepInput | undefined;
+    vi.mocked(createExecutionNodeStep).mockImplementation(() => {
+      return async (session, input): Promise<StepResult> => {
+        observedInput = input;
+        return { next: { done: true, output: "ok" }, session };
+      };
+    });
+    const ctx = new ContextContainer();
+    ctx.set(AuthKey, null);
+    ctx.set(BundleKey, bundle);
+    ctx.set(ChannelKey, adapter);
+    ctx.set(ContinuationTokenKey, "http:suppress-steer");
+    ctx.set(ModeKey, "conversation");
+    ctx.set(SessionIdKey, "session-1");
+
+    await turnStep({
+      input: {
+        kind: "deliver",
+        payloads: [payload],
+        turnPolicy: "steer",
+      },
+      parentWritable: createTestWritable(),
+      serializedContext: serializeContext(ctx),
+      sessionState: createStubSessionState(),
+    });
+
+    expect(adapter.deliver).toHaveBeenCalledOnce();
+    expect(observedInput).toEqual(expected);
   });
 
   it("persists onDeliver context into the next durable step", async () => {
