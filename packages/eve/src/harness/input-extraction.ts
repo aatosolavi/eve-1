@@ -23,6 +23,10 @@ export function extractQuestionInputRequests(input: {
       continue;
     }
 
+    if (toolCall.invalid === true) {
+      continue;
+    }
+
     const action = createRuntimeToolCallActionFromToolCall({ toolCall });
     const toolInput = action.input as {
       allowFreeform?: boolean;

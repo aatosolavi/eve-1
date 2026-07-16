@@ -41,6 +41,27 @@ describe("extractQuestionInputRequests", () => {
     ]);
   });
 
+  it("skips invalid ask_question tool calls instead of throwing", () => {
+    // When the model emits unparsable JSON arguments, the AI SDK marks the
+    // tool call `invalid` and leaves `input` as the raw string. Projecting
+    // that through the JSON-object invariant must not crash the turn; the
+    // AI SDK already synthesizes a tool-error for the next step.
+    const result = extractQuestionInputRequests({
+      excludedCallIds: new Set(),
+      toolCalls: [
+        {
+          input: '{"prompt": "Continue?',
+          invalid: true,
+          toolCallId: "call-1",
+          toolName: "ask_question",
+          type: "tool-call",
+        } as never,
+      ],
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it("includes allowFreeform when present in the tool input", () => {
     const result = extractQuestionInputRequests({
       excludedCallIds: new Set(),
