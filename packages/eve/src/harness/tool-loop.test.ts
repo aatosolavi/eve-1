@@ -56,6 +56,7 @@ vi.mock("ai", () => ({
   ToolLoopAgent: vi.fn(),
   gateway: {
     tools: {
+      exaSearch: vi.fn(() => ({})),
       parallelSearch: vi.fn(() => ({})),
     },
   },
