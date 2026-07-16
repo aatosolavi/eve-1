@@ -1,6 +1,11 @@
 import { Command, CommanderError, InvalidArgumentError } from "#compiled/commander/index.js";
 import { registerBuildCommand, type BuildHost } from "#cli/commands/build.js";
-import { devBootPhase, type DevBootProgressReporter } from "#internal/dev-boot-progress.js";
+import {
+  createDeferredBootProgress,
+  devBootPhase,
+  type DeferredBootProgress,
+  type DevBootProgressReporter,
+} from "#internal/dev-boot-progress.js";
 import { resolveApplicationRoot } from "#internal/application/paths.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { isCodingAgentLaunch } from "#cli/agent-detection.js";
@@ -12,11 +17,10 @@ import {
   resolveDevelopmentUrlTarget,
   type DevelopmentRequestHeaders,
 } from "#cli/dev/url-target.js";
-import type { RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
+import type { BootedLocalServer, RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
 import { LOG_DISPLAY_MODES, parseLogDisplayMode } from "#cli/dev/tui/log-display-mode.js";
 import { resolveTuiTitle, type DevelopmentTuiTarget } from "#cli/dev/tui/target.js";
 import { parseDevelopmentServerUrl } from "#cli/dev/url.js";
-import { startCliLiveRow } from "#cli/ui/live-row.js";
 import { createCliTheme, renderCliTaggedLine } from "#cli/ui/output.js";
 import { createLogger } from "#internal/logging.js";
 import type {
@@ -91,20 +95,21 @@ type CliRuntimeOverrides = Partial<CliRuntimeDependencies>;
 
 const devBootLog = createLogger("dev.boot");
 
-function createDevBootProgressReporter(
-  row: ReturnType<typeof startCliLiveRow> | undefined,
-): DevBootProgressReporter {
+/**
+ * Debug-logs boot phases. Boot progress is shown to the user inside the TUI
+ * shell (see the deferred boot progress observer); this only records timings for
+ * `eve dev`'s own diagnostics.
+ */
+function createDevBootProgressLogger(): DevBootProgressReporter {
   return (event) => {
     switch (event.type) {
       case "phase-started":
-        row?.update("Building your agent", event.phase);
         devBootLog.debug(event.phase);
         return;
       case "phase-finished":
         devBootLog.debug(`${event.phase} finished`, { ms: event.elapsedMs });
         return;
       case "before-first-paint":
-        row?.stop();
         return;
       default: {
         const exhaustive: never = event;
@@ -459,40 +464,35 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
           runtime.isActiveDevelopmentServerForApp ?? (await loadIsActiveDevelopmentServerForApp());
         existingLocalDevelopmentServer = await isActive({ appRoot, serverUrl: remoteServerUrl });
       }
-      const runInteractiveUi = async (
-        input: {
-          readonly appRoot?: string;
-          readonly serverUrl: string;
-        },
-        report?: DevBootProgressReporter,
-      ): Promise<void> => {
+      const runInteractiveUi = async (input: {
+        /** Known server URL (remote, or an already-running local server). */
+        readonly serverUrl?: string;
+        /** Boots the local server after the shell paints. */
+        readonly bootServer?: () => Promise<BootedLocalServer>;
+        /** Boot-phase progress routed into the shell's startup region. */
+        readonly bootProgress?: DeferredBootProgress;
+      }): Promise<void> => {
         const runDevelopmentTui = await devBootPhase(
           "loading interactive UI",
           async () => runtime.runDevelopmentTui ?? (await loadRunDevelopmentTui()),
-          report,
+          input.bootProgress?.reporter,
         );
         const display = resolveTuiDisplayOptions(options);
         const target: DevelopmentTuiTarget =
           remoteServerUrl === undefined || existingLocalDevelopmentServer
-            ? {
-                kind: "local",
-                serverUrl: input.serverUrl,
-                workspaceRoot: input.appRoot ?? appRoot,
-              }
-            : { kind: "remote", serverUrl: input.serverUrl, workspaceRoot: appRoot };
+            ? { kind: "local", workspaceRoot: appRoot, serverUrl: input.serverUrl }
+            : { kind: "remote", serverUrl: remoteServerUrl, workspaceRoot: appRoot };
         const title = resolveTuiTitle({ name: options.name, target });
         if (title !== undefined) display.name = title;
-        const tuiInput = {
+        const tuiInput: RunDevelopmentTuiInput = {
           target,
-          initialInput: options.input,
-          onBootProgress: report,
           ...display,
-        } satisfies RunDevelopmentTuiInput;
-        if (remoteTarget?.headers !== undefined) {
-          await runDevelopmentTui({ ...tuiInput, headers: remoteTarget.headers });
-        } else {
-          await runDevelopmentTui(tuiInput);
-        }
+          initialInput: options.input,
+          bootServer: input.bootServer,
+          onBootProgress: input.bootProgress,
+          headers: remoteTarget?.headers,
+        };
+        await runDevelopmentTui(tuiInput);
       };
 
       if (remoteServerUrl) {
@@ -518,12 +518,6 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
         return;
       }
 
-      // Print spacing before the live row; a later write would strand the row.
-      if (mode === "tui") logger.log("");
-      const buildProgress = mode === "tui" ? startCliLiveRow(logger) : undefined;
-      const onBootProgress = createDevBootProgressReporter(buildProgress);
-      buildProgress?.update("Building your agent");
-
       let closed = false;
       let server: DevelopmentServer | undefined;
       const closeServer = async () => {
@@ -538,18 +532,15 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
 
       try {
         const startHost = runtime.startHost ?? (await loadStartHost());
-        server = startHost(appRoot, {
-          existing: mode === "tui" ? "attach-if-unconfigured" : "reject",
-          host: options.host,
-          onBootProgress,
-          port: options.port,
-        });
-        const handle = await server.start();
 
-        // The terminal UI's header already shows the server URL, and startup
-        // no longer clears the screen, so the line would linger as noise.
-        // Headless consumers (scripts, scenario tests) still parse it.
-        if (mode !== "tui") {
+        if (mode === "headless") {
+          server = startHost(appRoot, {
+            existing: "reject",
+            host: options.host,
+            port: options.port,
+          });
+          const handle = await server.start();
+          // Headless consumers (scripts, scenario tests) parse this line.
           logger.log(
             renderCliTaggedLine(theme, {
               message: `server listening at ${handle.url}`,
@@ -557,9 +548,6 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
               tone: "success",
             }),
           );
-        }
-
-        if (mode === "headless") {
           // An explicit `--no-ui` is intentional and silent; a non-TTY
           // terminal that did not ask for headless gets a hint so the
           // missing UI is not mistaken for a hang.
@@ -573,14 +561,31 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
             );
           }
 
-          return await waitForShutdownSignal({
-            close: closeServer,
-          });
+          return await waitForShutdownSignal({ close: closeServer });
         }
 
-        await runInteractiveUi({ appRoot: handle.appRoot, serverUrl: handle.url }, onBootProgress);
+        // TUI: build the server but defer `start()` to the shell so the shell
+        // paints first and the boot phases stream into its startup region.
+        const bootProgress = createDeferredBootProgress();
+        const logProgress = createDevBootProgressLogger();
+        server = startHost(appRoot, {
+          existing: "attach-if-unconfigured",
+          host: options.host,
+          onBootProgress: (event) => {
+            logProgress(event);
+            bootProgress.reporter(event);
+          },
+          port: options.port,
+        });
+        const activeServer = server;
+        await runInteractiveUi({
+          bootServer: async () => {
+            const handle = await activeServer.start();
+            return { serverUrl: handle.url, appRoot: handle.appRoot };
+          },
+          bootProgress,
+        });
       } finally {
-        buildProgress?.stop();
         await closeServer();
       }
     });

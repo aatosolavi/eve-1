@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveDevUiMode, resolveTuiDisplayOptions, runCli } from "#cli/run.js";
-import type { RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
+import type { BootedLocalServer, RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
 import type { DevelopmentServerOptions } from "#internal/nitro/host/types.js";
 
 async function withInteractiveTerminal<T>(fn: () => Promise<T>): Promise<T> {
@@ -314,78 +314,79 @@ describe("eve dev --logs", () => {
 });
 
 describe("eve dev boot progress", () => {
-  it("passes one reporter through local startup and clears the row on failure", async () => {
-    const writes: string[] = [];
+  it("routes deferred boot phases to the shell observer and closes the server on failure", async () => {
     const close = vi.fn(async () => {});
     let hostReporter: DevelopmentServerOptions["onBootProgress"] = undefined;
-    let tuiReporter: RunDevelopmentTuiInput["onBootProgress"] = undefined;
-    const startHost = vi.fn((_appRoot: string, options?: DevelopmentServerOptions) => ({
-      start: async () => {
-        hostReporter = options?.onBootProgress;
-        hostReporter?.({ phase: "compiling agent", type: "phase-started" });
-        hostReporter?.({ elapsedMs: 1, phase: "compiling agent", type: "phase-finished" });
-        return {
-          kind: "started" as const,
-          appRoot: "/canonical/app",
-          url: "http://127.0.0.1:2000",
-        };
-      },
-      close,
-    }));
+    const start = vi.fn(async () => {
+      hostReporter?.({ phase: "compiling agent", type: "phase-started" });
+      hostReporter?.({ elapsedMs: 1, phase: "compiling agent", type: "phase-finished" });
+      return {
+        kind: "started" as const,
+        appRoot: "/canonical/app",
+        url: "http://127.0.0.1:2000",
+      };
+    });
+    const startHost = vi.fn((_appRoot: string, options?: DevelopmentServerOptions) => {
+      hostReporter = options?.onBootProgress;
+      return { start, close };
+    });
+    // The shell (mocked here) attaches its observer, drives the boot, then fails.
+    const observed: string[] = [];
     const runDevelopmentTui = vi.fn(async (input: RunDevelopmentTuiInput) => {
-      tuiReporter = input.onBootProgress;
+      input.onBootProgress?.observe((event) => {
+        if (event.type === "phase-started") observed.push(event.phase);
+      });
+      await input.bootServer?.();
       throw new Error("TUI startup failed");
     });
-    const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      writes.push(String(chunk));
-      return true;
-    });
 
-    try {
-      await expect(
-        withInteractiveTerminal(() =>
-          runCli(["dev"], { error: () => {}, log: () => {} }, { runDevelopmentTui, startHost }),
-        ),
-      ).rejects.toThrow("TUI startup failed");
-    } finally {
-      stdoutWrite.mockRestore();
-    }
+    await expect(
+      withInteractiveTerminal(() =>
+        runCli(["dev"], { error: () => {}, log: () => {} }, { runDevelopmentTui, startHost }),
+      ),
+    ).rejects.toThrow("TUI startup failed");
 
     expect(hostReporter).toBeTypeOf("function");
-    expect(tuiReporter).toBe(hostReporter);
-    expect(writes.at(-1)).toBe("\r\u001B[K");
+    expect(start).toHaveBeenCalledOnce();
+    expect(observed).toEqual(["compiling agent"]);
     expect(close).toHaveBeenCalledOnce();
   });
 });
 
 describe("eve dev local server ownership", () => {
-  it("uses the host's canonical root and leaves an attached server running", async () => {
-    const startHost = vi.fn(() => ({
-      start: async () => ({
-        kind: "existing" as const,
-        appRoot: "/canonical/app",
-        url: "http://127.0.0.1:4321/",
-      }),
-      close: async () => {},
+  it("defers the boot to the shell and forwards the host's canonical handle", async () => {
+    const start = vi.fn(async () => ({
+      kind: "existing" as const,
+      appRoot: "/canonical/app",
+      url: "http://127.0.0.1:4321/",
     }));
-    const runDevelopmentTui = await runInteractiveDev(["dev"], { startHost });
-
-    expect(startHost).toHaveBeenCalledWith(expect.any(String), {
-      existing: "attach-if-unconfigured",
-      host: undefined,
-      onBootProgress: expect.any(Function),
-      port: undefined,
+    const startHost = vi.fn(() => ({ start, close: async () => {} }));
+    let booted: BootedLocalServer | undefined;
+    const runDevelopmentTui = vi.fn(async (input: RunDevelopmentTuiInput) => {
+      booted = await input.bootServer?.();
     });
-    expect(runDevelopmentTui).toHaveBeenCalledWith(
+    await withInteractiveTerminal(() =>
+      runCli(["dev"], { error: () => {}, log: () => {} }, { runDevelopmentTui, startHost }),
+    );
+
+    expect(startHost).toHaveBeenCalledWith(
+      expect.any(String),
       expect.objectContaining({
-        name: "App",
-        target: {
-          kind: "local",
-          serverUrl: "http://127.0.0.1:4321/",
-          workspaceRoot: "/canonical/app",
-        },
+        existing: "attach-if-unconfigured",
+        onBootProgress: expect.any(Function),
       }),
     );
+    // The target no longer carries a server URL; the shell resolves it by
+    // calling bootServer, which yields the host's canonical root and URL.
+    expect(runDevelopmentTui).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { kind: "local", workspaceRoot: expect.any(String) },
+        bootServer: expect.any(Function),
+        onBootProgress: expect.objectContaining({ observe: expect.any(Function) }),
+      }),
+    );
+    expect(booted).toEqual({ serverUrl: "http://127.0.0.1:4321/", appRoot: "/canonical/app" });
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it("closes a server started for the interactive TUI", async () => {

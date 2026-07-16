@@ -476,7 +476,16 @@ async function startNitroDevelopmentServer(
       },
       options.onBootProgress,
     );
-    await workflowWorld?.start();
+    // The parent world's start() runs quarantine-aware active-run recovery.
+    // Surface it as a boot phase so recovery reports its progress inside the
+    // shell instead of as console preamble.
+    await devBootPhase(
+      "recovering active runs",
+      async () => {
+        await workflowWorld?.start();
+      },
+      options.onBootProgress,
+    );
     startDevelopmentSandboxPrewarmInBackground({
       appRoot: preparedHost.appRoot,
       compiledArtifactsSource,

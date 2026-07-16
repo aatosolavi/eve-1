@@ -101,6 +101,59 @@ function agentInfoWithModel(
   };
 }
 
+describe("TerminalRenderer startup status", () => {
+  it("paints a working startup label before any control is available", () => {
+    const { screen, input, renderer } = makeRenderer();
+    renderer.setStartupStatus({
+      kind: "working",
+      label: "Building your agent",
+      detail: "compiling agent",
+    });
+
+    const snapshot = screen.snapshot();
+    expect(snapshot).toContain("Building your agent");
+    expect(snapshot).toContain("compiling agent");
+    // No prompt yet, and the keyboard is not claimed so Ctrl+C still exits via
+    // SIGINT while startup work runs.
+    expect(snapshot).not.toContain("Type to chat");
+    expect(input.rawModes).toEqual([]);
+
+    renderer.shutdown();
+  });
+
+  it("shows a failed startup with its recovery context and keeps it in scrollback", () => {
+    const { screen, renderer } = makeRenderer();
+    renderer.setStartupStatus({
+      kind: "failed",
+      label: "The dev server failed to start.",
+      detail: "Port 3000 is already in use.",
+    });
+    expect(screen.snapshot()).toContain("The dev server failed to start.");
+
+    renderer.shutdown();
+    const snapshot = screen.snapshot();
+    expect(snapshot).toContain("The dev server failed to start.");
+    expect(snapshot).toContain("Port 3000 is already in use.");
+  });
+
+  it("clears the startup region and enables input once ready", async () => {
+    const { input, renderer } = makeRenderer();
+    renderer.setStartupStatus({ kind: "working", label: "Building your agent" });
+    expect(input.rawModes).toEqual([]);
+
+    renderer.setStartupStatus({ kind: "ready" });
+    const prompt = renderer.readPrompt({ title: "eve" });
+    // readPrompt is the first control; it claims the keyboard now that startup
+    // is done.
+    expect(input.rawModes).toEqual([true]);
+
+    input.type("hello");
+    input.enter();
+    await expect(prompt).resolves.toBe("hello");
+    renderer.shutdown();
+  });
+});
+
 describe("TerminalRenderer (inline scrollback)", () => {
   it("renders the brand line with the agent name and a tip", () => {
     const { screen, renderer } = makeRenderer();

@@ -70,6 +70,7 @@ import {
   type SetupIssue,
 } from "./setup-issues.js";
 import type { SetupFlowRenderer } from "./setup-flow.js";
+import type { StartupStatusSnapshot } from "./startup-status.js";
 import type { RemoteDevelopmentTarget } from "./target.js";
 import type {
   AssistantResponseStatsMode,
@@ -284,6 +285,12 @@ export type AgentTUIRenderer = {
   setVercelStatus?(status: VercelStatusSnapshot): void;
   /** Sets the remote deployment badge and its current connection/authentication state. */
   setRemoteConnectionStatus?(status: RemoteConnectionSnapshot): void;
+  /**
+   * Shows deferrable startup progress (build, connection, active-run recovery)
+   * in the shell before controls are available, and clears it once ready.
+   * Renderers without a startup region ignore it.
+   */
+  setStartupStatus?(status: StartupStatusSnapshot): void;
   /**
    * Clears the rendered transcript and resets per-conversation display
    * state, leaving the UI interactive on a fresh screen. Used by the
@@ -603,6 +610,9 @@ export class EveTUIRunner {
   }
 
   #reportBeforeFirstPaint(): void {
+    // Deferrable startup work is done; hand the footer back to the header and
+    // prompt. No-op on renderers without a startup region.
+    this.#renderer.setStartupStatus?.({ kind: "ready" });
     const report = this.#onBootProgress;
     this.#onBootProgress = undefined;
     report?.({ type: "before-first-paint" });

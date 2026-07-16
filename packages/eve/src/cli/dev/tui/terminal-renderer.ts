@@ -100,6 +100,7 @@ import {
 } from "./line-editor.js";
 import { LiveRegion } from "./live-region.js";
 import { buildStatusLine } from "./status-line.js";
+import type { StartupStatusSnapshot } from "./startup-status.js";
 import { nextLogDisplayMode } from "./log-display-mode.js";
 import { createTheme, detectUnicode, type Theme } from "./theme.js";
 import {
@@ -356,6 +357,15 @@ export class TerminalRenderer implements AgentTUIRenderer {
   #status: string = STATUS.processing;
   #title = "eve";
   #isInteractive = false;
+  /**
+   * Whether raw-mode keyboard input has been enabled. Deferred past the first
+   * paint so that while the shell shows startup progress (before any control is
+   * available) a Ctrl+C still raises SIGINT and exits cleanly, exactly as it
+   * did before the shell painted.
+   */
+  #inputEnabled = false;
+  /** Startup progress shown in place of the prompt until deferrable work finishes. */
+  #startupStatus?: StartupStatusSnapshot;
   #interrupted = false;
   #caretVisible = true;
   #spinnerIndex = 0;
@@ -1052,6 +1062,34 @@ export class TerminalRenderer implements AgentTUIRenderer {
 
   setRemoteConnectionStatus(status: RemoteConnectionSnapshot): void {
     this.#remoteConnection = status;
+    this.#paint();
+  }
+
+  /**
+   * Shows deferrable startup progress in the shell footer in place of the
+   * prompt. `working` animates a spinner beside the label; `failed` pins the
+   * failure with its recovery context; `ready` clears the region so the normal
+   * prompt/header footer takes over. Paints the shell (deferring raw-mode input)
+   * on first call so the shell is visible before the local server finishes
+   * booting.
+   */
+  setStartupStatus(status: StartupStatusSnapshot): void {
+    if (status.kind === "ready") {
+      this.#startupStatus = undefined;
+      this.#stopTicker();
+      this.#paint();
+      return;
+    }
+
+    this.#startupStatus = status;
+    // Bootstrap the live region without claiming the keyboard: no control is
+    // available yet, so a Ctrl+C during startup should exit via SIGINT.
+    this.#start(undefined, false);
+    if (status.kind === "working") {
+      this.#startTicker();
+    } else {
+      this.#stopTicker();
+    }
     this.#paint();
   }
 
@@ -1993,18 +2031,26 @@ export class TerminalRenderer implements AgentTUIRenderer {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  #start(options?: AgentTUISessionOptions) {
+  /**
+   * Bootstraps interactive rendering. `enableInput` defers raw-mode keyboard
+   * setup: the startup shell paints with it `false` so Ctrl+C keeps raising
+   * SIGINT until a real control (a prompt) needs the keyboard.
+   */
+  #start(options?: AgentTUISessionOptions, enableInput = true) {
     this.#title = options?.title ?? this.#title;
     this.#contextSize = options?.contextSize ?? this.#defaultContextSize;
 
-    if (this.#isInteractive) return;
+    if (!this.#isInteractive) {
+      this.#isInteractive = true;
+      this.#live.reset();
+      this.#live.hideCursor();
+      this.#installLogCapture();
+      this.#onResize = () => this.#paint();
+      this.#output.on("resize", this.#onResize);
+    }
 
-    this.#isInteractive = true;
-    this.#live.reset();
-    this.#live.hideCursor();
-    this.#installLogCapture();
-
-    if (this.#input.isTTY) {
+    if (enableInput && !this.#inputEnabled && this.#input.isTTY) {
+      this.#inputEnabled = true;
       this.#input.setRawMode?.(true);
       this.#input.resume();
       // Enable bracketed paste (DEC private mode 2004) so the terminal wraps
@@ -2014,9 +2060,6 @@ export class TerminalRenderer implements AgentTUIRenderer {
       // capture installed just above can't swallow the control sequence.
       this.#live.emitBracketedPaste(true);
     }
-
-    this.#onResize = () => this.#paint();
-    this.#output.on("resize", this.#onResize);
   }
 
   #stop() {
@@ -2030,6 +2073,17 @@ export class TerminalRenderer implements AgentTUIRenderer {
     this.#logLevelHintActive = false;
 
     if (!this.#isInteractive) return;
+
+    // A startup failure is a footer element; commit it to scrollback so it
+    // survives teardown and the user keeps the failure and its recovery context.
+    if (this.#startupStatus?.kind === "failed") {
+      const status = this.#startupStatus;
+      this.#startupStatus = undefined;
+      const c = this.#theme.colors;
+      const lines = [`${c.red(this.#theme.glyph.warning)} ${c.red(status.label)}`];
+      if (status.detail !== undefined) lines.push(c.dim(status.detail));
+      this.#pushBlock({ kind: "notice", body: lines.join("\n"), live: false });
+    }
 
     // Commit any leading finalized blocks (e.g. freshly captured log lines)
     // before the live region is wiped, so they land in scrollback instead of
@@ -2045,12 +2099,13 @@ export class TerminalRenderer implements AgentTUIRenderer {
     this.#removeLogCapture();
     this.#live.newline();
 
-    if (this.#input.isTTY) {
+    if (this.#inputEnabled && this.#input.isTTY) {
       // Disable bracketed paste, restoring the terminal to how we found it.
       this.#live.emitBracketedPaste(false);
       this.#input.setRawMode?.(false);
       this.#input.pause();
     }
+    this.#inputEnabled = false;
 
     if (this.#onResize) {
       this.#output.off("resize", this.#onResize);
@@ -2709,9 +2764,31 @@ export class TerminalRenderer implements AgentTUIRenderer {
     };
   }
 
+  /** Renders the startup progress region shown in place of the prompt. */
+  #startupRows(status: StartupStatusSnapshot, width: number): string[] {
+    if (status.kind === "ready") return [];
+    const c = this.#theme.colors;
+    const marker =
+      status.kind === "failed" ? c.red(this.#theme.glyph.warning) : c.cyan(this.#spinnerFrame());
+    const label = status.kind === "failed" ? c.red(status.label) : status.label;
+    const rows = [clip(`${marker} ${label}`, width)];
+    if (status.detail !== undefined) {
+      rows.push(clip(c.dim(`  ${status.detail}`), width));
+    }
+    return rows;
+  }
+
   #footerRows(width: number): string[] {
     const c = this.#theme.colors;
     const rows: string[] = [""];
+
+    // Startup progress owns the footer before any control is available. It
+    // replaces the prompt/idle line entirely so nothing invites input yet.
+    if (this.#startupStatus !== undefined) {
+      rows.push(...this.#startupRows(this.#startupStatus, width));
+      this.#pushStatusLine(rows, width);
+      return rows;
+    }
 
     const flow = this.#setupFlow;
     if (flow !== undefined) {
