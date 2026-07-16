@@ -42,9 +42,13 @@ const state = vi.hoisted(() => {
   };
 });
 
-vi.mock("#execution/sandbox/bindings/docker-cli.js", () => ({
-  createDockerCli: () => state.dockerCli,
-}));
+vi.mock("#execution/sandbox/bindings/docker-cli.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#execution/sandbox/bindings/docker-cli.js")>();
+  return {
+    ...actual,
+    createDockerCli: () => state.dockerCli,
+  };
+});
 
 vi.mock("#execution/sandbox/bindings/microsandbox-runtime.js", () => ({
   createProviderName: (prefix: string, key: string) => `${prefix}-${key}`,
@@ -124,25 +128,15 @@ describe("stopDevelopmentSandboxResources", () => {
     expect(state.microsandboxStopWithTimeout).toHaveBeenCalledWith(10_000);
   });
 
-  it("skips every backend when no development sandbox was initialized", async () => {
-    await stopDevelopmentSandboxResources({
-      backendNames: [],
-      devRunId: "run-123",
-    });
-
-    expect(state.dockerCli.run).not.toHaveBeenCalled();
-    expect(state.loadMicrosandboxWithoutInstall).not.toHaveBeenCalled();
-  });
-
-  it("does not probe Docker when only microsandbox was initialized", async () => {
+  it("silently skips Docker cleanup when the docker CLI is not installed", async () => {
+    const { DockerUnavailableError } = await import("#execution/sandbox/bindings/docker-cli.js");
+    state.dockerCli.run.mockRejectedValue(new DockerUnavailableError());
     state.microsandboxModule.Sandbox.listWith.mockResolvedValueOnce([]);
+    const log = vi.fn();
 
-    await stopDevelopmentSandboxResources({
-      backendNames: ["microsandbox"],
-      devRunId: "run-123",
-    });
+    await stopDevelopmentSandboxResources({ devRunId: "run-123", log });
 
-    expect(state.dockerCli.run).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
     expect(state.microsandboxModule.Sandbox.listWith).toHaveBeenCalledWith({
       labels: {
         "eve.backend": "microsandbox",

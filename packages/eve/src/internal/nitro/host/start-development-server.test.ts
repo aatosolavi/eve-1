@@ -406,7 +406,6 @@ describe("createDevelopmentServer", () => {
     await server.close();
 
     expect(mocks.stopDevelopmentSandboxResources).toHaveBeenCalledWith({
-      backendNames: [],
       devRunId: expect.any(String),
       log: expect.any(Function),
     });

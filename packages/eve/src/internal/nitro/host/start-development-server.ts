@@ -27,10 +27,8 @@ import {
 } from "#execution/sandbox/bindings/local.js";
 import { startDevelopmentSandboxPrewarmInBackground } from "#execution/sandbox/development-prewarm.js";
 import {
-  clearInitializedDevelopmentSandboxBackendNames,
   createDevelopmentSandboxRunId,
   EVE_DEVELOPMENT_SANDBOX_RUN_ID_ENV,
-  getInitializedDevelopmentSandboxBackendNames,
 } from "#execution/sandbox/development-run.js";
 import type {
   DevelopmentServer,
@@ -258,7 +256,6 @@ async function closeDevelopmentServerResources(input: {
   }
   await attempt(() =>
     stopDevelopmentSandboxResources({
-      backendNames: getInitializedDevelopmentSandboxBackendNames(input.developmentSandboxRunId),
       devRunId: input.developmentSandboxRunId,
       log: (message) => console.warn(`[eve:dev] ${message}`),
     }),
@@ -529,7 +526,6 @@ async function startNitroDevelopmentServer(
             throw cleanupError;
           }
         } finally {
-          clearInitializedDevelopmentSandboxBackendNames(developmentSandboxRunId);
           restoreWorkflowLocalQueueEnvironmentOnClose();
           restoreWorkflowTransportEnvironmentOnClose?.();
           restoreDevelopmentSandboxRunId(previousDevelopmentSandboxRunId);
@@ -566,7 +562,6 @@ async function startNitroDevelopmentServer(
     }
     restoreWorkflowLocalQueueEnvironment?.();
     restoreWorkflowTransportEnvironment?.();
-    clearInitializedDevelopmentSandboxBackendNames(developmentSandboxRunId);
     if (cleanup.listenerClosed) {
       await state.remove().catch(() => {});
     }
