@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { HookPayload } from "#channel/types.js";
+import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
 import { dispatchRuntimeActionsStep } from "#execution/dispatch-runtime-actions-step.js";
 import { dispatchWorkflowRuntimeActionsStep } from "#execution/dispatch-workflow-runtime-actions-step.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
@@ -43,6 +44,10 @@ vi.mock("./dispatch-runtime-actions-step.js", () => ({
 
 vi.mock("./dispatch-workflow-runtime-actions-step.js", () => ({
   dispatchWorkflowRuntimeActionsStep: vi.fn(),
+}));
+
+vi.mock("./cancel-descendant-turns-step.js", () => ({
+  cancelDescendantTurnsStep: vi.fn(),
 }));
 
 vi.mock("./workflow-callback-url.js", () => ({
@@ -313,6 +318,10 @@ describe("turnWorkflow", () => {
     await turnWorkflow(input);
 
     expect(vi.mocked(turnStep).mock.calls[0]?.[0].abortSignal).toBeInstanceOf(AbortSignal);
+    expect(cancelDescendantTurnsStep).toHaveBeenCalledWith({
+      serializedContext: { state: "start" },
+      sessionState,
+    });
     // The cancel token is session-scoped so a trigger can derive it from
     // the session id alone.
     expect(cancelHookTokens()).toEqual(["wrun_test_123:cancel"]);
@@ -642,6 +651,58 @@ describe("turnWorkflow", () => {
       kind: "runtime-action-result",
       results: [expect.objectContaining({ callId: "call-1", output: "child output" })],
     });
+  });
+
+  it("waits for dispatch adoption before cascading a cancellation", async () => {
+    const initialState = createSessionState({ continuationToken: "http:parent" });
+    const pendingState = createSessionState({ continuationToken: "http:parent:turn" });
+    const adoptedState = createSessionState({ continuationToken: "http:parent:turn:adopted" });
+    let finishDispatch:
+      | ((value: { results: readonly []; sessionState: DurableSessionState }) => void)
+      | undefined;
+    const dispatchResult = new Promise<{
+      results: readonly [];
+      sessionState: DurableSessionState;
+    }>((resolve) => {
+      finishDispatch = resolve;
+    });
+    installInbox([], { cancelPayloads: [{}], stayOpen: true });
+    vi.mocked(dispatchRuntimeActionsStep).mockReturnValue(dispatchResult);
+    vi.mocked(turnStep)
+      .mockResolvedValueOnce({
+        action: "park",
+        hasPendingAuthorization: false,
+        hasPendingInputBatch: false,
+        pendingRuntimeActionKeys: ["subagent-call:delegate:call-1"],
+        serializedContext: { state: "pending" },
+        sessionState: pendingState,
+      })
+      .mockResolvedValueOnce({
+        action: "cancelled",
+        serializedContext: { state: "cancelled" },
+        sessionState: adoptedState,
+      });
+
+    const { input } = createInput({
+      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
+      mode: "task",
+      sessionState: initialState,
+    });
+    const workflow = turnWorkflow(input);
+    await vi.waitFor(() => expect(dispatchRuntimeActionsStep).toHaveBeenCalledOnce());
+    expect(cancelDescendantTurnsStep).not.toHaveBeenCalled();
+
+    finishDispatch?.({ results: [], sessionState: adoptedState });
+    await workflow;
+
+    expect(vi.mocked(turnStep).mock.calls[1]?.[0].abortSignal?.aborted).toBe(true);
+    expect(cancelDescendantTurnsStep).toHaveBeenCalledWith({
+      serializedContext: { state: "pending" },
+      sessionState: adoptedState,
+    });
+    expect(vi.mocked(dispatchRuntimeActionsStep).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(cancelDescendantTurnsStep).mock.invocationCallOrder[0]!,
+    );
   });
 
   it("keeps dynamic-workflow child dispatch and immediate remote failures in the same turn", async () => {
@@ -1007,6 +1068,7 @@ function installInbox(
     readonly claimError?: unknown;
     readonly conflict?: { readonly runId: string } | null;
     readonly steeringPayloads?: readonly unknown[];
+    readonly stayOpen?: boolean;
   } = {},
 ): InboxMock {
   const inbox = createInboxMock(values, options);
@@ -1080,6 +1142,7 @@ function createInboxMock(
     readonly claimError?: unknown;
     readonly conflict?: { readonly runId: string } | null;
     readonly next?: () => Promise<IteratorResult<unknown>>;
+    readonly stayOpen?: boolean;
   } = {},
 ): InboxMock {
   const queue = [...values];
@@ -1088,7 +1151,9 @@ function createInboxMock(
     options.next ??
     vi.fn(async () => {
       const value = queue.shift();
-      return value === undefined ? { done: true, value: undefined } : { done: false, value };
+      if (value !== undefined) return { done: false, value };
+      if (options.stayOpen === true) return await new Promise<never>(() => {});
+      return { done: true, value: undefined };
     });
   const createIterator = vi.fn(() => ({
     next,

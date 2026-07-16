@@ -326,7 +326,7 @@ describe("dispatchChannelRequest", () => {
 
   it("does not mutate route-owned run and deliver inputs", async () => {
     const runtimeForTest: Runtime = {
-      cancelTurn: vi.fn().mockResolvedValue({ status: "cancelling" }),
+      cancelTurn: vi.fn().mockResolvedValue({ status: "accepted" }),
       cancelTurnByContinuationToken: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_deliver" }),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),

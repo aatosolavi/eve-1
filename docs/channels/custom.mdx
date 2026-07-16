@@ -87,7 +87,7 @@ POST("/threads/:threadId/stop", async (_req, { cancelTurn, params }) => {
 });
 ```
 
-The result is `{ status: "cancelling" }` when the active turn accepted the request or `{ status: "no_active_turn" }` when the session is unknown, idle, parked, or already finished. An optional `turnId` guard prevents a delayed stop request from affecting a newer turn. Observe `turn.cancelled` on the event stream to confirm settlement.
+The result is `{ status: "accepted" }` when the active turn accepted the request or `{ status: "no_active_turn" }` when the session is unknown, idle, parked, or already finished. An optional `turnId` guard prevents a delayed stop request from affecting a newer turn. Observe `turn.cancelled` on the event stream to confirm settlement.
 
 ## CORS
 

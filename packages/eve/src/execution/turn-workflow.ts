@@ -1,6 +1,7 @@
 import { createHook, getWorkflowMetadata } from "#compiled/@workflow/core/index.js";
 
 import type { DeliverHookPayload } from "#channel/types.js";
+import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
 import { sendTurnControlStep, type TurnInboxPayload } from "#execution/turn-control-protocol.js";
 import { dispatchRuntimeActionsStep } from "#execution/dispatch-runtime-actions-step.js";
 import { dispatchWorkflowRuntimeActionsStep } from "#execution/dispatch-workflow-runtime-actions-step.js";
@@ -139,6 +140,10 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
         // a step in this run, where queued cancel wakes could re-dispatch
         // it.
         await settleSteeringAtTerminal(steering, cursor, bufferedDeliveries, pendingSteering);
+        await cancelDescendantTurnsStep({
+          serializedContext: cursor.serializedContext,
+          sessionState: cursor.sessionState,
+        });
         await cancellation?.dispose();
         await cursor.finish(
           { sessionState: cursor.sessionState },

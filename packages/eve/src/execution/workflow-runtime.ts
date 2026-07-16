@@ -171,17 +171,7 @@ export function createWorkflowRuntime(config: {
     },
 
     async cancelTurn(input: CancelTurnInput): Promise<CancelTurnResult> {
-      const payload: TurnCancelPayload = input.turnId === undefined ? {} : { turnId: input.turnId };
-
-      try {
-        await resumeHook(sessionCancelHookToken(input.sessionId), payload);
-        return { status: "cancelling" };
-      } catch (error) {
-        if (isInactiveCancelTarget(error)) {
-          return { status: "no_active_turn" };
-        }
-        throw error;
-      }
+      return await requestWorkflowTurnCancellation(input);
     },
 
     async cancelTurnByContinuationToken(
@@ -240,6 +230,23 @@ export function createWorkflowRuntime(config: {
       );
     },
   };
+}
+
+/** Requests cancellation through a session's stable workflow hook. */
+export async function requestWorkflowTurnCancellation(
+  input: CancelTurnInput,
+): Promise<CancelTurnResult> {
+  const payload: TurnCancelPayload = input.turnId === undefined ? {} : { turnId: input.turnId };
+
+  try {
+    await resumeHook(sessionCancelHookToken(input.sessionId), payload);
+    return { status: "accepted" };
+  } catch (error) {
+    if (isInactiveCancelTarget(error)) {
+      return { status: "no_active_turn" };
+    }
+    throw error;
+  }
 }
 
 function isInactiveCancelTarget(error: unknown): boolean {

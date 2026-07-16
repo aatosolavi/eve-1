@@ -34,11 +34,16 @@ export interface RouteHandlerArgs<TState> {
 }
 
 export interface CancelTurnResult {
-  status: "cancelling" | "no_active_turn";
+  status: "accepted" | "no_active_turn";
 }
 ```
 
 ## Observable semantics
+
+`"accepted"` means a registered cancellation hook accepted the request, not
+that cancellation has settled or necessarily matched the caller's guarded
+turn. `"no_active_turn"` covers unknown, idle, parked, swept, and otherwise
+uncancellable sessions. Both are successful outcomes.
 
 ### Queue
 
@@ -66,10 +71,8 @@ delivery order and may coalesce at one boundary.
 current durable session, and resumes that session's cancellation hook. It
 never starts a session or manufactures a user message.
 
-`"cancelling"` means the hook accepted the request; consumers observe
-`turn.cancelled` for settlement. `"no_active_turn"` covers unknown, idle,
-parked, swept, and otherwise uncancellable sessions. An optional `turnId`
-guard makes delayed requests benign rather than cancelling a newer turn.
+An optional `turnId` guard makes delayed requests benign rather than
+cancelling a newer turn.
 
 ## Runtime boundary
 
@@ -98,6 +101,7 @@ races from dropping input or creating a second session.
 ## Limits
 
 Steering and cancellation do not roll back completed tools, channel sends, or
-other side effects. Partial streamed output remains observable. Descendant
-cancellation cascade, session reset, and retraction of already-sent channel
-messages remain out of scope.
+other side effects. Partial streamed output remains observable. Cancellation
+cascades to active local and remote descendants before the parent settles.
+Session reset and retraction of already-sent channel messages remain out of
+scope.
