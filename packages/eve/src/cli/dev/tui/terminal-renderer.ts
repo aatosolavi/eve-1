@@ -1,4 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
+import type { DevDiagnosticSink } from "../diagnostic-sink.js";
 
 import type {
   AgentTUIInputOption,
@@ -111,7 +112,9 @@ import {
 } from "./terminal-text.js";
 import type { VercelStatusSnapshot } from "./vercel-status.js";
 import type { RemoteConnectionSnapshot } from "./remote-connection.js";
-import { summarizeToolArgs, summarizeToolResult } from "./tool-format.js";
+import { presentTool } from "./tool-presentation.js";
+import { groupToolBlocksForDisplay } from "./tool-block-groups.js";
+import { formatStoredDiagnostic, presentDiagnostic } from "./diagnostic-presentation.js";
 import { reduceSetupSelectInput, setupSelectionIntent } from "./setup-selection-input.js";
 import {
   isProgressPulseVisible,
@@ -228,6 +231,7 @@ export type TerminalRendererOptions = {
   logs?: LogDisplayMode;
   color?: boolean;
   unicode?: boolean;
+  diagnostics?: DevDiagnosticSink;
   /** Slash commands available in this local or remote session. */
   availablePromptCommands?: readonly PromptCommandSpec[];
 };
@@ -297,6 +301,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
   readonly #assistantResponseStats: AssistantResponseStatsMode;
   readonly #defaultContextSize?: number;
   readonly #captureForeignOutput: boolean;
+  readonly #diagnostics?: DevDiagnosticSink;
   readonly #availablePromptCommands: readonly PromptCommandSpec[];
   /** Which captured log sources render. Mutable via {@link setLogDisplayMode}. */
   #logs: LogDisplayMode;
@@ -359,6 +364,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
   #interrupted = false;
   #caretVisible = true;
   #spinnerIndex = 0;
+  #activityPulseStartedAtMs = Date.now();
   #caretTimer?: ReturnType<typeof setInterval>;
   #tickTimer?: ReturnType<typeof setInterval>;
   #logLevelHintTimer?: ReturnType<typeof setTimeout>;
@@ -442,6 +448,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
     this.#defaultContextSize = options?.contextSize;
     this.#contextSize = options?.contextSize;
     this.#captureForeignOutput = options?.captureForeignOutput ?? this.#output === process.stdout;
+    this.#diagnostics = options?.diagnostics;
     this.#logs = options?.logs ?? "none";
     this.#availablePromptCommands = options?.availablePromptCommands ?? PROMPT_COMMANDS;
   }
@@ -973,19 +980,22 @@ export class TerminalRenderer implements AgentTUIRenderer {
     }
 
     const status = subagentToolStatus(update.status);
+    const presentation = presentTool(update.toolName, update.input);
     const block: Block = {
       id: subagentToolSectionId(update.callId, update.childCallId),
       kind: "subagent-tool",
       depth: 1,
-      title: stripTerminalControls(update.toolName),
-      subtitle: summarizeToolArgs(update.input),
+      title: stripTerminalControls(presentation.title),
+      subtitle: stripTerminalControls(presentation.subtitle),
       status,
       live: status === "running" || status === "approval",
       expanded: this.#subagents === "full",
+      toolName: update.toolName,
+      toolGroup: presentation.group,
       toolInput: update.input,
     };
     if (update.output !== undefined) {
-      block.result = summarizeToolResult(update.output);
+      block.result = presentation.summarizeResult(update.output);
       block.toolOutput = update.output;
     } else if (update.errorText !== undefined) {
       block.result = stripTerminalControls(update.errorText);
@@ -2195,7 +2205,9 @@ export class TerminalRenderer implements AgentTUIRenderer {
   }
 
   #startWorking(): void {
-    this.#turnIndicator = { kind: "waiting", startedAtMs: Date.now() };
+    const startedAtMs = Date.now();
+    this.#activityPulseStartedAtMs = startedAtMs;
+    this.#turnIndicator = { kind: "waiting", startedAtMs };
     this.#startTicker();
   }
 
@@ -2242,7 +2254,15 @@ export class TerminalRenderer implements AgentTUIRenderer {
       body: stripTerminalControls(content),
       live: false,
     };
-    if (detail !== undefined) block.detail = stripTerminalControls(detail);
+    if (detail !== undefined) {
+      const cleanDetail = stripTerminalControls(detail);
+      if (this.#diagnostics === undefined) {
+        block.detail = cleanDetail;
+      } else {
+        this.#diagnostics.append({ source: "workflow", summary: content, detail: cleanDetail });
+        block.detail = `details: ${this.#diagnostics.displayPath}`;
+      }
+    }
     this.#pushBlock(block);
     this.#paint();
   }
@@ -2399,6 +2419,20 @@ export class TerminalRenderer implements AgentTUIRenderer {
         break;
       }
 
+      case "tool-rejected": {
+        if (displayModes.tools === "hidden") break;
+        const existing = this.#resolveNativeToolState(event.toolCallId, turnState);
+        if (existing === undefined) break;
+        turnState.hasPendingToolResults = true;
+        this.#setStreamStatus(STATUS.toolResults);
+        this.#upsertNativeTool(
+          { ...existing, errorText: event.reason, status: "denied" },
+          displayModes,
+          turnState,
+        );
+        break;
+      }
+
       case "error":
         this.#addErrorBlock("Error", event.errorText, event.detail);
         break;
@@ -2452,7 +2486,24 @@ export class TerminalRenderer implements AgentTUIRenderer {
     const id = toolSectionId(tool.toolCallId);
     this.#parentToolBlockIds.set(tool.toolCallId, id);
     this.#upsertBlock(renderNativeToolBlock(tool, id, displayModes.tools === "full"));
+    this.#syncNativeToolBlockLiveness(turnState);
     this.#paint();
+  }
+
+  /** Keeps one parallel tool cohort mutable until every independent call settles. */
+  #syncNativeToolBlockLiveness(turnState: RenderTurnState): void {
+    const tools = [...turnState.tools.values()].filter(
+      (tool) => !this.#childToolCallIds.has(tool.toolCallId),
+    );
+    const cohortActive = tools.some(
+      (tool) => tool.status === "running" || tool.status === "approval",
+    );
+    for (const tool of tools) {
+      const id = this.#parentToolBlockIds.get(tool.toolCallId) ?? toolSectionId(tool.toolCallId);
+      const block = this.#blockById.get(id);
+      if (block?.kind !== "tool") continue;
+      block.live = cohortActive || tool.status === "running" || tool.status === "approval";
+    }
   }
 
   #resolveNativeToolState(
@@ -2477,7 +2528,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
       output: block.toolOutput,
       status: block.status ?? "running",
       toolCallId,
-      toolName: block.title ?? "tool",
+      toolName: block.toolName ?? block.title ?? "tool",
     };
   }
 
@@ -2535,15 +2586,18 @@ export class TerminalRenderer implements AgentTUIRenderer {
     // them) but contribute no rows and leave `previous` untouched — gap and
     // log-run decisions must behave as if the hidden block were not there.
     while (this.#blocks.length > 0 && this.#blocks[0]!.live === false) {
-      const block = this.#blocks.shift()!;
-      this.#transcriptBlocks.push(block);
-      if (block.id) {
-        this.#committedIds.add(block.id);
-        this.#blockById.delete(block.id);
+      const group = groupToolBlocksForDisplay(this.#blocks)[0]!;
+      this.#blocks.splice(0, group.members.length);
+      for (const block of group.members) {
+        this.#transcriptBlocks.push(block);
+        if (block.id) {
+          this.#committedIds.add(block.id);
+          this.#blockById.delete(block.id);
+        }
       }
-      if (this.#isHiddenLog(block)) continue;
-      const rows = this.#renderBlock(block, width, previous);
-      previous = previousBlockOf(block);
+      if (this.#isHiddenLog(group.display)) continue;
+      const rows = this.#renderBlock(group.display, width, previous);
+      previous = previousBlockOf(group.display);
       this.#lastCommitted = previous;
       committed.push(...rows);
       this.#committedTranscriptRows.push(...rows);
@@ -2553,7 +2607,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
     // a live block may rewrap or receive new deltas on the next paint, and
     // terminal scrollback cannot be corrected once written.
     const flat: Array<{ block: Block; row: string }> = [];
-    for (const block of this.#blocks) {
+    for (const { display: block } of groupToolBlocksForDisplay(this.#blocks)) {
       if (this.#isHiddenLog(block)) continue;
       const rows = this.#renderBlock(block, width, previous);
       previous = previousBlockOf(block);
@@ -2586,7 +2640,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
     let previous = this.#lastCommitted;
     const flat: string[] = [];
 
-    for (const block of this.#blocks) {
+    for (const { display: block } of groupToolBlocksForDisplay(this.#blocks)) {
       if (this.#isHiddenLog(block)) continue;
       const rows = this.#renderBlock(block, width, previous);
       previous = previousBlockOf(block);
@@ -2679,7 +2733,12 @@ export class TerminalRenderer implements AgentTUIRenderer {
   }
 
   #renderBlock(block: Block, width: number, previous: PreviousBlock | undefined): string[] {
-    const context: Parameters<typeof renderBlockLines>[3] = { spinner: this.#spinnerFrame() };
+    const context: Parameters<typeof renderBlockLines>[3] = {
+      activityPulse: this.#progressPulseGlyph(
+        this.#activityPulseStartedAtMs,
+        this.#theme.unicode ? PROGRESS_PULSE_GLYPH : PROGRESS_PULSE_ASCII_GLYPH,
+      ),
+    };
     if (previous !== undefined) context.previous = previous;
     const rows = renderBlockLines(block, width, this.#theme, context);
     if ((block.depth ?? 0) === 0 && leadsWithGap(block, previous)) {
@@ -2954,6 +3013,7 @@ export class TerminalRenderer implements AgentTUIRenderer {
       this.#stdoutLogBuffer = "";
     }
     if (this.#stderrLogBuffer.length > 0) {
+      this.#diagnostics?.append({ source: "stderr", detail: this.#stderrLogBuffer });
       if (this.#shouldRenderLog("stderr")) process.stderr.write(`${this.#stderrLogBuffer}\n`);
       this.#stderrLogBuffer = "";
     }
@@ -3025,12 +3085,35 @@ export class TerminalRenderer implements AgentTUIRenderer {
   }
 
   #handleCapturedStderr(content: string): void {
+    this.#diagnostics?.append({ source: "stderr", detail: content });
     const lines = content.split("\n");
     const failedIndex = lines.findIndex((line) => {
       return parseDevRebuildLogLine(line.trimEnd())?.kind === "failed";
     });
     if (failedIndex === -1) {
-      this.#pushBlock({ kind: "log", title: "stderr", body: content, live: false });
+      if (this.#diagnostics === undefined) {
+        this.#pushBlock({ kind: "log", title: "stderr", body: content, live: false });
+        return;
+      }
+      const presentation = presentDiagnostic(content, this.#diagnostics.displayPath);
+      if (presentation.kind === "inline") {
+        this.#pushBlock({ kind: "log", title: "stderr", body: presentation.text, live: false });
+        return;
+      }
+      this.#pushBlock({
+        kind: "log",
+        title: "stderr",
+        body: formatStoredDiagnostic(presentation),
+        logVisibility: "stderr-only",
+        live: false,
+      });
+      this.#pushBlock({
+        kind: "log",
+        title: "stderr",
+        body: content,
+        logVisibility: "all-only",
+        live: false,
+      });
       return;
     }
 
@@ -3135,6 +3218,8 @@ export class TerminalRenderer implements AgentTUIRenderer {
   #isHiddenLog(block: Block): boolean {
     if (block.kind === "sandbox") return !this.#shouldRenderLog("sandbox");
     if (block.kind !== "log") return false;
+    if (block.logVisibility === "stderr-only") return this.#logs !== "stderr";
+    if (block.logVisibility === "all-only") return this.#logs !== "all";
     return !this.#shouldRenderLog(block.title === "stderr" ? "stderr" : "stdout");
   }
 }
@@ -3364,19 +3449,22 @@ function collapseReasoning(mode: TerminalPartDisplayMode, isLastPart: boolean): 
 }
 
 function renderNativeToolBlock(tool: NativeToolState, id: string, expanded: boolean): Block {
+  const presentation = presentTool(tool.toolName, tool.input);
   const block: Block = {
     id,
     kind: "tool",
-    title: stripTerminalControls(tool.toolName),
-    subtitle: summarizeToolArgs(tool.input),
+    title: stripTerminalControls(presentation.title),
+    subtitle: stripTerminalControls(presentation.subtitle),
     status: tool.status,
     live: tool.status === "running" || tool.status === "approval",
     expanded,
     toolInput: tool.input,
+    toolName: tool.toolName,
+    toolGroup: presentation.group,
   };
 
   if (tool.output !== undefined) {
-    block.result = summarizeToolResult(tool.output);
+    block.result = presentation.summarizeResult(tool.output);
     block.toolOutput = tool.output;
   } else if (tool.errorText !== undefined) {
     block.result = stripTerminalControls(tool.errorText);
@@ -3395,6 +3483,8 @@ function subagentToolStatus(status: SubagentToolUpdate["status"]): ToolStatus {
       return "done";
     case "failed":
       return "error";
+    case "rejected":
+      return "denied";
   }
 }
 

@@ -12,6 +12,7 @@
 
 import { renderMarkdown } from "./markdown.js";
 import type { Theme } from "./theme.js";
+import type { ToolGroupPresentation } from "./tool-presentation.js";
 import { isPromptControlCommand } from "./prompt-commands.js";
 import { formatValuePretty, truncate } from "./tool-format.js";
 import { sliceVisible, visibleLength, wrapVisibleLine } from "./terminal-text.js";
@@ -48,7 +49,7 @@ export interface Block {
   id?: string;
   /** Nesting depth: 0 = top level, 1 = inside a subagent, etc. */
   depth?: number;
-  /** Whether the block is still streaming / mutating (drives the spinner). */
+  /** Whether the block is still streaming / mutating (drives the activity pulse). */
   live?: boolean;
 
   /** Primary label — tool name, subagent name, log source, error title. */
@@ -75,14 +76,22 @@ export interface Block {
   collapsed?: boolean;
   /** When true, expand tool input/output instead of summarizing. */
   expanded?: boolean;
+  /** Captured-log visibility used for concise-vs-raw diagnostic replay. */
+  logVisibility?: "stderr-only" | "all-only";
   /** Raw tool input / output for the expanded view. */
   toolInput?: unknown;
   toolOutput?: unknown;
+  /** Original execution name, kept separate from a semantic display title. */
+  toolName?: string;
+  /** Optional aggregation metadata; execution state remains on this call's block. */
+  toolGroup?: ToolGroupPresentation;
+  /** Display-only items populated when equivalent tool blocks are coalesced. */
+  toolGroupItems?: readonly string[];
 }
 
 export interface RenderBlockContext {
-  /** Current spinner frame for live blocks. */
-  spinner: string;
+  /** Current shared square-pulse frame for live activity blocks. */
+  activityPulse: string;
   /**
    * Kind and title of the block rendered immediately above this one. Lets a
    * log block detect that it continues a same-source run (label suppressed,
@@ -185,7 +194,7 @@ function renderProse(block: Block, width: number, theme: Theme): string[] {
   }
 
   if (body.length > 0) {
-    const rendered = renderMarkdown(body)
+    const rendered = renderMarkdown(body, width - indent.length)
       .split("\n")
       .flatMap((line) => wrapVisibleLine(line, width - indent.length));
     rendered.forEach((line, index) => {
@@ -235,6 +244,12 @@ function renderTool(
   }
 
   const rows = [header];
+
+  if (block.toolGroupItems !== undefined) {
+    for (const item of block.toolGroupItems) {
+      rows.push(`  ${theme.colors.gray(truncate(item, Math.max(1, width - 2)))}`);
+    }
+  }
 
   if (block.expanded) {
     rows.push(...renderToolExpanded(block, width, theme));
@@ -294,7 +309,7 @@ function toolGlyph(
       return { icon: theme.colors.yellow(theme.glyph.question), accent: theme.colors.yellow };
     case "running":
     default:
-      return { icon: theme.colors.yellow(context.spinner), accent: theme.colors.gray };
+      return { icon: theme.colors.yellow(context.activityPulse), accent: theme.colors.gray };
   }
 }
 
