@@ -47,6 +47,8 @@ minimumReleaseAge: 2880 # 2 days
 
 minimumReleaseAgeExclude:
   - "@ai-sdk/*"
+  - "@agent-browser/eve"
+  - "@agent-browser/sandbox"
   - "@rolldown/*"
   - "@typescript/typescript-*"
   - "@turbo/*"
