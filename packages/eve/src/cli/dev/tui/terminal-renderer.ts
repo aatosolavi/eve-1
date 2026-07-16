@@ -2015,7 +2015,10 @@ export class TerminalRenderer implements AgentTUIRenderer {
       this.#live.emitBracketedPaste(true);
     }
 
-    this.#onResize = () => this.#paint();
+    this.#onResize = () => {
+      this.#rebuildCommittedTranscript();
+      this.#replayTranscript();
+    };
     this.#output.on("resize", this.#onResize);
   }
 
@@ -3213,8 +3216,8 @@ function promptInputRows({
   );
   const promptGlyph = c.cyan(theme.glyph.prompt);
   const ellipsis = c.dim(theme.glyph.ellipsis);
-  // Reserve the leading pad, gutter, and block cursor's trailing cell at end-of-line.
-  const budget = Math.max(1, width - 4);
+  // Reserve the gutter and block cursor's trailing cell at end-of-line.
+  const budget = Math.max(1, width - 3);
   const out: string[] = [];
   for (let r = top; r < top + visibleCount; r += 1) {
     const row = layout.rows[r]!;
@@ -3245,7 +3248,7 @@ function promptInputRows({
     } else {
       body = style(row.text);
     }
-    out.push(clip(` ${gutter} ${body}`, width));
+    out.push(clip(`${gutter} ${body}`, width));
   }
   out.push("");
   return out;

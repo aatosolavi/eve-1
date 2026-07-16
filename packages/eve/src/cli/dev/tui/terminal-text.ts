@@ -9,15 +9,16 @@ const extendedPictographicPattern = /\p{Extended_Pictographic}/u;
 const keycapPattern = /^[#*0-9]\u{fe0f}?\u{20e3}$/u;
 
 export function stripAnsi(input: string): string {
-  return stripTerminalControls(input.replaceAll(ansiPattern, ""));
+  return stripTerminalControls(input);
 }
 
 export function stripTerminalControls(input: string): string {
+  const text = input.replaceAll(ansiPattern, "");
   let output = "";
   let index = 0;
 
-  while (index < input.length) {
-    const codePoint = input.codePointAt(index);
+  while (index < text.length) {
+    const codePoint = text.codePointAt(index);
 
     if (codePoint == null) {
       break;

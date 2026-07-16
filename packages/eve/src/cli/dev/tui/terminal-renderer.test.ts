@@ -856,6 +856,49 @@ describe("TerminalRenderer (inline scrollback)", () => {
     renderer.shutdown();
   });
 
+  it("aligns live input with the submitted user message", async () => {
+    const { screen, input, renderer } = makeRenderer();
+
+    const prompt = renderer.readPrompt();
+    input.type("hello");
+    const live = screen
+      .snapshot()
+      .split("\n")
+      .find((line) => line.includes("hello"));
+    input.enter();
+    await prompt;
+    const submitted = screen
+      .snapshot()
+      .split("\n")
+      .find((line) => line.includes("hello"));
+
+    expect(live?.indexOf("hello")).toBe(2);
+    expect(submitted?.indexOf("hello")).toBe(2);
+    renderer.shutdown();
+  });
+
+  it("reflows the transcript on resize without duplicating the live prompt", async () => {
+    const { screen, renderer } = makeRenderer();
+    await renderer.renderStream(
+      streamOf([
+        { type: "assistant-delta", id: "t1", delta: "a response that wraps at narrow widths" },
+        { type: "assistant-complete", id: "t1" },
+        { type: "finish" },
+      ]),
+      { submittedPrompt: "hello", continueSession: true },
+    );
+    void renderer.readPrompt();
+    const beforeResize = screen.rawOutput().length;
+
+    screen.resize(40, 20);
+
+    expect(screen.rawOutput().slice(beforeResize)).toContain("\x1b[3J");
+    expect(countOccurrences(screen.snapshot(), "❯")).toBe(1);
+    expect(screen.snapshot()).toContain("hello");
+    expect(screen.snapshot()).toContain("a response that wraps");
+    renderer.shutdown();
+  });
+
   it("starts the turn pulse as soon as the prompt is submitted", async () => {
     vi.useFakeTimers();
     try {
@@ -2612,7 +2655,7 @@ describe("TerminalRenderer command typeahead", () => {
     expect(snapshot).toContain("Show available commands");
     expect(snapshot).toContain("Configure the agent's model and provider");
     const promptLine = snapshot.split("\n").find((line) => line.includes("❯ /"));
-    expect(promptLine?.startsWith(" ❯ /")).toBe(true);
+    expect(promptLine?.startsWith("❯ /")).toBe(true);
 
     input.enter();
     // The highlighted default — /help leads the registry — is what a bare

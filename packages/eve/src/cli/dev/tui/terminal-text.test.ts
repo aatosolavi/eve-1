@@ -19,6 +19,12 @@ describe("stripTerminalControls", () => {
     expect(stripTerminalControls(input)).toBe("a\tb\ncdefghijk");
   });
 
+  it("removes complete CSI styling instead of exposing its printable suffix", () => {
+    expect(stripTerminalControls("Model changed to \x1b[1mopus\x1b[22m.")).toBe(
+      "Model changed to opus.",
+    );
+  });
+
   it("neutralizes OSC and DCS introducers", () => {
     const input = "\x1b]52;c;cGFzdGU=\x07copy \x1bPqpayload\x1b\\done \u009d0;title\u009c";
 
