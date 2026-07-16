@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -42,11 +43,18 @@ describe("runExtensionBuildCommand", () => {
           name: "@acme/crm",
           type: "module",
           eve: { extension: "./extension" },
+          peerDependencies: { eve: ">=0.1.0 <1" },
         },
         null,
         2,
       )}\n`,
       "utf8",
+    );
+    await mkdir(join(root, "node_modules"), { recursive: true });
+    await symlink(
+      dirname(createRequire(import.meta.url).resolve("eve/package.json")),
+      join(root, "node_modules", "eve"),
+      "dir",
     );
     await mkdir(join(root, "extension"), { recursive: true });
     await writeFile(

@@ -150,6 +150,21 @@ export function parseExtensionArtifact(raw: string, artifactPath: string): Exten
   }
   const parsed = extensionArtifactSchema.safeParse(json);
   if (!parsed.success) {
+    // A recognizable artifact failing the strict schema is almost always
+    // build-version skew, so name the eve that built it.
+    const record =
+      typeof json === "object" && json !== null ? (json as Record<string, unknown>) : undefined;
+    if (record?.kind === EXTENSION_ARTIFACT_KIND) {
+      const builtWith =
+        typeof record.eveVersion === "string" && record.eveVersion.length > 0
+          ? ` It was built with eve ${record.eveVersion}.`
+          : "";
+      throw new Error(
+        `Extension artifact "${artifactPath}" is not readable by this version of eve.${builtWith} ` +
+          `Rebuild the extension with \`eve extension build\` under a compatible eve, or align your eve version. ` +
+          `${formatValidationError(parsed.error)}`,
+      );
+    }
     throw new Error(
       `Extension artifact "${artifactPath}" is not a valid eve extension artifact. ${formatValidationError(parsed.error)}`,
     );

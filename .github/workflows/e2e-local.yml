@@ -114,6 +114,13 @@ jobs:
         # skips extension fixtures that stay source-backed (no build script).
         run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
 
+      - name: Stage dist-only extension fixture
+        if: needs.changes.outputs.relevant == 'true'
+        # Keep gizmo source-backed to exercise workspace authoring. Removing the
+        # toolkit source after its build makes the consuming fixture prove the
+        # published, dist-only path in the same eval suite.
+        run: mv e2e/fixtures/toolkit-extension/extension "$RUNNER_TEMP/toolkit-extension-source"
+
       - name: Run fixture evals
         if: needs.changes.outputs.relevant == 'true'
         run: |

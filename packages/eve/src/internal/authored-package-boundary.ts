@@ -1,5 +1,6 @@
-import { existsSync, realpathSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { isBuiltin } from "node:module";
+import { dirname, join, resolve, sep } from "node:path";
 
 export const CACHED_CHANNEL_PREFIX = "eve-cached-channel:";
 
@@ -156,6 +157,90 @@ export function createRuntimeLoaderPackageBoundaryPlugin(input: {
   };
 }
 
+/**
+ * Keeps every package import in a published extension external while enforcing
+ * the same dependency declaration boundary package managers expect at runtime.
+ * Only relative extension-owned source is bundled into the distribution.
+ */
+export function createDistributionPackageBoundaryPlugin(input: {
+  readonly externalDependencies: readonly string[];
+  readonly packageRoot: string;
+}): Record<string, unknown> {
+  const declaredDependencies = new Set(input.externalDependencies);
+
+  return {
+    name: "eve-distribution-package-boundary",
+    async resolveId(
+      this: RolldownResolveContext,
+      source: string,
+      importer: string | undefined,
+      options: { kind: string },
+    ) {
+      if (!isPackageImport(source)) {
+        return undefined;
+      }
+
+      // A `#` alias may map to a dependency package, not just internal source —
+      // hold that target to the declaration boundary or a hoisted, undeclared
+      // package gets bundled in. Containment is checked on canonical paths
+      // because resolvers realpath workspace symlinks out of `node_modules`.
+      if (source.startsWith("#")) {
+        const resolved = await this.resolve(source, importer, {
+          kind: options.kind,
+          skipSelf: true,
+        });
+        if (
+          resolved !== null &&
+          typeof resolved.id === "string" &&
+          !isPathInsideOrEqual(toCanonicalPath(resolved.id), toCanonicalPath(input.packageRoot))
+        ) {
+          const aliasedPackage = nearestPackageName(resolved.id);
+          if (aliasedPackage !== undefined && !declaredDependencies.has(aliasedPackage)) {
+            const importedFrom = importer === undefined ? "the extension" : `"${importer}"`;
+            throw new Error(
+              `Package import "${source}" (imported from ${importedFrom}) resolves to the package ` +
+                `"${aliasedPackage}", which is not declared by the extension. Add "${aliasedPackage}" ` +
+                `to dependencies, optionalDependencies, or peerDependencies.`,
+            );
+          }
+        }
+        return undefined;
+      }
+
+      if (isBuiltin(source)) {
+        return { external: true, id: source };
+      }
+
+      const packageName = packageImportName(source);
+      if (!declaredDependencies.has(packageName)) {
+        const importedFrom = importer === undefined ? "the extension" : `"${importer}"`;
+        throw new Error(
+          `Package "${source}" imported from ${importedFrom} is not declared by the extension. ` +
+            `Add "${packageName}" to dependencies, optionalDependencies, or peerDependencies.`,
+        );
+      }
+
+      let resolved = await this.resolve(source, importer, {
+        kind: options.kind,
+        skipSelf: true,
+      });
+      if (resolved === null) {
+        resolved = await this.resolve(source, join(input.packageRoot, "package.json"), {
+          kind: options.kind,
+          skipSelf: true,
+        });
+      }
+      if (resolved === null || typeof resolved.id !== "string") {
+        throw new Error(
+          `Cannot resolve declared package "${source}". Install the extension's dependencies before building.`,
+        );
+      }
+
+      return { external: true, id: source };
+    },
+  };
+}
+
 async function resolveConfiguredExternalModule(
   this: RolldownResolveContext,
   input: {
@@ -204,6 +289,42 @@ function resolveConfiguredExternalDependency(
   return externalDependencies.find(
     (dependencyName) => source === dependencyName || source.startsWith(`${dependencyName}/`),
   );
+}
+
+function packageImportName(source: string): string {
+  if (!source.startsWith("@")) {
+    return source.split("/", 1)[0]!;
+  }
+
+  return source.split("/", 2).join("/");
+}
+
+/**
+ * Derives the owning package name of a resolved module file by reading the
+ * nearest `package.json` above it. Path-based `node_modules` parsing is not
+ * enough here: resolvers realpath symlinked workspace dependencies to their
+ * on-disk location outside any `node_modules` directory.
+ */
+function nearestPackageName(filePath: string): string | undefined {
+  let directory = dirname(toCanonicalPath(filePath));
+  while (true) {
+    const manifestPath = join(directory, "package.json");
+    if (existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown };
+        if (typeof manifest.name === "string" && manifest.name.length > 0) {
+          return manifest.name;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return undefined;
+    }
+    directory = parent;
+  }
 }
 
 function resolveExistingExternalFilePath(id: string): string | undefined {

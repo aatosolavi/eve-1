@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { promisify } from "node:util";
 
 import {
   EXTENSION_CAPABILITY_VERSIONS,
@@ -26,9 +23,11 @@ import { createDiskProjectSource } from "#discover/project-source.js";
 import { SUPPORTED_AUTHORED_MODULE_FILE_EXTENSIONS } from "#discover/filesystem.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import {
-  bundleAuthoredModuleCode,
-  bundleAuthoredModuleForDistribution,
+  bundleAuthoredModuleGraphForDistribution,
+  type DistributionGraphEntry,
 } from "#internal/authored-module-loader.js";
+import { emitExtensionDeclarations } from "#internal/nitro/host/extension-declarations.js";
+import { normalizeSkillPackage, writeSkillPackageDirectory } from "#shared/skill-package.js";
 
 /**
  * Resolved build inputs for an extension package (a `package.json` declaring
@@ -41,6 +40,8 @@ export interface ExtensionBuildConfig {
   readonly packageName: string;
   /** Short name a consumer mounts by (`@acme/crm` → `crm`). */
   readonly shortName: string;
+  /** Packages that may remain as runtime imports in the published artifact. */
+  readonly runtimeDependencies: readonly string[];
 }
 
 /**
@@ -51,7 +52,13 @@ export async function tryReadExtensionBuildConfig(
   rootDir: string,
 ): Promise<ExtensionBuildConfig | null> {
   const appRoot = resolve(rootDir);
-  let pkg: { name?: unknown; eve?: { extension?: unknown } };
+  let pkg: {
+    name?: unknown;
+    eve?: { extension?: unknown };
+    dependencies?: Record<string, unknown>;
+    optionalDependencies?: Record<string, unknown>;
+    peerDependencies?: Record<string, unknown>;
+  };
   try {
     pkg = JSON.parse(await readFile(join(appRoot, "package.json"), "utf8")) as typeof pkg;
   } catch {
@@ -70,6 +77,13 @@ export async function tryReadExtensionBuildConfig(
     sourceRoot: resolve(appRoot, extensionRoot),
     packageName,
     shortName,
+    runtimeDependencies: [
+      ...new Set([
+        ...Object.keys(pkg.dependencies ?? {}),
+        ...Object.keys(pkg.optionalDependencies ?? {}),
+        ...Object.keys(pkg.peerDependencies ?? {}),
+      ]),
+    ].sort(),
   };
 }
 
@@ -164,174 +178,159 @@ export async function buildExtensionPackage(
     );
   }
 
+  // The generated re-export barrel claims dist/tools/index.mjs; a same-named
+  // contribution would be silently overwritten and break at the consumer.
+  const reservedTool = manifest.tools.find(
+    (tool) => toDistModulePath(tool.logicalPath) === "tools/index.mjs",
+  );
+  if (reservedTool !== undefined) {
+    throw new Error(
+      `Cannot build extension "${config.packageName}": "${reservedTool.logicalPath}" collides with the generated tool re-export barrel (dist/tools/index.mjs). Rename the file.`,
+    );
+  }
+
   const outDir = join(appRoot, "dist");
-  await mkdir(join(outDir, "tools"), { recursive: true });
+  const transactionRoot = await mkdtemp(join(appRoot, ".eve-extension-build-"));
+  const stagedOutDir = join(transactionRoot, "dist");
+  await mkdir(join(stagedOutDir, "tools"), { recursive: true });
 
   // The mount factory and its contributions must agree on the config/state key,
   // so both are scoped to the same package-derived namespace at build.
   const scopeNamespace = packageStateNamespace(config.packageName);
 
-  await emitExtensionArtifact({
-    manifest,
-    sourceRoot: config.sourceRoot,
-    outDir,
-    packageName: config.packageName,
-    scopeNamespace,
-  });
-
-  const typesRoot = join(outDir, "_types");
-  await emitDeclarations({ appRoot, typesRoot });
-
-  const bundleSpecifierFrom = (fromDir: string, logicalPath: string): string =>
-    relativeImport(fromDir, join(config.sourceRoot, logicalPath));
-  const typeSpecifierFrom = (fromDir: string, logicalPath: string): string =>
-    relativeImport(
-      fromDir,
-      join(typesRoot, relative(appRoot, join(config.sourceRoot, logicalPath))),
-    );
-
-  await emitEntrypoint({
-    entryPath: join(outDir, "index.mjs"),
-    typesPath: join(outDir, "index.d.ts"),
-    reexports: [
-      { name: "default", specifier: declarationModule.logicalPath },
-      { name: config.shortName, specifier: declarationModule.logicalPath },
-    ].map((reexport) => ({
-      name: reexport.name,
-      specifier: bundleSpecifierFrom(outDir, reexport.specifier),
-      typeSpecifier: typeSpecifierFrom(outDir, reexport.specifier),
-    })),
-    scopeNamespace,
-  });
-
-  await emitEntrypoint({
-    entryPath: join(outDir, "tools", "index.mjs"),
-    typesPath: join(outDir, "tools", "index.d.ts"),
-    reexports: manifest.tools.map((tool) => ({
-      name: toolExportName(tool.logicalPath),
-      specifier: bundleSpecifierFrom(join(outDir, "tools"), tool.logicalPath),
-      typeSpecifier: typeSpecifierFrom(join(outDir, "tools"), tool.logicalPath),
-    })),
-    scopeNamespace,
-  });
-
-  await ensureExtensionExports(appRoot);
-
-  return outDir;
-}
-
-/**
- * Emits declaration files for the extension's whole source tree into
- * `dist/_types/`, so a source-free package carries its own types without
- * shipping `.ts`. Runs the package's own TypeScript with the authored
- * `tsconfig.json`; a non-zero exit (e.g. a type error) fails the build.
- */
-async function emitDeclarations(input: {
-  readonly appRoot: string;
-  readonly typesRoot: string;
-}): Promise<void> {
-  const tscBinary = await resolveTypeScriptBinary(input.appRoot);
-  await rm(input.typesRoot, { force: true, recursive: true });
-  // A type error surfaces as a non-zero exit but tsc still emits declarations;
-  // authoring type-safety is the extension's own `tsc`/typecheck gate, so the
-  // build only requires that emit actually produced output (checked below).
   try {
-    await promisify(execFile)(
-      process.execPath,
-      [
-        tscBinary,
-        "--project",
-        join(input.appRoot, "tsconfig.json"),
-        "--declaration",
-        "--emitDeclarationOnly",
-        "--noEmit",
-        "false",
-        "--rootDir",
-        input.appRoot,
-        "--outDir",
-        input.typesRoot,
-      ],
-      { cwd: input.appRoot },
-    );
-  } catch {
-    // Fall through to the output check.
-  }
-  const emitted = await readdir(input.typesRoot).catch(() => [] as string[]);
-  if (emitted.length === 0) {
-    throw new Error(
-      `Declaration emit produced no output. Ensure "${join(input.appRoot, "tsconfig.json")}" exists and includes the extension source.`,
-    );
+    await emitExtensionArtifact({
+      manifest,
+      appRoot,
+      sourceRoot: config.sourceRoot,
+      outDir: stagedOutDir,
+      barrelStagingDir: join(transactionRoot, "entry-barrels"),
+      packageName: config.packageName,
+      shortName: config.shortName,
+      declarationLogicalPath: declarationModule.logicalPath,
+      scopeNamespace,
+      runtimeDependencies: config.runtimeDependencies,
+    });
+
+    const typesRoot = join(stagedOutDir, "_types");
+    await emitExtensionDeclarations({
+      appRoot,
+      sourceRoot: config.sourceRoot,
+      typesRoot,
+    });
+
+    const typeSpecifierFrom = (fromDir: string, logicalPath: string): string =>
+      relativeImport(
+        fromDir,
+        join(typesRoot, relative(appRoot, join(config.sourceRoot, logicalPath))),
+      );
+
+    await writeDeclarationBarrel({
+      typesPath: join(stagedOutDir, "index.d.ts"),
+      reexports: [
+        { name: "default", logicalPath: declarationModule.logicalPath },
+        { name: config.shortName, logicalPath: declarationModule.logicalPath },
+      ].map((reexport) => ({
+        name: reexport.name,
+        typeSpecifier: typeSpecifierFrom(stagedOutDir, reexport.logicalPath),
+      })),
+    });
+
+    await writeDeclarationBarrel({
+      typesPath: join(stagedOutDir, "tools", "index.d.ts"),
+      reexports: manifest.tools.map((tool) => ({
+        name: toolExportName(tool.logicalPath),
+        typeSpecifier: typeSpecifierFrom(join(stagedOutDir, "tools"), tool.logicalPath),
+      })),
+    });
+
+    // Swap dist first so a failed build leaves package.json untouched along
+    // with the previous output.
+    await replaceBuildOutput({ outDir, stagedOutDir, transactionRoot });
+    await ensureExtensionExports(appRoot);
+    return outDir;
+  } finally {
+    await rm(transactionRoot, { force: true, recursive: true });
   }
 }
 
-/**
- * Resolves the extension's own `tsc` entry through `typescript/package.json`.
- * `typescript` does not expose `./bin/tsc` in its `exports`, so the bin path is
- * read from the manifest's `bin` field rather than resolved directly.
- */
-async function resolveTypeScriptBinary(appRoot: string): Promise<string> {
-  // Prefer the extension's own TypeScript; fall back to the one eve resolves so a
-  // workspace extension without a local install still builds.
-  for (const from of [join(appRoot, "package.json"), import.meta.url]) {
-    let manifestPath: string;
-    try {
-      manifestPath = createRequire(from).resolve("typescript/package.json");
-    } catch {
-      continue;
-    }
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-      bin?: string | Record<string, string>;
-    };
-    const binField = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.tsc;
-    if (binField !== undefined) {
-      return join(dirname(manifestPath), binField);
+async function replaceBuildOutput(input: {
+  readonly outDir: string;
+  readonly stagedOutDir: string;
+  readonly transactionRoot: string;
+}): Promise<void> {
+  const previousOutDir = join(input.transactionRoot, "previous-dist");
+  let hadPreviousOutput = false;
+  try {
+    await rename(input.outDir, previousOutDir);
+    hadPreviousOutput = true;
+  } catch (error) {
+    if (!isFileSystemError(error, "ENOENT")) {
+      throw error;
     }
   }
-  throw new Error(
-    "Cannot build an eve extension without TypeScript. Add `typescript` to the package's devDependencies.",
-  );
+
+  try {
+    await rename(input.stagedOutDir, input.outDir);
+  } catch (error) {
+    if (hadPreviousOutput) {
+      await rename(previousOutDir, input.outDir);
+    }
+    throw error;
+  }
+}
+
+function isFileSystemError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 /**
  * Emits the source-free distribution artifact for an extension: every
- * module-backed contribution as a self-contained, namespace-scoped `.mjs`, every
- * skill package's files copied into `dist/`, and a `dist/_ext-manifest.json`
- * describing the contributions (base names, stamped metadata) plus the eve
- * capability versions the build was made against.
+ * module-backed contribution and the two Node-facing entrypoint barrels as one
+ * **code-split** namespace-scoped graph (shared extension source lands once
+ * under `dist/_chunks/`, preserving module identity across contributions),
+ * every skill package's files copied into `dist/`, and a
+ * `dist/_ext-manifest.json` describing the contributions (base names, stamped
+ * metadata) plus the eve capability versions the build was made against.
  */
 async function emitExtensionArtifact(input: {
   readonly manifest: Awaited<ReturnType<typeof discoverAgent>>["manifest"];
+  readonly appRoot: string;
   readonly sourceRoot: string;
   readonly outDir: string;
+  /** Staging directory the generated entrypoint barrel sources are written to. */
+  readonly barrelStagingDir: string;
   readonly packageName: string;
+  readonly shortName: string;
+  readonly declarationLogicalPath: string;
   readonly scopeNamespace: string;
+  readonly runtimeDependencies: readonly string[];
 }): Promise<void> {
   const base = await produceExtensionArtifactContributions({
     manifest: input.manifest,
     externalDependencies: [],
   });
 
-  const emitModule = async <T extends { logicalPath: string; sourceId: string }>(
-    definition: T,
-  ): Promise<T> => {
-    const distLogicalPath = toDistModulePath(definition.logicalPath);
-    const outputPath = join(input.outDir, distLogicalPath);
-    await mkdir(dirname(outputPath), { recursive: true });
-    const code = await bundleAuthoredModuleForDistribution(
-      join(input.sourceRoot, definition.logicalPath),
-      { extensionScopeNamespace: input.scopeNamespace },
-    );
-    await writeFile(outputPath, code, "utf8");
-    return { ...definition, logicalPath: distLogicalPath, sourceId: distLogicalPath };
-  };
+  const entries: DistributionGraphEntry[] = [];
+  const registerModules = <T extends { logicalPath: string; sourceId: string }>(
+    definitions: readonly T[],
+  ): T[] =>
+    definitions.map((definition) => {
+      const distLogicalPath = toDistModulePath(definition.logicalPath);
+      entries.push({
+        name: distLogicalPath.slice(0, -".mjs".length),
+        path: join(input.sourceRoot, definition.logicalPath),
+      });
+      return { ...definition, logicalPath: distLogicalPath, sourceId: distLogicalPath };
+    });
 
   const contributions: ExtensionArtifactContributions = {
-    tools: await Promise.all(base.tools.map(emitModule)),
-    dynamicTools: await Promise.all(base.dynamicTools.map(emitModule)),
-    hooks: await Promise.all(base.hooks.map(emitModule)),
-    connections: await Promise.all(base.connections.map(emitModule)),
-    dynamicSkills: await Promise.all(base.dynamicSkills.map(emitModule)),
-    dynamicInstructions: await Promise.all(base.dynamicInstructions.map(emitModule)),
+    tools: registerModules(base.tools),
+    dynamicTools: registerModules(base.dynamicTools),
+    hooks: registerModules(base.hooks),
+    connections: registerModules(base.connections),
+    dynamicSkills: registerModules(base.dynamicSkills),
+    dynamicInstructions: registerModules(base.dynamicInstructions),
     skills: await Promise.all(
       base.skills.map((skill) =>
         emitArtifactSkill({ skill, sourceRoot: input.sourceRoot, outDir: input.outDir }),
@@ -339,6 +338,39 @@ async function emitExtensionArtifact(input: {
     ),
     instructionFragments: [...base.instructionFragments],
   };
+
+  entries.push(
+    await stageBarrelEntry({
+      name: "index",
+      barrelStagingDir: input.barrelStagingDir,
+      sourceRoot: input.sourceRoot,
+      reexports: [
+        { name: "default", logicalPath: input.declarationLogicalPath },
+        { name: input.shortName, logicalPath: input.declarationLogicalPath },
+      ],
+    }),
+    await stageBarrelEntry({
+      name: "tools/index",
+      barrelStagingDir: input.barrelStagingDir,
+      sourceRoot: input.sourceRoot,
+      reexports: input.manifest.tools.map((tool) => ({
+        name: toolExportName(tool.logicalPath),
+        logicalPath: tool.logicalPath,
+      })),
+    }),
+  );
+
+  const files = await bundleAuthoredModuleGraphForDistribution({
+    entries,
+    packageRoot: input.appRoot,
+    extensionScopeNamespace: input.scopeNamespace,
+    externalDependencies: input.runtimeDependencies,
+  });
+  for (const [fileName, code] of files) {
+    const outputPath = join(input.outDir, fileName);
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, code, "utf8");
+  }
 
   const artifact: ExtensionArtifact = {
     kind: EXTENSION_ARTIFACT_KIND,
@@ -353,11 +385,35 @@ async function emitExtensionArtifact(input: {
 }
 
 /**
+ * Writes one generated entrypoint barrel (re-exports of authored source) into
+ * the transaction's staging directory and returns it as a graph entry. The
+ * barrel compiles as part of the distribution graph, so the modules it
+ * re-exports are shared with their own entry chunks rather than inlined.
+ */
+async function stageBarrelEntry(input: {
+  readonly name: string;
+  readonly barrelStagingDir: string;
+  readonly sourceRoot: string;
+  readonly reexports: readonly { readonly name: string; readonly logicalPath: string }[];
+}): Promise<DistributionGraphEntry> {
+  const barrelPath = join(input.barrelStagingDir, `${input.name.replaceAll("/", "__")}.mjs`);
+  await mkdir(dirname(barrelPath), { recursive: true });
+  const lines = input.reexports.map((reexport) =>
+    reexportLine(
+      reexport.name,
+      relativeImport(dirname(barrelPath), join(input.sourceRoot, reexport.logicalPath)),
+    ),
+  );
+  await writeFile(barrelPath, `${lines.join("\n")}\n`, "utf8");
+  return { name: input.name, path: barrelPath };
+}
+
+/**
  * Copies a skill package's files into `dist/` (mirroring its source layout) and
  * rewrites its on-disk paths to be relative to `dist/`, so a consuming agent
  * resolves them under the installed package. Static and dynamic skills carry
  * their content in the manifest / module and pass through unchanged, except that
- * inline skill files are rejected — they are not yet supported source-free.
+ * inline skill files are materialized as a skill package owned by `dist/`.
  */
 async function emitArtifactSkill(input: {
   readonly skill: CompiledExtensionContributions["skills"][number];
@@ -383,10 +439,25 @@ async function emitArtifactSkill(input: {
   }
 
   if (skill.files !== undefined && Object.keys(skill.files).length > 0) {
-    throw new Error(
-      `The "${skill.name}" skill provides inline files, which the source-free extension build does not support yet. ` +
-        `Author it as a SKILL.md skill-package directory instead.`,
-    );
+    const resourceRoot = join(outDir, "_inline-skills");
+    const normalized = normalizeSkillPackage(skill);
+    await writeSkillPackageDirectory({ rootPath: resourceRoot, skill: normalized });
+    const distRootPath = join("_inline-skills", "skills", skill.name).replaceAll("\\", "/");
+    const hasDirectory = (name: string): boolean =>
+      normalized.files.some((file) => file.relativePath.startsWith(`${name}/`));
+    return {
+      ...skill,
+      sourceKind: "skill-package",
+      sourceId: `${distRootPath}/SKILL.md`,
+      logicalPath: `${distRootPath}/SKILL.md`,
+      skillId: skill.name,
+      rootPath: distRootPath,
+      skillFilePath: `${distRootPath}/SKILL.md`,
+      assetsPath: hasDirectory("assets") ? `${distRootPath}/assets` : undefined,
+      referencesPath: hasDirectory("references") ? `${distRootPath}/references` : undefined,
+      scriptsPath: hasDirectory("scripts") ? `${distRootPath}/scripts` : undefined,
+      files: undefined,
+    };
   }
   const { files: _files, ...rest } = skill;
   return rest;
@@ -431,49 +502,26 @@ function toDistModulePath(logicalPath: string): string {
   return logicalPath;
 }
 
-/** One `export { <name> } from "<specifier>"` line an entrypoint barrel emits. */
-interface Reexport {
-  /** Export binding; `"default"` emits the bare `export { default } from …`. */
-  readonly name: string;
-  /** Source specifier for the runnable `.mjs` barrel (bundled, so inlined). */
-  readonly specifier: string;
-  /** Emitted-declaration specifier for the `.d.ts` barrel (resolves in `dist/`). */
-  readonly typeSpecifier: string;
+/** Renders one `export { default as <name> } from "<specifier>"` barrel line. */
+function reexportLine(name: string, specifier: string): string {
+  return name === "default"
+    ? `export { default } from ${JSON.stringify(specifier)};`
+    : `export { default as ${name} } from ${JSON.stringify(specifier)};`;
 }
 
 /**
- * Emits one Node-facing entrypoint: a self-contained runnable `.mjs` (bundled
- * from the authored source with the extension namespace baked in) and a `.d.ts`
- * barrel that re-exports the emitted declarations under `dist/_types/`.
+ * Writes one entrypoint's `.d.ts` barrel, re-exporting the emitted declarations
+ * under `dist/_types/`.
  */
-async function emitEntrypoint(input: {
-  readonly entryPath: string;
+async function writeDeclarationBarrel(input: {
   readonly typesPath: string;
-  readonly reexports: readonly Reexport[];
-  readonly scopeNamespace: string;
+  readonly reexports: readonly { readonly name: string; readonly typeSpecifier: string }[];
 }): Promise<void> {
   const header = "// Generated by eve. Do not edit by hand.";
-  const line = (name: string, specifier: string): string =>
-    name === "default"
-      ? `export { default } from ${JSON.stringify(specifier)};`
-      : `export { default as ${name} } from ${JSON.stringify(specifier)};`;
-
-  const barrel = [header, "", ...input.reexports.map((r) => line(r.name, r.specifier)), ""].join(
-    "\n",
-  );
-  await writeFile(input.entryPath, barrel, "utf8");
-  await writeFile(
-    input.entryPath,
-    await bundleAuthoredModuleCode(input.entryPath, {
-      extensionScopeNamespace: input.scopeNamespace,
-    }),
-    "utf8",
-  );
-
   const declaration = [
     header,
     "",
-    ...input.reexports.map((r) => line(r.name, toJsSpecifier(r.typeSpecifier))),
+    ...input.reexports.map((r) => reexportLine(r.name, toJsSpecifier(r.typeSpecifier))),
     "",
   ].join("\n");
   await writeFile(input.typesPath, declaration, "utf8");

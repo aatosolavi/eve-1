@@ -23,6 +23,7 @@ describe("extension build config", () => {
     expect(config).not.toBeNull();
     expect(config?.packageName).toBe("@acme/crm");
     expect(config?.shortName).toBe("crm");
+    expect(config?.runtimeDependencies).toEqual([]);
   });
 
   it("returns null for a regular agent app without eve.extension", async () => {

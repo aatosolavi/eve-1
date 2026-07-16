@@ -67,7 +67,7 @@ the extension's build; the runtime still `import()`s the `dist` module for the v
 - `eve/*` is **externalized** in the shipped `dist` (peer, resolves to the consumer's one eve),
   and so are the extension's package `dependencies` (bare imports the consumer resolves from
   `node_modules`, like any normal package — deduped, native addons intact). Only the extension's
-  own relative source is inlined, and the emit carries no source map.
+  own relative source compiles into `dist`, and the emit carries no source map.
 - The shipped `dist` is **pre-scoped**: every extension-owned module has its
   `defineState`/`defineExtension` namespace baked at the extension's build.
 
@@ -80,21 +80,26 @@ the extension's build; the runtime still `import()`s the `dist` module for the v
     _ext-manifest.json             # contribution manifest + capability version stamps
     index.mjs / index.d.ts         # mount factory handle (pre-scoped); .d.ts → _types
     tools/index.mjs / index.d.ts   # tool re-export barrel for consumer overrides
-    tools/search.mjs               # pre-scoped; eve/* + package deps external, own source inlined
+    tools/search.mjs               # pre-scoped; eve/* + package deps external
+    _chunks/*.mjs                  # extension source shared by >1 entry, emitted once
     skills/triage/SKILL.md         # markdown data + assets
     _types/**/*.d.ts               # emitted declarations the barrels re-export from
     ...
 ```
 
-### 1. Pre-scoped compiled contribution tree
+### 1. Pre-scoped compiled contribution graph
 
-`buildExtensionPackage` emits **every** contribution module (not just the `.`/`./tools`
-entrypoints) as a namespace-scoped `.mjs`, using the distribution bundling path
-(`bundleAuthoredModuleForDistribution`) with
+`buildExtensionPackage` compiles **every** contribution module plus the `.`/`./tools`
+entrypoint barrels as **one code-split graph**
+(`bundleAuthoredModuleGraphForDistribution`) with
 `createFixedNamespaceScopePlugin(packageStateNamespace(name))`. Package `dependencies` stay
-external; only the extension's own relative source is inlined, and the emit carries no source map
-so the `.ts` is not embedded. **Invariant:** the shim must cover the _entire_ extension-owned
-graph — a single un-shimmed `defineState` keys its slot without the prefix and silently diverges.
+external; extension-owned source shared by more than one entry is emitted once under
+`dist/_chunks/` and imported by relative path, so **module identity — including module-level
+in-memory state in shared `lib/` files — is preserved in the published artifact** exactly as it
+is when a consumer compiles workspace source into its generation graph. The emit carries no
+source map so the `.ts` is not embedded. **Invariant:** the shim must cover the _entire_
+extension-owned graph — a single un-shimmed `defineState` keys its slot without the prefix and
+silently diverges.
 
 ### 2. Contribution manifest (`dist/_ext-manifest.json`)
 
@@ -178,12 +183,23 @@ consumer overrides (extensions/crm/**) always walked from SOURCE, win by name, d
 
 ## The compatibility check (replaces the source typecheck)
 
-At the consumer's discovery, for each capability the extension stamped, compare its recorded
-version against the consumer eve's current version for that capability; **fail on any mismatch**,
-naming the extension, the capability, and both versions. The existing `peerDependencies.eve`
-semver check (`DISCOVER_EXTENSION_EVE_INCOMPATIBLE`) stays a coarse, friendly gate for
-**source-backed** mounts only; for source-free mounts the capability-version check is
-authoritative, so the extension's eve dependency can be loose (e.g. `latest`).
+Two gates run at the consumer's discovery, covering the two skew directions:
+
+1. **Build-eve floor.** `eve extension build` typechecks the extension against the eve installed
+   in its workspace and stamps that version (`eveVersion`). Discovery fails
+   (`DISCOVER_EXTENSION_EVE_INCOMPATIBLE`) when the consumer's eve is **older** than the build
+   eve. Because the stamp is backed by a real typecheck, this is a machine-verified floor for
+   every eve API the extension uses — including runtime surfaces (a tool's `ctx`) that no
+   capability stamp can see. Skipped when either version is not valid semver (workspace stamps).
+2. **Capability versions.** For each capability the extension stamped, compare its recorded
+   version against the consumer eve's current version; **fail on any mismatch**
+   (`DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE`), naming the extension, the capability, and both
+   versions. This covers the other direction: a **newer** consumer eve that moved a contract the
+   artifact bakes in.
+
+The existing `peerDependencies.eve` semver check stays a coarse, friendly gate for
+**source-backed** mounts only; for source-free mounts the stamps are authoritative, so the
+extension's eve dependency can be loose (e.g. `latest`).
 
 ## No-regression analysis
 
@@ -213,10 +229,12 @@ retained unchanged for unbuilt/workspace extensions.
 
 ## Residual risk (what is genuinely lost)
 
-1. **No consumer-side typecheck of contributions.** Surface skew (e.g. a removed
-   `ctx.getSandbox()`) is a **runtime error**, not a build failure — caught by the capability check
-   only if the relevant capability version was bumped. Running the check at discovery, before any
-   dist module is imported, turns an opaque import crash into a clear build failure.
+1. **No consumer-side typecheck of contributions.** The build-eve floor closes the
+   older-consumer direction (an extension using a newer eve API cannot load on an eve older than
+   the one that typechecked it). The remaining exposure is the newer-consumer direction: eve
+   removing or changing a surface (e.g. `ctx.getSandbox()`) is a **runtime error** unless the
+   relevant capability version was bumped. Running both checks at discovery, before any dist
+   module is imported, turns an opaque import crash into a clear build failure.
 2. **The scope shims are compiled against publish-time `eve/context`/`eve/extension`.** If eve
    changes the runtime contract of `defineState`/`defineExtension`, the `state`/`config` capability
    versions must move so the comparison catches it.
@@ -226,6 +244,12 @@ retained unchanged for unbuilt/workspace extensions.
    affected capability version. The coarse per-capability granularity trades precision (a bump
    flags every extension using that capability, not only those that touch the changed member) for
    a gate that needs no type introspection and no CI tooling.
+
+In-memory module identity is **not** a residual risk: the dist emit is one code-split graph
+(shared `_chunks/`), so module-level state in shared extension source behaves identically in the
+published artifact and the workspace source path. The one remaining parity gap is the dev/eval
+_fallback_ per-module loader (`authored-module-map-loader`), which re-bundles each module in
+isolation — pre-existing, and identical for source-backed mounts and consumer-agent modules.
 
 ## Decisions
 
@@ -237,11 +261,18 @@ retained unchanged for unbuilt/workspace extensions.
 2. **Per-capability version stamps**, hand-maintained (see [§3](#3-per-capability-version-stamps)).
    Chosen over per-symbol fingerprints: no type introspection or CI snapshot guard, at the cost of
    coarser precision.
+   The stamped **build eve is additionally enforced as a version floor** at the consumer: the
+   extension build's declaration typecheck proves the source against exactly that eve, so
+   requiring `consumer eve >= build eve` closes the one silent gap the capability stamps cannot —
+   an extension adopting a runtime API that only exists in newer eve. Chosen over enforcing
+   `peerDependencies.eve` (author-maintained, goes stale) at the cost of ratcheting consumers to
+   the builder's eve; an author-declared override can loosen this later if the ratchet hurts.
 3. **Stamp metadata, don't load it** — the consumer build reads model-facing metadata as JSON and
    never executes extension code; the runtime still loads the `dist` module for the validator +
    `execute`.
 4. **Package dependencies stay external**, like a normal published package (deduped by the
-   package manager, native addons intact); only the extension's own source is inlined.
+   package manager, native addons intact); only the extension's own source compiles into the
+   dist graph, with source shared across entries emitted once under `_chunks/`.
 5. **No source ships.** Type declarations are emitted into `dist/_types/` at the extension's
    build, so `files: ["dist"]` carries everything (runtime + types + manifest).
 

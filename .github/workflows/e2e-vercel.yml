@@ -117,6 +117,13 @@ jobs:
         # artifact. `--if-present` skips source-backed extension fixtures.
         run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
 
+      - name: Stage dist-only extension fixture
+        if: needs.changes.outputs.relevant == 'true'
+        # Keep gizmo source-backed to exercise workspace authoring. Removing the
+        # toolkit source after its build makes the deployment consume exactly
+        # the files a published package ships.
+        run: mv e2e/fixtures/toolkit-extension/extension "$RUNNER_TEMP/toolkit-extension-source"
+
       - name: Deploy fixture and run evals
         if: needs.changes.outputs.relevant == 'true'
         env:

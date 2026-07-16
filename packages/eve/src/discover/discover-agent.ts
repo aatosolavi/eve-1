@@ -331,8 +331,7 @@ export async function discoverAgent(input: DiscoverAgentInput): Promise<Discover
           sourceRoot: location.sourceRoot,
         };
       if (location.artifact !== undefined) {
-        // Source-free: compose from the shipped artifact; do not recurse into
-        // the (possibly absent) source tree.
+        // A published package may ship no source tree at all — never recurse.
         resolved.artifact = location.artifact;
       } else {
         const extensionResult = await discoverAgent({

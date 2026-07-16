@@ -15,6 +15,7 @@ import {
 import {
   CACHED_CHANNEL_PREFIX,
   RESOLVE_EXTENSIONS,
+  createDistributionPackageBoundaryPlugin,
   createGenerationPackageBoundaryPlugin,
   createRuntimeLoaderPackageBoundaryPlugin,
   isNodeModulesPath,
@@ -23,7 +24,10 @@ import {
   type RolldownResolveContext,
 } from "#internal/authored-package-boundary.js";
 import { expectObjectRecord } from "#internal/authored-module.js";
-import { buildSingleRolldownChunk } from "#internal/bundler/nitro-rolldown.js";
+import {
+  buildSingleRolldownChunk,
+  buildWithNitroRolldown,
+} from "#internal/bundler/nitro-rolldown.js";
 import { createNodeEsmCompatBannerPlugin } from "#internal/node-esm-compat-banner.js";
 
 const AUTHORED_BUNDLED_MODULE_EXTENSION = /\.[cm]?[jt]sx?$/;
@@ -177,34 +181,85 @@ export async function bundleAuthoredModuleForGeneration(
   return removeRolldownModuleRegionComments(code);
 }
 
-/**
- * Bundles one authored contribution module for source-free extension
- * distribution (`eve extension build`).
- *
- * Unlike {@link bundleAuthoredModuleForGeneration}, package dependencies stay
- * **external** (bare imports the consuming agent resolves from `node_modules`,
- * exactly like a normal published package) — only the extension's own relative
- * source is inlined, and `eve/*` stays external. Emitted without a source map so
- * the extension's TypeScript source is not embedded in the shipped `.mjs`.
- *
- * Pass `extensionScopeNamespace` so the module's `defineState`/`defineExtension`
- * imports are scoped to the extension's package namespace at build.
- */
-export async function bundleAuthoredModuleForDistribution(
-  modulePath: string,
-  options: AuthoredModuleLoadOptions = {},
-): Promise<string> {
-  const code = await buildAuthoredModuleBundle(modulePath, options, {
-    channelIdentity: false,
-    packageBoundaryPlugin: createRuntimeLoaderPackageBoundaryPlugin({
-      externalDependencies: normalizeExternalDependencies(options.externalDependencies),
-      packageRoot: resolveAuthoredPackageRoot(modulePath),
-    }),
-    plugins: [createAuthoredDirectiveGuardPlugin()],
-    sourcemap: false,
-  });
+/** One named entry of a source-free extension distribution graph. */
+export interface DistributionGraphEntry {
+  /** Output path relative to `dist/`, without extension (e.g. `tools/search`). */
+  readonly name: string;
+  /** Absolute path to the module to compile. */
+  readonly path: string;
+}
 
-  return removeRolldownModuleRegionComments(code);
+/**
+ * Bundles a source-free extension's entire contribution graph in one pass for
+ * distribution (`eve extension build`), returning every emitted file keyed by
+ * its `dist/`-relative path.
+ *
+ * All entries compile as **one code-split graph**: extension-owned source
+ * shared by several contributions is emitted once under `_chunks/` and imported
+ * by each entry, so module identity — including module-level in-memory state —
+ * is preserved in the published artifact exactly as it is when a consumer
+ * compiles the workspace source into its generation graph. Package dependencies
+ * stay **external** (bare imports the consuming agent resolves from
+ * `node_modules`, exactly like a normal published package) and `eve/*` stays
+ * external. Emitted without source maps so the extension's TypeScript source is
+ * not embedded in the shipped `.mjs`.
+ *
+ * `extensionScopeNamespace` scopes every module's `defineState`/
+ * `defineExtension` to the extension's package namespace at build.
+ */
+export async function bundleAuthoredModuleGraphForDistribution(input: {
+  readonly entries: readonly DistributionGraphEntry[];
+  readonly packageRoot: string;
+  readonly extensionScopeNamespace: string;
+  readonly externalDependencies?: readonly string[];
+}): Promise<ReadonlyMap<string, string>> {
+  const plugins = [
+    createAuthoredDirectiveGuardPlugin(),
+    createFixedNamespaceScopePlugin(input.extensionScopeNamespace),
+    createAuthoredRelativeExtensionResolverPlugin({ extensions: RESOLVE_EXTENSIONS }),
+    createAuthoredAssetImportPlugin(),
+    createAuthoredPackageTsConfigPathsPlugin({
+      appPackageRoot: input.packageRoot,
+      extensions: RESOLVE_EXTENSIONS,
+    }),
+    createNodeEsmCompatBannerPlugin({ includeRequire: true }),
+    createDistributionPackageBoundaryPlugin({
+      externalDependencies: normalizeExternalDependencies(input.externalDependencies),
+      packageRoot: input.packageRoot,
+    }),
+  ];
+
+  try {
+    const result = await buildWithNitroRolldown({
+      cwd: input.packageRoot,
+      input: Object.fromEntries(input.entries.map((entry) => [entry.name, entry.path])),
+      platform: "node",
+      plugins,
+      resolve: {
+        extensions: [...RESOLVE_EXTENSIONS],
+      },
+      tsconfig: resolveAuthoredTsConfigPath(input.packageRoot),
+      write: false,
+      output: {
+        chunkFileNames: "_chunks/[name]-[hash].mjs",
+        codeSplitting: true,
+        comments: false,
+        entryFileNames: "[name].mjs",
+        format: "esm",
+        sourcemap: false,
+      },
+    });
+
+    const files = new Map<string, string>();
+    for (const item of result.output) {
+      if (item.type === "chunk") {
+        files.set(item.fileName, removeRolldownModuleRegionComments(item.code));
+      }
+    }
+    return files;
+  } catch (error) {
+    throw createAuthoredModuleBundleError(input.packageRoot, error);
+  }
 }
 
 /**

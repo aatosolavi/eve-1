@@ -60,4 +60,13 @@ describe("extension artifact serialization", () => {
       parseExtensionArtifact(JSON.stringify(artifact), "dist/_ext-manifest.json"),
     ).toThrow();
   });
+
+  it("names the building eve when a recognizable artifact fails the schema", () => {
+    // A recognizable artifact with an unknown field models the build-version
+    // skew case: built by a different eve whose schema this eve cannot read.
+    const artifact = { ...sampleArtifact(), futureField: true };
+    expect(() =>
+      parseExtensionArtifact(JSON.stringify(artifact), "dist/_ext-manifest.json"),
+    ).toThrow(/not readable by this version of eve.*built with eve 1\.2\.3.*eve extension build/s);
+  });
 });

@@ -754,7 +754,7 @@ describe("scaffoldExtensionProject", () => {
       name: "demo-extension",
       eve: { extension: "./extension" },
       files: ["dist"],
-      peerDependencies: { eve: "^0.25.0" },
+      peerDependencies: { eve: ">=0.25.0 <1" },
       dependencies: { zod: "4.4.3" },
       scripts: {
         build: "eve extension build",

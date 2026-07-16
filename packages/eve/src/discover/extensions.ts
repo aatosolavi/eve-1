@@ -53,11 +53,13 @@ export const DISCOVER_EXTENSION_OVERRIDE_OUTSIDE_MOUNT =
 export const DISCOVER_EXTENSION_PACKAGE_INVALID = "discover/extension-package-invalid";
 
 /**
- * Emitted when the app's eve version does not satisfy an extension's declared
- * `peerDependencies.eve` range — the tie between an extension and the eve it was
- * built for. For a source-free extension the capability-version check below is
- * the authoritative gate, so this coarse peer check applies only to
- * source-backed mounts.
+ * Emitted when the app's eve is too old for an extension. For a source-backed
+ * mount this enforces the extension's declared `peerDependencies.eve` range.
+ * For a source-free mount it enforces the artifact's stamped `eveVersion` as a
+ * minimum: `eve extension build` typechecks the extension against exactly that
+ * eve, so it is a machine-verified floor for every eve API the extension uses —
+ * including runtime surfaces (a tool's `ctx`) that the capability-version check
+ * cannot see.
  */
 export const DISCOVER_EXTENSION_EVE_INCOMPATIBLE = "discover/extension-eve-incompatible";
 
@@ -245,9 +247,38 @@ export async function locateExtensionMount(input: {
   }
 
   const packageName = typeof pkg.name === "string" && pkg.name.length > 0 ? pkg.name : specifier;
+  const extensionRoot = pkg.eve?.extension;
+  const sourceRoot =
+    typeof extensionRoot === "string" && extensionRoot.length > 0
+      ? resolve(packageRoot, extensionRoot)
+      : undefined;
 
-  // Prefer the pre-compiled artifact when the package ships one: the consuming
-  // agent composes it without recompiling or executing the extension's source.
+  // A workspace checkout is an authoring surface: prefer its live source even
+  // when a previous build left dist behind. Published packages omit source and
+  // fall through to the immutable artifact below.
+  if (sourceRoot !== undefined && (await input.source.stat(sourceRoot)) === "directory") {
+    const compatibilityDiagnostic = validateSourceExtensionPeer({
+      eveVersion: input.eveVersion,
+      manifestPath,
+      packageName,
+      peerRange: pkg.peerDependencies?.eve,
+    });
+    if (compatibilityDiagnostic !== undefined) {
+      return { diagnostics: [compatibilityDiagnostic] };
+    }
+
+    return {
+      location: {
+        namespace,
+        specifier,
+        packageName,
+        packageRoot,
+        sourceRoot,
+      },
+      diagnostics: [],
+    };
+  }
+
   const artifactPath = join(packageRoot, "dist", EXTENSION_ARTIFACT_FILENAME);
   if ((await input.source.stat(artifactPath)) === "file") {
     let artifact: ExtensionArtifact;
@@ -268,9 +299,46 @@ export async function locateExtensionMount(input: {
       };
     }
 
-    // Capability versions replace the source typecheck for source-free
-    // extensions and are the authoritative compatibility gate, so the coarse
-    // peer-range check is skipped here.
+    const expectedNamespace = packageStateNamespace(packageName);
+    if (artifact.packageName !== packageName || artifact.packageNamespace !== expectedNamespace) {
+      return {
+        diagnostics: [
+          createDiscoverErrorDiagnostic({
+            code: DISCOVER_EXTENSION_PACKAGE_INVALID,
+            message:
+              `Extension package "${packageName}" contains an artifact built for ` +
+              `"${artifact.packageName}" (namespace "${artifact.packageNamespace}"); expected ` +
+              `namespace "${expectedNamespace}". Rebuild the package with \`eve extension build\`.`,
+            sourcePath: artifactPath,
+          }),
+        ],
+      };
+    }
+
+    // The build typechecked the extension against exactly this eve, so the
+    // stamp is a machine-verified floor covering runtime surfaces (a tool's
+    // `ctx`) that the capability stamps cannot see.
+    if (
+      semver.valid(artifact.eveVersion) !== null &&
+      semver.valid(input.eveVersion) !== null &&
+      semver.lt(input.eveVersion, artifact.eveVersion)
+    ) {
+      return {
+        diagnostics: [
+          createDiscoverErrorDiagnostic({
+            code: DISCOVER_EXTENSION_EVE_INCOMPATIBLE,
+            message:
+              `Extension "${packageName}" was built and typechecked against eve ${artifact.eveVersion}, ` +
+              `but this app uses eve ${input.eveVersion}. Upgrade this app's eve to ` +
+              `>=${artifact.eveVersion}, or install a release of "${packageName}" built with an older eve.`,
+            sourcePath: artifactPath,
+          }),
+        ],
+      };
+    }
+
+    // Capability versions replace the source typecheck for eve-side contract
+    // changes: a mismatch means this eve moved a contract the artifact bakes in.
     const mismatches = validateExtensionCapabilities(artifact.capabilityVersions);
     if (mismatches.length > 0) {
       return {
@@ -278,7 +346,7 @@ export async function locateExtensionMount(input: {
           createDiscoverErrorDiagnostic({
             code: DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE,
             message:
-              `Extension "${packageName}" was built against incompatible eve capabilities: ` +
+              `Extension "${packageName}" (built with eve ${artifact.eveVersion}) was built against incompatible eve capabilities: ` +
               `${mismatches.map((mismatch) => `${mismatch.kind} (built v${mismatch.built}, this eve provides v${mismatch.current})`).join(", ")}. ` +
               `Rebuild "${packageName}" with this version of eve (\`eve extension build\`), or align your eve version.`,
             sourcePath: artifactPath,
@@ -300,7 +368,6 @@ export async function locateExtensionMount(input: {
     };
   }
 
-  const extensionRoot = pkg.eve?.extension;
   if (typeof extensionRoot !== "string" || extensionRoot.length === 0) {
     return {
       diagnostics: [
@@ -313,35 +380,40 @@ export async function locateExtensionMount(input: {
     };
   }
 
-  // Tie the extension to the eve it was built for. Only a real semver range is
-  // enforced; workspace/link/file protocols are resolved by the package manager.
-  const peerRange = pkg.peerDependencies?.eve;
+  return {
+    diagnostics: [
+      createDiscoverErrorDiagnostic({
+        code: DISCOVER_EXTENSION_PACKAGE_INVALID,
+        message:
+          `Extension package "${packageName}" has neither its declared source root ` +
+          `"${extensionRoot}" nor a compiled artifact. Reinstall it or rebuild it with \`eve extension build\`.`,
+        sourcePath: manifestPath,
+      }),
+    ],
+  };
+}
+
+function validateSourceExtensionPeer(input: {
+  readonly eveVersion: string;
+  readonly manifestPath: string;
+  readonly packageName: string;
+  readonly peerRange: unknown;
+}): DiscoverDiagnostic | undefined {
+  // Only real semver ranges are enforced; workspace/link/file protocols are
+  // resolved by the package manager. Compiled artifacts use capability stamps.
   if (
-    typeof peerRange === "string" &&
-    semver.validRange(peerRange) !== null &&
-    !semver.intersects(input.eveVersion, peerRange)
+    typeof input.peerRange !== "string" ||
+    semver.validRange(input.peerRange) === null ||
+    semver.intersects(input.eveVersion, input.peerRange)
   ) {
-    return {
-      diagnostics: [
-        createDiscoverErrorDiagnostic({
-          code: DISCOVER_EXTENSION_EVE_INCOMPATIBLE,
-          message: `Extension "${packageName}" requires eve "${peerRange}", but this app uses eve ${input.eveVersion}. Upgrade the extension to a version that supports this eve, or align your eve version.`,
-          sourcePath: manifestPath,
-        }),
-      ],
-    };
+    return undefined;
   }
 
-  return {
-    location: {
-      namespace,
-      specifier,
-      packageName,
-      packageRoot,
-      sourceRoot: resolve(packageRoot, extensionRoot),
-    },
-    diagnostics: [],
-  };
+  return createDiscoverErrorDiagnostic({
+    code: DISCOVER_EXTENSION_EVE_INCOMPATIBLE,
+    message: `Extension "${input.packageName}" requires eve "${input.peerRange}", but this app uses eve ${input.eveVersion}. Upgrade the extension to a version that supports this eve, or align your eve version.`,
+    sourcePath: input.manifestPath,
+  });
 }
 
 async function resolvePackageRoot(input: {
