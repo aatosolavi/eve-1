@@ -88,6 +88,9 @@ export const SessionCallbackKey = new ContextKey<SessionCallback>("eve.sessionCa
 export const SessionKey = new ContextKey<Session>("eve.session");
 export const SandboxKey = new ContextKey<SandboxAccess>("eve.sandbox");
 
+/** Root user-facing session used to correlate this step in the invocation log. */
+export const DevelopmentLogSessionIdKey = new ContextKey<string>("eve.developmentLog.sessionId");
+
 // ---------------------------------------------------------------------------
 // Dynamic model keys
 // ---------------------------------------------------------------------------

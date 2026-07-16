@@ -23,6 +23,12 @@ export interface DockerRunOptions {
   readonly stdin?: Uint8Array;
 }
 
+export interface DockerStreamOptions {
+  readonly onOutput?: (stream: "stderr" | "stdout", chunk: Uint8Array) => void;
+  readonly onOutputEnd?: () => void;
+  readonly signal?: AbortSignal;
+}
+
 /**
  * Handle to one streaming `docker …` invocation (e.g. `docker exec`).
  * Mirrors the AI SDK `Experimental_SandboxProcess` stream/wait/kill
@@ -44,7 +50,7 @@ export interface DockerCli {
   /** Runs `docker <args>` to completion, buffering stdout/stderr. */
   run(args: readonly string[], options?: DockerRunOptions): Promise<DockerCommandResult>;
   /** Spawns `docker <args>` with streaming stdout/stderr. */
-  stream(args: readonly string[], options?: { readonly signal?: AbortSignal }): DockerProcess;
+  stream(args: readonly string[], options?: DockerStreamOptions): DockerProcess;
 }
 
 /**
@@ -168,8 +174,13 @@ export function createDockerCli(): DockerCli {
 
       const exit = new Promise<number>((resolve, reject) => {
         child.on("error", (error) => reject(adaptSpawnError(error)));
-        child.on("close", (code) => resolve(code ?? 1));
+        child.on("close", (code) => {
+          options.onOutputEnd?.();
+          resolve(code ?? 1);
+        });
       });
+      child.stdout?.on("data", (chunk: Buffer) => options.onOutput?.("stdout", chunk));
+      child.stderr?.on("data", (chunk: Buffer) => options.onOutput?.("stderr", chunk));
       // Surface spawn/abort failures through `wait()` instead of an
       // unhandled rejection when the caller only consumes the streams.
       exit.catch(() => {});

@@ -38,6 +38,14 @@ const mocks = vi.hoisted(() => {
     upgrade: vi.fn(async (_req: unknown, _socket: unknown, _head: unknown) => undefined),
     waitForActiveRunner: vi.fn(async () => undefined),
   };
+  const developmentLog = {
+    appendDiagnostic: vi.fn(async () => undefined),
+    appendOutputEvents: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+    id: "dev-run-id",
+    path: "/tmp/eve-test/.eve/logs/dev-run-id.log",
+  };
+  const restoreDevelopmentLogOutputCapture = vi.fn();
   const files = new Map<string, string>();
   const devHandlers: Nitro["options"]["devHandlers"] = [];
   const nitro = {
@@ -67,6 +75,8 @@ const mocks = vi.hoisted(() => {
       rebuild: vi.fn(),
     })),
     createDevelopmentApplicationNitro: vi.fn(async () => nitro),
+    developmentLog,
+    developmentLogOpen: vi.fn(async () => developmentLog),
     createDevServer: vi.fn(function createDevServerMock() {
       return devServer;
     }),
@@ -124,6 +134,8 @@ const mocks = vi.hoisted(() => {
     }),
     startDevelopmentSandboxPrewarmInBackground: vi.fn(() => undefined),
     pruneLocalSandboxTemplatesInBackground: vi.fn(() => undefined),
+    installDevelopmentLogOutputCapture: vi.fn(() => restoreDevelopmentLogOutputCapture),
+    restoreDevelopmentLogOutputCapture,
     stopDevelopmentSandboxResources: vi.fn(async () => undefined),
     resolveDiscoveryProject: vi.fn(async () => ({
       agentRoot: "/tmp/eve-test/agent",
@@ -147,6 +159,14 @@ const mocks = vi.hoisted(() => {
     }),
   };
 });
+
+vi.mock("#internal/dev-logs/development-log.js", () => ({
+  DevelopmentLog: { open: mocks.developmentLogOpen },
+}));
+
+vi.mock("#internal/dev-logs/output-capture.js", () => ({
+  installDevelopmentLogOutputCapture: mocks.installDevelopmentLogOutputCapture,
+}));
 
 vi.mock("node:fs/promises", () => ({
   mkdir: mocks.mkdir,
@@ -346,6 +366,7 @@ describe("createDevelopmentServer", () => {
     mocks.devServer.close.mockResolvedValue(undefined);
     mocks.nitro.close.mockResolvedValue(undefined);
     mocks.stopDevelopmentSandboxResources.mockResolvedValue(undefined);
+    mocks.developmentLogOpen.mockResolvedValue(mocks.developmentLog);
     vi.stubGlobal("fetch", mocks.fetch);
     delete process.env.WORKFLOW_LOCAL_BASE_URL;
     delete process.env.PORT;
@@ -372,6 +393,7 @@ describe("createDevelopmentServer", () => {
     delete process.env.WORKFLOW_LOCAL_BASE_URL;
     delete process.env.PORT;
     delete process.env.EVE_DEVELOPMENT_SANDBOX_RUN_ID;
+    delete process.env.EVE_DEV_LOGS;
     mocks.files.clear();
     vi.unstubAllGlobals();
   });
@@ -385,6 +407,10 @@ describe("createDevelopmentServer", () => {
     const server = await startDevelopmentServer("/tmp/eve-test");
 
     expect(mocks.prepareDevelopmentApplicationHost).toHaveBeenCalledWith("/tmp/eve-test");
+    expect(mocks.developmentLogOpen).toHaveBeenCalledWith({
+      appRoot: "/tmp/eve-test",
+      logId: expect.any(String),
+    });
     expect(mocks.startDevelopmentSandboxPrewarmInBackground).toHaveBeenCalledWith({
       appRoot: "/tmp/eve-test",
       compiledArtifactsSource: {
@@ -416,6 +442,19 @@ describe("createDevelopmentServer", () => {
     expect(process.env.EVE_DEV_WORKER_APP_ROOT).toBeUndefined();
     expect(process.env.EVE_DEVELOPMENT_SANDBOX_RUN_ID).toBeUndefined();
     expect(mocks.worldInstance.close).toHaveBeenCalledOnce();
+    expect(mocks.developmentLog.close).toHaveBeenCalledOnce();
+    expect(mocks.restoreDevelopmentLogOutputCapture).toHaveBeenCalledOnce();
+  });
+
+  it("does not open an invocation log when EVE_DEV_LOGS=0", async () => {
+    process.env.EVE_DEV_LOGS = "0";
+    const startDevelopmentServer = await loadStartDevelopmentServer();
+
+    const server = await startDevelopmentServer("/tmp/eve-test");
+
+    expect(mocks.developmentLogOpen).not.toHaveBeenCalled();
+    expect(mocks.installDevelopmentLogOutputCapture).not.toHaveBeenCalled();
+    await server.close();
   });
 
   it("serves the parent World for an explicitly local Workflow World", async () => {
@@ -672,6 +711,7 @@ describe("createDevelopmentServer", () => {
 
     expect(attached.kind).toBe("existing");
     expect(attached.url).toBe(owner.url);
+    expect(mocks.developmentLogOpen).toHaveBeenCalledOnce();
     expect(mocks.createDevelopmentApplicationNitro).toHaveBeenCalledOnce();
     expect(mocks.fetch).toHaveBeenCalledWith("http://localhost:2000/eve/v1/health", {
       redirect: "error",

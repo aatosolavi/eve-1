@@ -23,6 +23,8 @@ import {
   DEVELOPMENT_WORLD_OPERATIONS,
   type DevelopmentWorldCall,
 } from "#internal/workflow/development-world-protocol.js";
+import type { DevelopmentLog } from "#internal/dev-logs/development-log.js";
+import { DevelopmentLogRecorder } from "#internal/dev-logs/recorder.js";
 
 /**
  * The application's one local Workflow World, owned by the CLI parent.
@@ -49,6 +51,7 @@ export interface ParentDevelopmentWorkflowWorld {
 export function createParentDevelopmentWorkflowWorld(input: {
   readonly agentName: string;
   readonly appRoot: string;
+  readonly developmentLog: DevelopmentLog | undefined;
   readonly resolveActiveGenerationId: () => string;
   readonly transportSecret: string;
 }): ParentDevelopmentWorkflowWorld {
@@ -61,12 +64,14 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
   readonly #resolveActiveGenerationId: () => string;
   readonly #transportSecret: string;
   readonly #world: World;
+  readonly #developmentLogRecorder: DevelopmentLogRecorder | undefined;
   #closed = false;
   #started = false;
 
   constructor(input: {
     readonly agentName: string;
     readonly appRoot: string;
+    readonly developmentLog: DevelopmentLog | undefined;
     readonly resolveActiveGenerationId: () => string;
     readonly transportSecret: string;
   }) {
@@ -81,6 +86,10 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       dataDir: resolveLocalWorkflowWorldDataDirectory(input.appRoot),
       recoverActiveRuns: false,
     });
+    this.#developmentLogRecorder =
+      input.developmentLog === undefined
+        ? undefined
+        : new DevelopmentLogRecorder({ log: input.developmentLog, world: this.#world });
   }
 
   async start(): Promise<void> {
@@ -119,6 +128,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     this.#closed = true;
     this.#started = false;
+    await this.#developmentLogRecorder?.close();
     await this.#world.close?.();
   }
 
@@ -231,6 +241,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       for (const chunk of args[2] as readonly (string | Uint8Array)[]) {
         await this.#world.streams.write(args[0] as string, args[1] as string, chunk);
       }
+      this.#observeSessionEventStream(args);
       return undefined;
     }
     const separator = call.operation.indexOf(".");
@@ -244,7 +255,23 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       // no-op rather than fail a caller probing for support.
       return undefined;
     }
-    return await Reflect.apply(operation, receiver, args);
+    const result = await Reflect.apply(operation, receiver, args);
+    if (call.operation === "streams.write" || call.operation === "streams.writeMulti") {
+      this.#observeSessionEventStream(args);
+    }
+    if (call.operation === "events.create") {
+      const runId = readCommittedEventRunId(result);
+      if (runId !== undefined) {
+        this.#developmentLogRecorder?.observeRunCommitted(runId);
+      }
+    }
+    return result;
+  }
+
+  #observeSessionEventStream(args: readonly unknown[]): void {
+    const [runId, name] = args;
+    if (typeof runId !== "string" || typeof name !== "string") return;
+    this.#developmentLogRecorder?.observeSessionEventStream(runId, name);
   }
 
   #isTrusted(request: Request): boolean {
@@ -284,6 +311,18 @@ function isDevelopmentWorldCall(value: unknown): value is DevelopmentWorldCall {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readCommittedEventRunId(value: unknown): string | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+  const event = isObject(value.event) ? value.event : undefined;
+  if (typeof event?.runId === "string") {
+    return event.runId;
+  }
+  const run = isObject(value.run) ? value.run : undefined;
+  return typeof run?.runId === "string" ? run.runId : undefined;
 }
 
 async function reenqueueActiveDevelopmentRuns(input: {

@@ -1,9 +1,15 @@
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getWorkflowRunStreamId } from "#compiled/@workflow/core/util.js";
 import { turnWorkflowReference, workflowEntryReference } from "#execution/workflow-runtime.js";
+import { DevelopmentLog } from "#internal/dev-logs/development-log.js";
+import {
+  resolveDevelopmentLogDirectory,
+  resolveDevelopmentLogPath,
+} from "#internal/dev-logs/files.js";
 import { useTemporaryDirectories } from "#internal/testing/use-temporary-app-roots.js";
 import { getDevelopmentWorkflowGeneration } from "#internal/workflow/development-generation-context.js";
 import { deriveEveWorkflowQueuePrefix } from "#internal/workflow/queue-namespace.js";
@@ -28,6 +34,15 @@ import {
   DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER,
   DEVELOPMENT_WORKFLOW_WORLD_ROUTE,
 } from "#internal/workflow/development-world-protocol.js";
+import {
+  createActionResultEvent,
+  createActionsRequestedEvent,
+  createStepCompletedEvent,
+  createStepStartedEvent,
+  encodeMessageStreamEvent,
+  timestampHandleMessageStreamEvent,
+  type HandleMessageStreamEvent,
+} from "#protocol/message.js";
 
 const createScratchDirectory = useTemporaryDirectories();
 const SECRET = "workflow-transport-secret";
@@ -42,6 +57,7 @@ afterEach(() => {
   delete process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV];
   delete process.env[DEVELOPMENT_WORKER_APP_ROOT_ENV];
   delete process.env.WORKFLOW_LOCAL_BASE_URL;
+  delete process.env.EVE_DEV_LOGS;
 });
 
 describe("parent development Workflow World", () => {
@@ -59,6 +75,113 @@ describe("parent development Workflow World", () => {
       });
     } finally {
       await world.close();
+    }
+  });
+
+  it("reconciles committed Workflow and eve events into one invocation log", async () => {
+    const appRoot = await createScratchDirectory("eve-parent-development-log-");
+    const developmentLog = await DevelopmentLog.open({ appRoot, logId: "dev-invocation" });
+    const world = createWorld({
+      activeGenerationId: () => "generation-a",
+      appRoot,
+      developmentLog,
+    });
+    let runId: string;
+
+    try {
+      await world.start();
+      const created = await callWorld(world, "events.create", [
+        null,
+        {
+          eventData: {
+            allowReservedAttributes: true,
+            attributes: { "$eve.type": "session" },
+            deploymentId: "generation-a",
+            input: new Uint8Array(),
+            workflowName: workflowEntryReference.workflowId,
+          },
+          eventType: "run_created",
+          specVersion: 5,
+        },
+      ]);
+      runId = readCreatedRunId(created);
+      await callWorld(world, "events.create", [runId, { eventType: "run_started" }]);
+      const eventStreamName = getWorkflowRunStreamId(runId);
+      const writeEvent = async (event: HandleMessageStreamEvent, at: string) => {
+        await callWorld(world, "streams.write", [
+          runId,
+          eventStreamName,
+          encodeMessageStreamEvent(timestampHandleMessageStreamEvent(event, at)),
+        ]);
+      };
+      await writeEvent(
+        createStepStartedEvent({ sequence: 0, stepIndex: 0, turnId: "turn_1" }),
+        "2026-07-15T20:00:00.000Z",
+      );
+      await writeEvent(
+        createActionsRequestedEvent({
+          actions: [
+            {
+              callId: "call_weather",
+              input: { city: "San Francisco" },
+              kind: "tool-call",
+              toolName: "weather",
+            },
+          ],
+          sequence: 1,
+          stepIndex: 0,
+          turnId: "turn_1",
+        }),
+        "2026-07-15T20:00:00.010Z",
+      );
+      await writeEvent(
+        createActionResultEvent({
+          result: {
+            callId: "call_weather",
+            kind: "tool-result",
+            output: { forecast: "sunny" },
+            toolName: "weather",
+          },
+          sequence: 2,
+          stepIndex: 0,
+          turnId: "turn_1",
+        }),
+        "2026-07-15T20:00:00.025Z",
+      );
+      await writeEvent(
+        createStepCompletedEvent({
+          finishReason: "tool-calls",
+          sequence: 3,
+          stepIndex: 0,
+          turnId: "turn_1",
+          usage: { inputTokens: 10, outputTokens: 4 },
+        }),
+        "2026-07-15T20:00:00.030Z",
+      );
+      await callWorld(world, "events.create", [
+        runId,
+        { eventData: { output: new Uint8Array() }, eventType: "run_completed" },
+      ]);
+    } finally {
+      await world.close();
+      await developmentLog.close();
+    }
+
+    const path = resolveDevelopmentLogPath(appRoot, "dev-invocation");
+    const firstSource = await readFile(path, "utf8");
+    expect(firstSource).toContain("type=run_created");
+    expect(firstSource).toContain("type=run_started");
+    expect(firstSource).toContain("queueMs=");
+    expect(firstSource).toContain("type=step.started");
+    expect(firstSource).toContain("type=actions.requested timeToFirstOutputMs=10");
+    expect(firstSource).toContain("type=action.result durationMs=15");
+    expect(firstSource).toContain("type=step.completed durationMs=30");
+    expect(firstSource).toContain("call_weather");
+    expect(firstSource).toContain("forecast: 'sunny'");
+    expect(firstSource).toContain("type=run_completed");
+    if (process.platform !== "win32") {
+      expect((await stat(resolveDevelopmentLogDirectory(appRoot))).mode & 0o777).toBe(0o700);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
     }
   });
 
@@ -274,7 +397,7 @@ describe("parent development Workflow World", () => {
     }
   });
 
-  it("rejects untrusted World requests on the call and stream routes", async () => {
+  it("rejects untrusted World and stream requests", async () => {
     const appRoot = await createScratchDirectory("eve-parent-workflow-untrusted-");
     const world = createWorld({ activeGenerationId: () => "generation-a", appRoot });
 
@@ -310,6 +433,7 @@ describe("parent development Workflow World", () => {
       createParentDevelopmentWorkflowWorld({
         agentName: AGENT_NAME,
         appRoot: "/tmp/eve-test",
+        developmentLog: undefined,
         resolveActiveGenerationId: () => "generation-a",
         transportSecret: "",
       }),
@@ -398,10 +522,12 @@ function readCreatedRunId(value: unknown): string {
 function createWorld(input: {
   readonly activeGenerationId: () => string;
   readonly appRoot: string;
+  readonly developmentLog?: DevelopmentLog;
 }): ParentDevelopmentWorkflowWorld {
   return createParentDevelopmentWorkflowWorld({
     agentName: AGENT_NAME,
     appRoot: input.appRoot,
+    developmentLog: input.developmentLog,
     resolveActiveGenerationId: input.activeGenerationId,
     transportSecret: SECRET,
   });

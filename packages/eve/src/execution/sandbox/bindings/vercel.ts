@@ -502,6 +502,7 @@ function createVercelInternalSandboxSession(
       return adaptMultiplexedCommandToSandboxProcess({
         command,
         getOutput: (log) => log.stream,
+        sandboxId: id,
       });
     },
     async readFile(options: SandboxReadFileOptions) {

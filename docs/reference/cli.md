@@ -1,6 +1,6 @@
 ---
 title: "CLI"
-description: "Reference for every eve CLI command: init, info, build, start, dev, link, deploy, eval, channels, and extension."
+description: "Reference for every eve CLI command: init, logs, info, build, start, dev, link, deploy, eval, channels, and extension."
 ---
 
 The `eve` binary (`bin: eve`) runs from your app root, and every command first loads `.env`/`.env.local` from that root. Running `eve` with no command runs `eve dev`.
@@ -10,6 +10,8 @@ The `eve` binary (`bin: eve`) runs from your app root, and every command first l
 | Command                       | Description                                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `eve init [target]`           | Create a new agent, or add an agent to an existing project                                                                                            |
+| `eve logs [log-id]`           | Follow the most recent local `eve dev` invocation log, or one exact log                                                                               |
+| `eve logs ls`                 | List local `eve dev` invocation logs                                                                                                                  |
 | `eve info`                    | Print the resolved application, including discovered tools, skills, subagents, schedules, channels, routes, artifact paths, and discovery diagnostics |
 | `eve build`                   | Compile `.eve/` artifacts and build the host output; prints the output directory                                                                      |
 | `eve start`                   | Serve the built `.output/` app; prints the listening URL                                                                                              |
@@ -44,6 +46,21 @@ After scaffolding, a human terminal usually continues into `eve dev` (or a codin
 | Flag                   | Type | Default | Description                                                                                           |
 | ---------------------- | ---- | ------- | ----------------------------------------------------------------------------------------------------- |
 | `--channel-web-nextjs` | flag | off     | Add the Web Chat app (Next.js). Not for existing projects — run `eve channels add web` there instead. |
+
+## `eve logs`
+
+```bash
+eve logs
+eve logs <log-id>
+eve logs mru
+eve logs ls
+```
+
+Each owned `eve dev` invocation automatically writes one `.eve/logs/<log-id>.log` file. It is a chronological app-level diagnostic log: parent and worker stdout and stderr, sandbox output, startup and lifecycle failures, committed Workflow lifecycle data, and the canonical eve event stream all land in the same file. Session and run IDs appear only as correlation fields. Tool inputs and results, model and tool failures, usage, and latency measurements are reconciled from Workflow-owned data rather than stored in a second event journal.
+
+`eve logs` and `eve logs mru` print the last 10 lines of the most recently modified invocation log, then follow new writes until Ctrl-C. Pass a log ID from `eve logs ls` to select an exact file. Use `-n, --lines <count>` to change the initial line count or `--no-follow` to print once and exit.
+
+Recording is enabled by default. Set `EVE_DEV_LOGS=0` before starting `eve dev` to disable it. Attaching to an already-running dev server does not create another log. The recorder requests owner-only modes on POSIX systems; Windows access follows the log directory's ACL. The files may contain unredacted model, tool, sandbox, stdout, stderr, and error data. These commands do not inspect deployed or remote sessions.
 
 ## `eve extension`
 

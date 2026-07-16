@@ -28,6 +28,7 @@ import type {
 } from "#internal/nitro/routes/runtime-artifacts.js";
 import { deriveEveWorkflowQueuePrefix } from "#internal/workflow/queue-namespace.js";
 import { usesParentDevelopmentWorkflowWorld } from "#internal/workflow/development-world-protocol.js";
+import { DEVELOPMENT_LOG_FLUSH_ROUTE } from "#internal/dev-logs/protocol.js";
 import {
   computeChannelRouteRegistrations,
   registerChannelVirtualHandlers,
@@ -248,7 +249,7 @@ function buildWorkflowFileHandlerSource(input: {
 function addFrameworkVirtualHandler(
   nitro: Nitro,
   input: {
-    args: string;
+    args?: string;
     handlerExport: string;
     method: "GET" | "POST";
     modulePath: string;
@@ -257,6 +258,7 @@ function addFrameworkVirtualHandler(
 ): void {
   const virtualId = `#eve-route${input.route}`;
   const modulePath = stringifyEsmImportSpecifier(input.modulePath);
+  const handlerArguments = input.args === undefined ? "event.req" : `${input.args}, event.req`;
 
   nitro.options.handlers.push({
     handler: virtualId,
@@ -265,7 +267,7 @@ function addFrameworkVirtualHandler(
   });
   nitro.options.virtual[virtualId] = [
     `import { ${input.handlerExport} } from ${modulePath};`,
-    `export default async (event) => ${input.handlerExport}(${input.args}, event.req);`,
+    `export default async (event) => ${input.handlerExport}(${handlerArguments});`,
   ].join("\n");
 }
 
@@ -317,6 +319,12 @@ function registerDevelopmentControlRoutes(
   nitro: Nitro,
   artifactsConfig: DevelopmentNitroArtifactsConfig,
 ): void {
+  addFrameworkVirtualHandler(nitro, {
+    handlerExport: "handleDevLogFlushRequest",
+    method: "POST",
+    modulePath: resolvePackageSourceFilePath("src/internal/nitro/routes/dev-log-flush.ts"),
+    route: DEVELOPMENT_LOG_FLUSH_ROUTE,
+  });
   addFrameworkVirtualHandler(nitro, {
     args: JSON.stringify({ appRoot: artifactsConfig.appRoot }),
     handlerExport: "handleDevRuntimeArtifactsRequest",

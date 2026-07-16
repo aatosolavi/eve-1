@@ -3,6 +3,13 @@ import { EVE_DEV_ENV_FLAG } from "#internal/application/optional-package-install
 import type { Nitro } from "nitro/types";
 
 import { createDevelopmentApplicationNitro } from "#internal/nitro/host/create-application-nitro.js";
+import type { DevelopmentLog } from "#internal/dev-logs/development-log.js";
+import { handleDevelopmentLogRequest } from "#internal/dev-logs/handler.js";
+import {
+  createDevelopmentLogBootReporter,
+  openDevelopmentLog,
+} from "#internal/dev-logs/lifecycle.js";
+import { installDevelopmentLogOutputCapture } from "#internal/dev-logs/output-capture.js";
 import { DrainedNitroDevServer } from "#internal/nitro/host/drained-nitro-dev-server.js";
 import { createDevelopmentNitroArtifactsConfig } from "#internal/nitro/host/artifacts-config.js";
 import type { AuthoredSourceWatcherHandle } from "#internal/nitro/host/dev-authored-source-watcher.js";
@@ -195,11 +202,19 @@ function resolveDevelopmentServerPorts(input: {
 
 function addDevelopmentControlHandler(input: {
   readonly appRoot: string;
+  readonly developmentLog: DevelopmentLog | undefined;
   readonly devServer: DrainedNitroDevServer;
   readonly getWatcher: () => AuthoredSourceWatcherHandle | undefined;
+  readonly transportSecret: string;
   readonly workflowWorld: ParentDevelopmentWorkflowWorld | undefined;
 }): void {
   input.devServer.setControlHandler(async (request) => {
+    const logResponse = await handleDevelopmentLogRequest({
+      log: input.developmentLog,
+      request,
+      transportSecret: input.transportSecret,
+    });
+    if (logResponse !== undefined) return logResponse;
     const worldResponse = await input.workflowWorld?.handleRequest(request);
     if (worldResponse !== undefined) {
       return worldResponse;
@@ -226,9 +241,11 @@ function addDevelopmentControlHandler(input: {
 
 async function closeDevelopmentServerResources(input: {
   readonly authoredSourceWatcher: AuthoredSourceWatcherHandle | undefined;
+  readonly developmentLog: DevelopmentLog | undefined;
   readonly devServer: NitroDevelopmentServer | undefined;
   readonly developmentSandboxRunId: string;
   readonly nitro: Nitro | undefined;
+  readonly restoreDevelopmentLogOutputCapture: (() => void) | undefined;
   readonly workflowWorld: ParentDevelopmentWorkflowWorld | undefined;
 }): Promise<{ readonly errors: readonly unknown[]; readonly listenerClosed: boolean }> {
   const errors: unknown[] = [];
@@ -263,6 +280,21 @@ async function closeDevelopmentServerResources(input: {
       log: (message) => console.warn(`[eve:dev] ${message}`),
     }),
   );
+  const developmentLog = input.developmentLog;
+  if (developmentLog !== undefined && errors.length > 0) {
+    await attempt(() =>
+      developmentLog.appendDiagnostic({
+        error: errors.length === 1 ? errors[0] : new AggregateError(errors),
+        level: "error",
+        message: "eve dev cleanup failed",
+        source: "dev.cleanup",
+      }),
+    );
+  }
+  input.restoreDevelopmentLogOutputCapture?.();
+  if (developmentLog !== undefined) {
+    await attempt(() => developmentLog.close());
+  }
 
   return { errors, listenerClosed };
 }
@@ -380,6 +412,17 @@ async function startNitroDevelopmentServer(
   const previousDevelopmentSandboxRunId = process.env[EVE_DEVELOPMENT_SANDBOX_RUN_ID_ENV];
   const developmentSandboxRunId = createDevelopmentSandboxRunId();
   process.env[EVE_DEVELOPMENT_SANDBOX_RUN_ID_ENV] = developmentSandboxRunId;
+  const developmentLog = await openDevelopmentLog(project.appRoot, developmentSandboxRunId);
+  const restoreDevelopmentLogOutputCapture =
+    developmentLog === undefined
+      ? undefined
+      : installDevelopmentLogOutputCapture("parent", (event) => {
+          void developmentLog.appendOutputEvents([event]).catch(() => undefined);
+        });
+  const reportBootProgress = createDevelopmentLogBootReporter(
+    developmentLog,
+    options.onBootProgress,
+  );
   let nitro: Nitro | undefined;
   let devServer: NitroDevelopmentServer | undefined;
   let restoreWorkflowLocalQueueEnvironment: (() => void) | undefined;
@@ -394,7 +437,7 @@ async function startNitroDevelopmentServer(
     const preparedHost = await devBootPhase(
       "compiling agent",
       () => prepareDevelopmentApplicationHost(project.appRoot),
-      options.onBootProgress,
+      reportBootProgress,
     );
     preparedDevelopmentHost = preparedHost;
     const compiledArtifactsSource = resolveNitroCompiledArtifactsSource(
@@ -407,7 +450,7 @@ async function startNitroDevelopmentServer(
     const activeNitro = await devBootPhase(
       "creating dev server",
       () => createDevelopmentApplicationNitro(preparedHost),
-      options.onBootProgress,
+      reportBootProgress,
     );
     nitro = activeNitro;
     devServer = new DrainedNitroDevServer(activeNitro.logger);
@@ -420,6 +463,7 @@ async function startNitroDevelopmentServer(
     );
     workflowWorld = createDevelopmentWorkflowWorld({
       appRoot: project.appRoot,
+      developmentLog,
       preparedHost,
       transportSecret: workflowTransportSecret,
     });
@@ -428,8 +472,10 @@ async function startNitroDevelopmentServer(
     // otherwise fall through to the worker and 404.
     addDevelopmentControlHandler({
       appRoot: project.appRoot,
+      developmentLog,
       devServer: activeDevServer,
       getWatcher: () => authoredSourceWatcher,
+      transportSecret: workflowTransportSecret,
       workflowWorld,
     });
     const hostname =
@@ -444,7 +490,7 @@ async function startNitroDevelopmentServer(
           port: requestedPort,
           retryOnAddressInUse,
         }),
-      options.onBootProgress,
+      reportBootProgress,
     );
 
     if (!server.url) {
@@ -474,7 +520,7 @@ async function startNitroDevelopmentServer(
         });
         initialGenerationPublished = true;
       },
-      options.onBootProgress,
+      reportBootProgress,
     );
     await workflowWorld?.start();
     startDevelopmentSandboxPrewarmInBackground({
@@ -497,7 +543,7 @@ async function startNitroDevelopmentServer(
           preparedHost,
         });
       },
-      options.onBootProgress,
+      reportBootProgress,
     );
     await state.write(serverUrl);
     const restoreWorkflowLocalQueueEnvironmentOnClose = restoreWorkflowLocalQueueEnvironment;
@@ -514,9 +560,11 @@ async function startNitroDevelopmentServer(
       closePromise ??= (async () => {
         const cleanup = await closeDevelopmentServerResources({
           authoredSourceWatcher: authoredSourceWatcherOnClose,
+          developmentLog,
           devServer: devServerOnClose,
           developmentSandboxRunId,
           nitro: undefined,
+          restoreDevelopmentLogOutputCapture,
           workflowWorld: workflowWorldOnClose,
         });
         if (cleanup.listenerClosed) {
@@ -542,11 +590,21 @@ async function startNitroDevelopmentServer(
       close,
     };
   } catch (error) {
+    await developmentLog
+      ?.appendDiagnostic({
+        error,
+        level: "error",
+        message: "eve dev failed to start",
+        source: "dev.startup",
+      })
+      .catch(() => undefined);
     const cleanup = await closeDevelopmentServerResources({
       authoredSourceWatcher,
+      developmentLog,
       devServer,
       developmentSandboxRunId,
       nitro,
+      restoreDevelopmentLogOutputCapture,
       workflowWorld,
     });
     const cleanupErrors = [...cleanup.errors];

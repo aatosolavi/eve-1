@@ -27,6 +27,13 @@ Wait for the server URL, then exercise the HTTP API: create a session with
 follow-up with the returned `continuationToken`. Stop the dev process after
 verification.
 
+Use the current `eve dev` invocation log when you need the complete local
+runtime trace. To inspect an earlier invocation, list the available logs:
+
+    npx eve logs --no-follow
+    npx eve logs <log-id> --no-follow
+    npx eve logs ls
+
 When the user is ready to use their agent's REPL, give them the interactive
 command to run from the project directory:
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { adaptMultiplexedCommandToSandboxProcess } from "#execution/sandbox/multiplexed-command.js";
+import { listenToSandboxOutput } from "#execution/sandbox/output-events.js";
 
 interface TestLog {
   readonly data: string;
@@ -27,6 +28,32 @@ function logs(...values: ReadonlyArray<TestLog>): () => AsyncIterable<TestLog> {
 }
 
 describe("adaptMultiplexedCommandToSandboxProcess", () => {
+  it("emits backend output events without requiring a stream consumer", async () => {
+    const events: Array<{ sandboxId: string; stream: string; text: string }> = [];
+    const stopListening = listenToSandboxOutput((event) => events.push(event));
+    const command = {
+      kill: vi.fn(async () => undefined),
+      logs: logs({ data: "hello\n", output: "stdout" }, { data: "warning\n", output: "stderr" }),
+      wait: vi.fn(async () => ({ exitCode: 0 })),
+    };
+    const process = adaptMultiplexedCommandToSandboxProcess({
+      command,
+      getOutput: (log) => log.output,
+      sandboxId: "sbx_weather",
+    });
+
+    try {
+      await process.wait();
+    } finally {
+      stopListening();
+    }
+
+    expect(events).toEqual([
+      { sandboxId: "sbx_weather", stream: "stdout", text: "hello\n" },
+      { sandboxId: "sbx_weather", stream: "stderr", text: "warning\n" },
+    ]);
+  });
+
   it("splits logs and waits for both command and log completion", async () => {
     const releaseLogs = Promise.withResolvers<void>();
     const waitingForLogs = Promise.withResolvers<void>();

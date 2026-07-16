@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { readActiveDevelopmentRuntimeArtifactsSnapshot } from "#internal/nitro/dev-runtime-artifacts.js";
 import { normalizeDevelopmentServerClientUrl } from "#internal/nitro/host/dev-server-url.js";
 import type { PreparedDevelopmentApplicationHost } from "#internal/nitro/host/types.js";
+import type { DevelopmentLog } from "#internal/dev-logs/development-log.js";
 import {
   createParentDevelopmentWorkflowWorld,
   type ParentDevelopmentWorkflowWorld,
@@ -18,6 +19,7 @@ const PORT_ENV = "PORT";
 
 export function createDevelopmentWorkflowWorld(input: {
   readonly appRoot: string;
+  readonly developmentLog: DevelopmentLog | undefined;
   readonly preparedHost: PreparedDevelopmentApplicationHost;
   readonly transportSecret: string;
 }): ParentDevelopmentWorkflowWorld | undefined {
@@ -35,6 +37,7 @@ export function createDevelopmentWorkflowWorld(input: {
   return createParentDevelopmentWorkflowWorld({
     agentName: input.preparedHost.compileResult.manifest.config.name,
     appRoot: input.appRoot,
+    developmentLog: input.developmentLog,
     resolveActiveGenerationId: () => {
       const snapshot = readActiveDevelopmentRuntimeArtifactsSnapshot(input.appRoot);
       if (snapshot === undefined) {

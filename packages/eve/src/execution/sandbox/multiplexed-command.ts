@@ -1,4 +1,5 @@
 import type { SandboxProcess } from "#shared/sandbox-session.js";
+import { createSandboxOutputObserver } from "#execution/sandbox/output-events.js";
 
 type OutputName = "stderr" | "stdout";
 
@@ -56,16 +57,21 @@ export function adaptMultiplexedCommandToSandboxProcess<
 >(input: {
   readonly command: MultiplexedCommand<Log>;
   readonly getOutput: (log: Log) => OutputName;
+  readonly sandboxId?: string;
 }): SandboxProcess {
   const encoder = new TextEncoder();
   const stdout = createOutputChannel();
   const stderr = createOutputChannel();
   const outputs: Record<OutputName, OutputChannel> = { stderr, stdout };
+  const observer =
+    input.sandboxId === undefined ? undefined : createSandboxOutputObserver(input.sandboxId);
 
   const logsDone = (async () => {
     try {
       for await (const log of input.command.logs()) {
-        outputs[input.getOutput(log)].enqueue(encoder.encode(log.data));
+        const output = input.getOutput(log);
+        observer?.write(output, log.data);
+        outputs[output].enqueue(encoder.encode(log.data));
       }
       stdout.close();
       stderr.close();
@@ -73,6 +79,9 @@ export function adaptMultiplexedCommandToSandboxProcess<
       stdout.error(error);
       stderr.error(error);
       throw error;
+    } finally {
+      observer?.close("stdout");
+      observer?.close("stderr");
     }
   })();
   // The streams surface log failures immediately; retain the rejection for wait().
