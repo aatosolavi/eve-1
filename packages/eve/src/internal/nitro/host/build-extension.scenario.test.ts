@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { parseExtensionArtifact } from "#compiler/extension-artifact.js";
 import {
   buildExtensionPackage,
   tryReadExtensionBuildConfig,
@@ -32,6 +33,19 @@ async function createExtensionPackage(pkg?: Record<string, unknown>): Promise<st
     'export default { description: "Search the CRM.", async execute() { return {}; } };\n',
     "utf8",
   );
+  await writeFile(
+    join(root, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        module: "esnext",
+        moduleResolution: "bundler",
+        skipLibCheck: true,
+        types: [],
+      },
+      include: ["extension/**/*.ts"],
+    }),
+    "utf8",
+  );
   return root;
 }
 
@@ -53,18 +67,23 @@ describe("extension build output", () => {
     expect(toolsIndex).toContain("Search the CRM"); // the tool source was inlined
   });
 
-  it("emits declaration barrels resolving into the shipped source", async () => {
+  it("emits self-contained declaration barrels resolving into dist (no shipped source)", async () => {
     const root = await createExtensionPackage();
     const config = await tryReadExtensionBuildConfig(root);
     const outDir = await buildExtensionPackage(root, config!);
 
     const indexDts = await readFile(join(outDir, "index.d.ts"), "utf8");
-    expect(indexDts).toContain('export { default } from "../extension/extension.js"');
-    expect(indexDts).toContain('export { default as crm } from "../extension/extension.js"');
+    expect(indexDts).toContain('export { default } from "./_types/extension/extension.js"');
+    expect(indexDts).toContain('export { default as crm } from "./_types/extension/extension.js"');
 
     const toolsDts = await readFile(join(outDir, "tools", "index.d.ts"), "utf8");
     expect(toolsDts).toContain(
-      'export { default as crm_search } from "../../extension/tools/crm_search.js"',
+      'export { default as crm_search } from "../_types/extension/tools/crm_search.js"',
+    );
+
+    // The referenced declarations ship inside dist, so no `.ts` source is needed.
+    expect(await readFile(join(outDir, "_types", "extension", "extension.d.ts"), "utf8")).toContain(
+      "export default",
     );
   });
 
@@ -81,6 +100,33 @@ describe("extension build output", () => {
     const toolsDts = await readFile(join(outDir, "tools", "index.d.ts"), "utf8");
     expect(toolsDts).toContain("as get_weather ");
     expect(toolsDts).not.toContain("as get-weather ");
+  });
+
+  it("emits a source-free artifact describing every contribution", async () => {
+    const root = await createExtensionPackage();
+    const config = await tryReadExtensionBuildConfig(root);
+    const outDir = await buildExtensionPackage(root, config!);
+
+    const artifactPath = join(outDir, "_ext-manifest.json");
+    const artifact = parseExtensionArtifact(await readFile(artifactPath, "utf8"), artifactPath);
+
+    expect(artifact.packageName).toBe("@acme/crm");
+    expect(artifact.packageNamespace).toBe("acme-crm");
+    // config + state are always stamped; tool is stamped because one is shipped.
+    expect(artifact.capabilityVersions).toMatchObject({ tool: 1, config: 1, state: 1 });
+    expect(artifact.contributions.tools).toEqual([
+      expect.objectContaining({
+        name: "crm_search",
+        logicalPath: "tools/crm_search.mjs",
+        sourceId: "tools/crm_search.mjs",
+        sourceKind: "module",
+      }),
+    ]);
+
+    // The contribution module ships as runnable JS at its dist path, bundled from
+    // source (the tool body was inlined).
+    const emitted = await readFile(join(outDir, "tools", "crm_search.mjs"), "utf8");
+    expect(emitted).toContain("Search the CRM");
   });
 
   it("fills the exports map with runnable + types conditions", async () => {

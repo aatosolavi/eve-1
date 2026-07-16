@@ -1,6 +1,12 @@
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import semver from "#compiled/semver/index.js";
+import {
+  EXTENSION_ARTIFACT_FILENAME,
+  parseExtensionArtifact,
+  type ExtensionArtifact,
+} from "#compiler/extension-artifact.js";
+import { validateExtensionCapabilities } from "#compiler/extension-capabilities.js";
 import { createDiscoverErrorDiagnostic, type DiscoverDiagnostic } from "#discover/diagnostics.js";
 import { parseExtensionMountSpecifier } from "#discover/extension-specifier.js";
 import { SUPPORTED_AUTHORED_MODULE_FILE_EXTENSIONS } from "#discover/filesystem.js";
@@ -49,9 +55,20 @@ export const DISCOVER_EXTENSION_PACKAGE_INVALID = "discover/extension-package-in
 /**
  * Emitted when the app's eve version does not satisfy an extension's declared
  * `peerDependencies.eve` range — the tie between an extension and the eve it was
- * built for.
+ * built for. For a source-free extension the capability-version check below is
+ * the authoritative gate, so this coarse peer check applies only to
+ * source-backed mounts.
  */
 export const DISCOVER_EXTENSION_EVE_INCOMPATIBLE = "discover/extension-eve-incompatible";
+
+/**
+ * Emitted when a source-free extension was built against a different version of
+ * an eve capability than the consuming app provides. Replaces the source
+ * typecheck for compiled extensions: the extension stamps the capability
+ * versions it built against, and this fails the build when they no longer match.
+ */
+export const DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE =
+  "discover/extension-capability-incompatible";
 
 /**
  * Emitted when an extension source tree declares agent-level config (`agent.ts`),
@@ -85,8 +102,18 @@ export interface ExtensionMountLocation {
   readonly packageName: string;
   /** Absolute path to the resolved package root. */
   readonly packageRoot: string;
-  /** Absolute path to the extension's agent-shaped source root. */
+  /**
+   * Absolute root the extension's contribution logical paths resolve against:
+   * the agent-shaped source root for a source-backed mount, or the shipped
+   * `dist/` directory for a source-free mount.
+   */
   readonly sourceRoot: string;
+  /**
+   * Pre-compiled artifact read from the package's `dist/_ext-manifest.json`,
+   * present when the extension ships one (a source-free mount). Absent for a
+   * source-backed mount that ships only its agent-shaped source.
+   */
+  readonly artifact?: ExtensionArtifact;
 }
 
 /**
@@ -217,6 +244,62 @@ export async function locateExtensionMount(input: {
     };
   }
 
+  const packageName = typeof pkg.name === "string" && pkg.name.length > 0 ? pkg.name : specifier;
+
+  // Prefer the pre-compiled artifact when the package ships one: the consuming
+  // agent composes it without recompiling or executing the extension's source.
+  const artifactPath = join(packageRoot, "dist", EXTENSION_ARTIFACT_FILENAME);
+  if ((await input.source.stat(artifactPath)) === "file") {
+    let artifact: ExtensionArtifact;
+    try {
+      artifact = parseExtensionArtifact(
+        await input.source.readTextFile(artifactPath),
+        artifactPath,
+      );
+    } catch (error) {
+      return {
+        diagnostics: [
+          createDiscoverErrorDiagnostic({
+            code: DISCOVER_EXTENSION_PACKAGE_INVALID,
+            message: `Extension "${packageName}" ships an invalid compiled artifact: ${error instanceof Error ? error.message : String(error)}`,
+            sourcePath: artifactPath,
+          }),
+        ],
+      };
+    }
+
+    // Capability versions replace the source typecheck for source-free
+    // extensions and are the authoritative compatibility gate, so the coarse
+    // peer-range check is skipped here.
+    const mismatches = validateExtensionCapabilities(artifact.capabilityVersions);
+    if (mismatches.length > 0) {
+      return {
+        diagnostics: [
+          createDiscoverErrorDiagnostic({
+            code: DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE,
+            message:
+              `Extension "${packageName}" was built against incompatible eve capabilities: ` +
+              `${mismatches.map((mismatch) => `${mismatch.kind} (built v${mismatch.built}, this eve provides v${mismatch.current})`).join(", ")}. ` +
+              `Rebuild "${packageName}" with this version of eve (\`eve extension build\`), or align your eve version.`,
+            sourcePath: artifactPath,
+          }),
+        ],
+      };
+    }
+
+    return {
+      location: {
+        namespace,
+        specifier,
+        packageName,
+        packageRoot,
+        sourceRoot: dirname(artifactPath),
+        artifact,
+      },
+      diagnostics: [],
+    };
+  }
+
   const extensionRoot = pkg.eve?.extension;
   if (typeof extensionRoot !== "string" || extensionRoot.length === 0) {
     return {
@@ -229,8 +312,6 @@ export async function locateExtensionMount(input: {
       ],
     };
   }
-
-  const packageName = typeof pkg.name === "string" && pkg.name.length > 0 ? pkg.name : specifier;
 
   // Tie the extension to the eve it was built for. Only a real semver range is
   // enforced; workspace/link/file protocols are resolved by the package manager.

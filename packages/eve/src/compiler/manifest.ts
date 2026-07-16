@@ -455,7 +455,7 @@ const compiledSkillBaseFields = {
   logicalPath: z.string(),
 };
 
-const compiledSkillSourceSchema: z.ZodType<CompiledSkillDefinition> = z.discriminatedUnion(
+export const compiledSkillSourceSchema: z.ZodType<CompiledSkillDefinition> = z.discriminatedUnion(
   "sourceKind",
   [
     z
@@ -536,7 +536,7 @@ const compiledWorkspaceResourceRootSchema = z
   })
   .strict();
 
-const compiledConnectionDefinitionSchema = z
+export const compiledConnectionDefinitionSchema = z
   .object({
     connectionName: z.string(),
     description: z.string(),
@@ -572,7 +572,7 @@ const compiledConnectionDefinitionSchema = z
   })
   .strict();
 
-const compiledToolDefinitionSchema = z
+export const compiledToolDefinitionSchema = z
   .object({
     description: z.string(),
     exportName: z.string().optional(),
@@ -585,7 +585,7 @@ const compiledToolDefinitionSchema = z
   })
   .strict();
 
-const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefinition> = z
+export const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefinition> = z
   .object({
     eventNames: z.array(z.string()).readonly(),
     exportName: z.string().optional(),
@@ -597,7 +597,7 @@ const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefiniti
   })
   .strict();
 
-const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefinition> = z
+export const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefinition> = z
   .object({
     eventNames: z.array(z.string()).readonly(),
     exportName: z.string().optional(),
@@ -609,7 +609,7 @@ const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefini
   })
   .strict();
 
-const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInstructionsDefinition> =
+export const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInstructionsDefinition> =
   z
     .object({
       eventNames: z.array(z.string()).readonly(),
@@ -621,7 +621,7 @@ const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInst
     })
     .strict();
 
-const compiledHookDefinitionSchema: z.ZodType<CompiledHookDefinition> = z
+export const compiledHookDefinitionSchema: z.ZodType<CompiledHookDefinition> = z
   .object({
     exportName: z.string().optional(),
     logicalPath: z.string(),
@@ -697,11 +697,19 @@ export interface CompiledExtensionMount {
    */
   readonly packageNamespace: string;
   /**
-   * Absolute path to the extension's source root on disk. The extension-scope
-   * bundler plugin treats any module under this root as extension-owned and
-   * rewrites its `eve/context`/`eve/extension` imports to bake in the namespace.
+   * Absolute path to the root the extension's modules resolve against: the
+   * source root for a source-backed mount, or the shipped `dist/` for a
+   * source-free mount. For a source-backed mount the extension-scope bundler
+   * plugin treats any module under this root as extension-owned and rewrites its
+   * `eve/context`/`eve/extension` imports to bake in the namespace.
    */
   readonly sourceRoot: string;
+  /**
+   * Whether the mount is backed by a pre-compiled source-free artifact. Its
+   * shipped `.mjs` already have the namespace scope baked in, so the
+   * extension-scope bundler plugins must skip them to avoid double-scoping.
+   */
+  readonly sourceFree: boolean;
   readonly mountSourceId: string;
   readonly mountLogicalPath: string;
 }
@@ -712,6 +720,9 @@ const compiledExtensionMountSchema: z.ZodType<CompiledExtensionMount> = z
     packageName: z.string(),
     packageNamespace: z.string(),
     sourceRoot: z.string(),
+    // Additive field: manifests compiled before source-free support omit it and
+    // are all source-backed, so it defaults to false.
+    sourceFree: z.boolean().default(false),
     mountSourceId: z.string(),
     mountLogicalPath: z.string(),
   })

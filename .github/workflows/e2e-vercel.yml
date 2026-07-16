@@ -110,6 +110,13 @@ jobs:
         # stamped package version (scripts/stamp-version-tokens.mjs) and docs.
         run: pnpm --filter eve run build
 
+      - name: Build source-free extension fixtures
+        if: needs.changes.outputs.relevant == 'true'
+        # Source-free extension fixtures ship no committed `dist/`; produce it
+        # before the consuming fixture's `eve build` resolves the compiled
+        # artifact. `--if-present` skips source-backed extension fixtures.
+        run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
+
       - name: Deploy fixture and run evals
         if: needs.changes.outputs.relevant == 'true'
         env:

@@ -78,7 +78,7 @@ Point `eve.extension` at the source directory and run `eve extension build` (wir
   "name": "@acme/crm",
   "type": "module",
   "eve": { "extension": "./extension" },
-  "files": ["extension", "dist"],
+  "files": ["dist"],
   "peerDependencies": { "eve": "^x" },
   "dependencies": { "zod": "^3" },
   "scripts": { "build": "eve extension build", "prepare": "eve extension build" },
@@ -100,13 +100,23 @@ Author the source with `moduleResolution: "bundler"` — eve compiles it, so rel
 }
 ```
 
-`eve extension build` compiles the package's entry points to plain JavaScript with type declarations — the mount factory (`dist/index.mjs`) and the tool re-exports overrides use (`dist/tools`) — and fills the `exports` map so you never hand-list it. Compiling is what lets an installed extension load directly; local and workspace packages also work without publishing.
+`eve extension build` compiles the package into `dist/`: the mount factory (`dist/index.mjs`), the tool re-exports overrides use (`dist/tools`), **every contribution as its own pre-scoped `.mjs`**, and a **`dist/_ext-manifest.json`** describing those contributions. It fills the `exports` map so you never hand-list it.
+
+A consuming agent that resolves this compiled artifact composes the extension **without recompiling or executing its source** — discovery reads `dist/_ext-manifest.json` and the runtime loads the pre-scoped `dist/*.mjs`. This makes installed extensions cheaper to consume and lets you ship a closed-source, prebuilt package.
+
+An extension that ships no artifact (an unbuilt local or workspace package) still works: the consumer falls back to compiling its `extension/` source directly, so an in-progress workspace extension keeps live-reloading under `eve dev`. Run `eve extension build` (or wire it to your package's `build`/`prepare`, as below) to distribute — or consume — the compiled artifact.
+
+### Compatibility
+
+Because a compiled extension ships no source for the consumer to typecheck, `eve extension build` stamps the version of each eve capability the extension uses (tools, skills, connections, hooks, instructions, state, config, …) into `dist/_ext-manifest.json`. The consuming agent's build validates those stamps against its own eve and fails with a clear "rebuild the extension" message if any capability has moved — catching a skew at build time instead of as a runtime crash. This replaces the source typecheck; the `peerDependencies.eve` range stays a coarse, friendly check for source-backed mounts.
 
 ### Dependencies
 
-`eve` is a **peer** dependency: one eve lives in the consuming app and the extension's `eve/*` imports resolve to it. Declare the eve versions your extension supports as the peer range (`"eve": "^1"`) — eve enforces it when the extension is mounted, failing the build with a clear error if the app's eve is out of range, rather than surfacing a confusing compile break. Everything else the extension imports (SDKs, `zod`, …) goes in `dependencies`; each extension resolves its own versions. The consumer recompiles the extension's contributions from source, so `files` must ship both `extension/` (that source) and `dist/` (the compiled entry points).
+`eve` is a **peer** dependency: one eve lives in the consuming app and the extension's `eve/*` imports resolve to it. Declare the eve versions your extension supports as the peer range (`"eve": "^1"`) — eve enforces it when the extension is mounted, failing the build with a clear error if the app's eve is out of range, rather than surfacing a confusing compile break. Everything else the extension imports (SDKs, `zod`, …) goes in `dependencies`; each extension resolves its own versions. `eve extension build` emits the compiled contributions **and** their type declarations into `dist/`, so `files` ships `dist/` alone — no `.ts` source.
 
-Those deps resolve from `node_modules` under `eve dev`/`eve eval` and are bundled into the deployable by the consuming agent's `eve build`. A dependency that can't be bundled (a native addon) must be listed in the **consuming agent's** `build.externalDependencies` — an extension can't declare build config, so note it in your README.
+`eve extension build` inlines only the extension's own relative source into each compiled `dist/*.mjs`; your package `dependencies` stay **external** — bare imports the consuming agent resolves from `node_modules`, exactly like any published package (so shared deps dedupe and native addons keep working). `eve` stays external too and resolves to the consuming app's copy. A dependency that can't be bundled by the consuming agent's `eve build` (a native addon) must be listed in the **consuming agent's** `build.externalDependencies` — an extension can't declare build config, so note it in your README.
+
+The consuming agent loads the compiled artifact from `dist/` and reads the emitted `.d.ts` for types (the mount factory and `@acme/crm/tools` imports) — it never recompiles your source, so `dist/` is the only thing you ship.
 
 ## Mounting
 

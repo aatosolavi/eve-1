@@ -712,13 +712,13 @@ describe("discoverAgent (memory)", () => {
     expect(mount.namespace).toBe("crm");
     expect(mount.specifier).toBe("@acme/crm");
     expect(mount.packageName).toBe("@acme/crm");
-    expect(mount.manifest.tools).toEqual([
+    expect(mount.manifest!.tools).toEqual([
       { sourceKind: "module", logicalPath: "tools/search.ts", sourceId: "tools/search.ts" },
     ]);
-    expect(mount.manifest.instructions.map((entry) => entry.logicalPath)).toEqual([
+    expect(mount.manifest!.instructions.map((entry) => entry.logicalPath)).toEqual([
       "instructions/policy.md",
     ]);
-    expect(mount.manifest.resolvedExtensions).toEqual([]);
+    expect(mount.manifest!.resolvedExtensions).toEqual([]);
   });
 
   it("rejects an extension package that declares agent config", async () => {
@@ -803,7 +803,7 @@ describe("discoverAgent (memory)", () => {
     const mount = result.manifest.resolvedExtensions[0]!;
     expect(mount.namespace).toBe("crm");
     expect(mount.specifier).toBe("@acme/crm");
-    expect(mount.manifest.tools).toEqual([
+    expect(mount.manifest!.tools).toEqual([
       { sourceKind: "module", logicalPath: "tools/search.ts", sourceId: "tools/search.ts" },
     ]);
     // A directory mount always carries an overrides manifest (the mount dir is
@@ -840,7 +840,7 @@ describe("discoverAgent (memory)", () => {
     expect(result.diagnostics).toEqual([]);
     const mount = result.manifest.resolvedExtensions[0]!;
     // The extension's own tree still carries its `search` tool from the package.
-    expect(mount.manifest.tools).toEqual([
+    expect(mount.manifest!.tools).toEqual([
       { sourceKind: "module", logicalPath: "tools/search.ts", sourceId: "tools/search.ts" },
     ]);
     // The consumer's override slot is discovered as an agent-shaped source so

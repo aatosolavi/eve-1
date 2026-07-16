@@ -55,9 +55,16 @@ function packageJsonTemplate(includeRootOnlyFields: boolean): string {
     eve: {
       extension: "./extension",
     },
-    files: ["extension", "dist"],
+    files: ["dist"],
     exports: {
-      ".": "./extension/extension.ts",
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.mjs",
+      },
+      "./tools": {
+        types: "./dist/tools/index.d.ts",
+        default: "./dist/tools/index.mjs",
+      },
     },
     scripts: {
       build: "eve extension build",
@@ -146,10 +153,12 @@ unavailable, use https://eve.dev/docs/extensions as a fallback.
 
 ## Build and publish
 
-\`eve extension build\` (wired to \`build\`/\`prepare\`) compiles the mount factory
-and tool re-exports into \`dist/\` and fills the package \`exports\` map. Ship both
-\`extension/\` (source the consumer recompiles) and \`dist/\`. Keep \`eve\` as a peer
-dependency so the consumer's eve is the one that runs.
+\`eve extension build\` (wired to \`build\`/\`prepare\`) compiles the whole
+contribution tree into \`dist/\` — pre-scoped \`.mjs\`, type declarations, and a
+\`_ext-manifest.json\` describing the contributions — and fills the package
+\`exports\` map. Ship \`dist/\` only; a consuming agent loads the compiled artifact
+and never recompiles your source. Keep \`eve\` as a peer dependency so the
+consumer's eve is the one that runs.
 `;
 
 const CLAUDE_MD_TEMPLATE = `@AGENTS.md

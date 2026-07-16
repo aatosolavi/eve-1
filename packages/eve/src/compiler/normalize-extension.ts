@@ -10,6 +10,7 @@ import type {
   CompiledSkillDefinition,
   CompiledToolDefinition,
 } from "#compiler/manifest.js";
+import type { ExtensionArtifactContributions } from "#compiler/extension-artifact.js";
 import { compileConnectionDefinition } from "#compiler/normalize-connection.js";
 import type { ManifestCompileContext } from "#compiler/normalize-helpers.js";
 import { compileHookEntry } from "#compiler/normalize-hook.js";
@@ -33,11 +34,19 @@ export interface CompiledExtensionContributions {
 }
 
 /**
- * Compiles one mounted extension's source tree and namespaces its
- * contributions by the mount name. Module-backed contributions keep loading
- * from the extension package because their `logicalPath` is rebased to a
- * consumer-relative path — the module-map codegen resolves it against the
- * consumer's agent root, reaching into the extension package unchanged.
+ * Compiles one mounted extension into the consuming agent, namespacing its
+ * contributions by the mount name.
+ *
+ * Two mount forms produce the extension's own contributions:
+ * - **Source-backed** (`mount.manifest`): the extension ships its source, so
+ *   each contribution is recompiled from that source (loaded and executed) and
+ *   its module-backed `logicalPath` is rebased to a consumer-relative path — the
+ *   module-map codegen resolves it against the consumer's agent root, reaching
+ *   into the extension package unchanged.
+ * - **Source-free** (`mount.artifact`): the extension ships a pre-compiled
+ *   artifact, so contributions are composed from the artifact's stamped metadata
+ *   without loading or executing any extension code. The rebased `logicalPath`
+ *   points at the pre-scoped `.mjs` shipped in the extension's `dist/`.
  *
  * When the mount was authored as a directory (`extensions/<ns>/`), any
  * consumer-authored override slots are composed under the same namespace and
@@ -53,55 +62,99 @@ export async function compileExtensionContributions(input: {
   const { mount, consumerAgentRoot } = input;
   const options = { externalDependencies: input.externalDependencies };
 
-  const base = await composeManifestContributions({
-    manifest: mount.manifest,
+  const base = mount.artifact
+    ? resolveArtifactSkillPaths(mount.artifact.contributions, mount.sourceRoot)
+    : (
+        await produceBaseContributions({
+          manifest: expectManifest(mount),
+          role: "extension",
+          namespace: mount.namespace,
+          options,
+        })
+      ).base;
+
+  const extensionContributions = namespaceContributions({
+    base,
     namespace: mount.namespace,
+    sourceRoot: mount.sourceRoot,
     consumerAgentRoot,
-    options,
     sourceIdScope: `ext:${mount.namespace}`,
-    role: "extension",
   });
 
   if (mount.overrides === undefined) {
-    return base.contributions;
+    return extensionContributions;
   }
 
   // Overrides are consumer-authored files, so they are NOT extension-scoped. The
   // `ext-override:` prefix keeps their module-map keys distinct from the
   // extension's own `ext:<ns>:` modules while deliberately not matching the
   // loader's `^ext:<ns>:` scope pattern, so dev and prod both treat them unscoped.
-  const overrides = await composeManifestContributions({
+  const overridesBase = await produceBaseContributions({
     manifest: mount.overrides,
-    namespace: mount.namespace,
-    consumerAgentRoot,
-    options,
-    sourceIdScope: `ext-override:${mount.namespace}`,
     role: "override",
+    namespace: mount.namespace,
+    options,
+  });
+  const overrideContributions = namespaceContributions({
+    base: overridesBase.base,
+    namespace: mount.namespace,
+    sourceRoot: mount.overrides.agentRoot,
+    consumerAgentRoot,
+    sourceIdScope: `ext-override:${mount.namespace}`,
   });
 
   // Consumer overrides win: list them first so first-registration-wins dedup
   // keeps the override over the extension's same-named contribution.
-  const merged = mergeContributions(overrides.contributions, base.contributions);
+  const merged = mergeContributions(overrideContributions, extensionContributions);
 
+  const prefix = `${mount.namespace}__`;
   return applyOverrideDisables({
     merged,
-    disables: overrides.disabledToolTargets,
-    extensionToolNames: new Set(base.contributions.tools.map((tool) => tool.name)),
-    extensionDynamicToolSlugs: new Set(base.contributions.dynamicTools.map((tool) => tool.slug)),
+    disables: overridesBase.disabledToolTargets.map((disable) => ({
+      name: `${prefix}${disable.name}`,
+      logicalPath: disable.logicalPath,
+    })),
+    extensionToolNames: new Set(extensionContributions.tools.map((tool) => tool.name)),
+    extensionDynamicToolSlugs: new Set(
+      extensionContributions.dynamicTools.map((tool) => tool.slug),
+    ),
     namespace: mount.namespace,
   });
 }
 
+/**
+ * Compiles an extension's own source tree into **base-named** contributions
+ * (no mount prefix, no rebase, no source-id scope), used by `eve extension
+ * build` to serialize the source-free artifact. Rejects the same
+ * extension-illegal contributions the source-backed consumer path rejects.
+ */
+export async function produceExtensionArtifactContributions(input: {
+  readonly manifest: AgentSourceManifest;
+  readonly externalDependencies: readonly string[];
+}): Promise<CompiledExtensionContributions> {
+  const { base } = await produceBaseContributions({
+    manifest: input.manifest,
+    role: "extension",
+    namespace: input.manifest.agentId,
+    options: { externalDependencies: input.externalDependencies },
+  });
+  return base;
+}
+
 export interface DisabledToolTarget {
-  /** Namespaced target, e.g. `crm__search`. */
+  /** Base (un-prefixed) contribution name, e.g. `search`. */
   readonly name: string;
   /** Override-relative authored path, e.g. `tools/search.ts`, for diagnostics. */
   readonly logicalPath: string;
 }
 
-interface ComposedContributions {
-  readonly contributions: CompiledExtensionContributions;
+interface ComposedBaseContributions {
+  readonly base: CompiledExtensionContributions;
   readonly disabledToolTargets: readonly DisabledToolTarget[];
+}
+
+interface ComposeOptions {
+  readonly externalDependencies: readonly string[];
 }
 
 /**
@@ -147,29 +200,20 @@ export function applyOverrideDisables(input: {
   };
 }
 
-interface ComposeOptions {
-  readonly externalDependencies: readonly string[];
-}
-
 /**
- * Compiles one agent-shaped manifest into namespaced extension contributions
- * rebased onto the consumer's agent root. Used for both the extension's own
- * source tree and a directory mount's consumer override slots.
+ * Compiles one agent-shaped manifest into **base-named** extension
+ * contributions (no mount prefix, no rebase, no source-id scope). Used for both
+ * the extension's own source tree and a directory mount's consumer override
+ * slots; the caller applies namespacing via {@link namespaceContributions}.
  */
-async function composeManifestContributions(input: {
+async function produceBaseContributions(input: {
   readonly manifest: AgentSourceManifest;
-  readonly namespace: string;
-  readonly consumerAgentRoot: string;
-  readonly options: ComposeOptions;
-  readonly sourceIdScope: string;
   readonly role: "extension" | "override";
-}): Promise<ComposedContributions> {
-  const { manifest, namespace, consumerAgentRoot, options, sourceIdScope, role } = input;
+  readonly namespace: string;
+  readonly options: ComposeOptions;
+}): Promise<ComposedBaseContributions> {
+  const { manifest, role, namespace, options } = input;
   const sourceRoot = manifest.agentRoot;
-  const prefix = `${namespace}__`;
-  const scopeSourceId = (sourceId: string): string => `${sourceIdScope}:${sourceId}`;
-  const rebase = (logicalPath: string): string =>
-    relativePath(consumerAgentRoot, joinPath(sourceRoot, logicalPath)).replaceAll("\\", "/");
 
   const tools: CompiledToolDefinition[] = [];
   const dynamicTools: CompiledDynamicToolDefinition[] = [];
@@ -177,20 +221,9 @@ async function composeManifestContributions(input: {
   for (const source of manifest.tools) {
     const entry = await compileToolEntry(sourceRoot, source, options);
     if (entry.kind === "tool") {
-      tools.push({
-        ...entry.definition,
-        name: `${prefix}${entry.definition.name}`,
-        sourceId: scopeSourceId(entry.definition.sourceId),
-        logicalPath: rebase(entry.definition.logicalPath),
-      });
+      tools.push(entry.definition);
     } else if (entry.kind === "dynamic-tool") {
-      dynamicTools.push({
-        ...entry.definition,
-        slug: `${prefix}${entry.definition.slug}`,
-        extensionNamespace: namespace,
-        sourceId: scopeSourceId(entry.definition.sourceId),
-        logicalPath: rebase(entry.definition.logicalPath),
-      });
+      dynamicTools.push(entry.definition);
     } else if (entry.kind === "workflow-tool") {
       throw new Error(
         `${describeExtensionSource(role, namespace, source.logicalPath)} enables the Workflow tool, ` +
@@ -202,54 +235,26 @@ async function composeManifestContributions(input: {
           `but an extension cannot disable framework tools — that is the consuming agent's to own. Remove it.`,
       );
     } else {
-      disabledToolTargets.push({ name: `${prefix}${entry.name}`, logicalPath: source.logicalPath });
+      disabledToolTargets.push({ name: entry.name, logicalPath: source.logicalPath });
     }
   }
 
-  const hooks: CompiledHookDefinition[] = manifest.hooks.map((source) => {
-    const hook = compileHookEntry(source);
-    return {
-      ...hook,
-      slug: `${prefix}${hook.slug}`,
-      sourceId: scopeSourceId(hook.sourceId),
-      logicalPath: rebase(hook.logicalPath),
-    };
-  });
+  const hooks: CompiledHookDefinition[] = manifest.hooks.map((source) => compileHookEntry(source));
 
   const skills: CompiledSkillDefinition[] = [];
   const dynamicSkills: CompiledDynamicSkillDefinition[] = [];
   for (const source of manifest.skills) {
     const entry = await compileSkillSource(sourceRoot, source, options);
     if (entry.kind === "skill") {
-      skills.push({
-        ...entry.definition,
-        name: `${prefix}${entry.definition.name}`,
-        sourceId: scopeSourceId(entry.definition.sourceId),
-        logicalPath: rebase(entry.definition.logicalPath),
-      });
+      skills.push(entry.definition);
     } else {
-      dynamicSkills.push({
-        ...entry.definition,
-        slug: `${prefix}${entry.definition.slug}`,
-        extensionNamespace: namespace,
-        sourceId: scopeSourceId(entry.definition.sourceId),
-        logicalPath: rebase(entry.definition.logicalPath),
-      });
+      dynamicSkills.push(entry.definition);
     }
   }
 
-  const connections: CompiledConnectionDefinition[] = (
-    await Promise.all(
-      manifest.connections.map((source) =>
-        compileConnectionDefinition(sourceRoot, source, options),
-      ),
-    )
-  ).map((connection) => ({
-    ...connection,
-    connectionName: `${prefix}${connection.connectionName}`,
-    sourceId: scopeSourceId(connection.sourceId),
-    logicalPath: rebase(connection.logicalPath),
-  }));
+  const connections: CompiledConnectionDefinition[] = await Promise.all(
+    manifest.connections.map((source) => compileConnectionDefinition(sourceRoot, source, options)),
+  );
 
   const dynamicInstructions: CompiledDynamicInstructionsDefinition[] = [];
   const instructionFragments: string[] = [];
@@ -258,17 +263,12 @@ async function composeManifestContributions(input: {
     if (entry.kind === "instructions") {
       instructionFragments.push(entry.definition.markdown);
     } else {
-      dynamicInstructions.push({
-        ...entry.definition,
-        slug: `${prefix}${entry.definition.slug}`,
-        sourceId: scopeSourceId(entry.definition.sourceId),
-        logicalPath: rebase(entry.definition.logicalPath),
-      });
+      dynamicInstructions.push(entry.definition);
     }
   }
 
   return {
-    contributions: {
+    base: {
       tools,
       dynamicTools,
       hooks,
@@ -280,6 +280,119 @@ async function composeManifestContributions(input: {
     },
     disabledToolTargets,
   };
+}
+
+/**
+ * Namespaces a set of base contributions into one mounted extension's composed
+ * shape: prefixes every model-facing name with `<ns>__`, tags dynamic resolvers
+ * with the mount namespace, scopes each source id, and rebases each
+ * module-backed `logicalPath` onto the consumer's agent root.
+ */
+function namespaceContributions(input: {
+  readonly base: CompiledExtensionContributions;
+  readonly namespace: string;
+  readonly sourceRoot: string;
+  readonly consumerAgentRoot: string;
+  readonly sourceIdScope: string;
+}): CompiledExtensionContributions {
+  const { base, namespace, sourceRoot, consumerAgentRoot, sourceIdScope } = input;
+  const prefix = `${namespace}__`;
+  const scopeSourceId = (sourceId: string): string => `${sourceIdScope}:${sourceId}`;
+  const rebase = (logicalPath: string): string =>
+    relativePath(consumerAgentRoot, joinPath(sourceRoot, logicalPath)).replaceAll("\\", "/");
+
+  return {
+    tools: base.tools.map((tool) => ({
+      ...tool,
+      name: `${prefix}${tool.name}`,
+      sourceId: scopeSourceId(tool.sourceId),
+      logicalPath: rebase(tool.logicalPath),
+    })),
+    dynamicTools: base.dynamicTools.map((tool) => ({
+      ...tool,
+      slug: `${prefix}${tool.slug}`,
+      extensionNamespace: namespace,
+      sourceId: scopeSourceId(tool.sourceId),
+      logicalPath: rebase(tool.logicalPath),
+    })),
+    hooks: base.hooks.map((hook) => ({
+      ...hook,
+      slug: `${prefix}${hook.slug}`,
+      sourceId: scopeSourceId(hook.sourceId),
+      logicalPath: rebase(hook.logicalPath),
+    })),
+    skills: base.skills.map((skill) => ({
+      ...skill,
+      name: `${prefix}${skill.name}`,
+      sourceId: scopeSourceId(skill.sourceId),
+      logicalPath: rebase(skill.logicalPath),
+    })),
+    dynamicSkills: base.dynamicSkills.map((skill) => ({
+      ...skill,
+      slug: `${prefix}${skill.slug}`,
+      extensionNamespace: namespace,
+      sourceId: scopeSourceId(skill.sourceId),
+      logicalPath: rebase(skill.logicalPath),
+    })),
+    dynamicInstructions: base.dynamicInstructions.map((instruction) => ({
+      ...instruction,
+      slug: `${prefix}${instruction.slug}`,
+      sourceId: scopeSourceId(instruction.sourceId),
+      logicalPath: rebase(instruction.logicalPath),
+    })),
+    connections: base.connections.map((connection) => ({
+      ...connection,
+      connectionName: `${prefix}${connection.connectionName}`,
+      sourceId: scopeSourceId(connection.sourceId),
+      logicalPath: rebase(connection.logicalPath),
+    })),
+    instructionFragments: [...base.instructionFragments],
+  };
+}
+
+/**
+ * Resolves a source-free artifact's dist-relative skill-package paths to
+ * absolute paths under the shipped `dist/`, so consumer-side workspace
+ * materialization copies the skill files exactly as it does for source skills.
+ * Everything else in the artifact contributions is carried through unchanged.
+ */
+function resolveArtifactSkillPaths(
+  contributions: ExtensionArtifactContributions,
+  distRoot: string,
+): CompiledExtensionContributions {
+  const resolve = (path: string | undefined): string | undefined =>
+    path === undefined ? undefined : joinPath(distRoot, path);
+  return {
+    tools: [...contributions.tools],
+    dynamicTools: [...contributions.dynamicTools],
+    hooks: [...contributions.hooks],
+    skills: contributions.skills.map((skill) => {
+      if (skill.sourceKind !== "skill-package") {
+        return { ...skill };
+      }
+      return {
+        ...skill,
+        rootPath: joinPath(distRoot, skill.rootPath),
+        skillFilePath: joinPath(distRoot, skill.skillFilePath),
+        assetsPath: resolve(skill.assetsPath),
+        referencesPath: resolve(skill.referencesPath),
+        scriptsPath: resolve(skill.scriptsPath),
+      };
+    }),
+    dynamicSkills: [...contributions.dynamicSkills],
+    dynamicInstructions: [...contributions.dynamicInstructions],
+    connections: [...contributions.connections],
+    instructionFragments: [...contributions.instructionFragments],
+  };
+}
+
+function expectManifest(mount: ResolvedExtensionMount): AgentSourceManifest {
+  if (mount.manifest === undefined) {
+    throw new Error(
+      `Extension mount "${mount.namespace}" (${mount.packageName}) has neither a source manifest nor a compiled artifact.`,
+    );
+  }
+  return mount.manifest;
 }
 
 function describeExtensionSource(

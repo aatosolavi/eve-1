@@ -753,7 +753,7 @@ describe("scaffoldExtensionProject", () => {
     expect(packageJson).toMatchObject({
       name: "demo-extension",
       eve: { extension: "./extension" },
-      files: ["extension", "dist"],
+      files: ["dist"],
       peerDependencies: { eve: "^0.25.0" },
       dependencies: { zod: "4.4.3" },
       scripts: {

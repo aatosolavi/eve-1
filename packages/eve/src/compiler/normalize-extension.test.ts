@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOverrideDisables,
+  compileExtensionContributions,
   type CompiledExtensionContributions,
   mergeContributions,
 } from "#compiler/normalize-extension.js";
+import type { ExtensionArtifact } from "#compiler/extension-artifact.js";
+import type { ManifestCompileContext } from "#compiler/normalize-helpers.js";
+import type { ResolvedExtensionMount } from "#discover/manifest.js";
 
 // mergeContributions only reads each named contribution's identifier for dedup,
 // so minimal partial fixtures suffice.
@@ -23,6 +27,97 @@ function contributions(
     ...overrides,
   };
 }
+
+// The artifact compose path never touches the model catalog.
+const NO_CONTEXT = {} as ManifestCompileContext;
+
+function sourceFreeArtifact(
+  overrides: Partial<ExtensionArtifact["contributions"]> = {},
+): ExtensionArtifact {
+  return {
+    kind: "eve-extension-artifact",
+    version: 1,
+    eveVersion: "1.0.0",
+    packageName: "@acme/crm",
+    packageNamespace: "acme-crm",
+    capabilityVersions: { tool: 1, config: 1, state: 1 },
+    contributions: {
+      tools: [],
+      dynamicTools: [],
+      hooks: [],
+      skills: [],
+      dynamicSkills: [],
+      dynamicInstructions: [],
+      connections: [],
+      instructionFragments: [],
+      ...overrides,
+    },
+  };
+}
+
+describe("compileExtensionContributions (source-free artifact)", () => {
+  it("namespaces base names, rebases dist paths, and scopes source ids without loading source", async () => {
+    const artifact = sourceFreeArtifact({
+      tools: [
+        {
+          description: "Search the CRM.",
+          inputSchema: null,
+          name: "search",
+          logicalPath: "tools/search.mjs",
+          sourceId: "tools/search.mjs",
+          sourceKind: "module",
+        },
+      ],
+      dynamicTools: [
+        {
+          slug: "forecast",
+          eventNames: [],
+          logicalPath: "tools/forecast.mjs",
+          sourceId: "tools/forecast.mjs",
+          sourceKind: "module",
+        },
+      ],
+      instructionFragments: ["Follow CRM policy."],
+    });
+    const mount: ResolvedExtensionMount = {
+      namespace: "crm",
+      specifier: "@acme/crm",
+      packageName: "@acme/crm",
+      packageRoot: "/app/node_modules/@acme/crm",
+      sourceRoot: "/app/node_modules/@acme/crm/dist",
+      artifact,
+    };
+
+    const contributions = await compileExtensionContributions({
+      mount,
+      context: NO_CONTEXT,
+      consumerAgentRoot: "/app/agent",
+      externalDependencies: [],
+    });
+
+    expect(contributions.tools).toEqual([
+      {
+        description: "Search the CRM.",
+        inputSchema: null,
+        name: "crm__search",
+        logicalPath: "../node_modules/@acme/crm/dist/tools/search.mjs",
+        sourceId: "ext:crm:tools/search.mjs",
+        sourceKind: "module",
+      },
+    ]);
+    expect(contributions.dynamicTools).toEqual([
+      {
+        slug: "crm__forecast",
+        eventNames: [],
+        extensionNamespace: "crm",
+        logicalPath: "../node_modules/@acme/crm/dist/tools/forecast.mjs",
+        sourceId: "ext:crm:tools/forecast.mjs",
+        sourceKind: "module",
+      },
+    ]);
+    expect(contributions.instructionFragments).toEqual(["Follow CRM policy."]);
+  });
+});
 
 describe("mergeContributions", () => {
   it("keeps the primary (consumer override) entry when a named contribution collides", () => {

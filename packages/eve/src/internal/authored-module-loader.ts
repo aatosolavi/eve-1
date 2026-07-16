@@ -178,6 +178,36 @@ export async function bundleAuthoredModuleForGeneration(
 }
 
 /**
+ * Bundles one authored contribution module for source-free extension
+ * distribution (`eve extension build`).
+ *
+ * Unlike {@link bundleAuthoredModuleForGeneration}, package dependencies stay
+ * **external** (bare imports the consuming agent resolves from `node_modules`,
+ * exactly like a normal published package) — only the extension's own relative
+ * source is inlined, and `eve/*` stays external. Emitted without a source map so
+ * the extension's TypeScript source is not embedded in the shipped `.mjs`.
+ *
+ * Pass `extensionScopeNamespace` so the module's `defineState`/`defineExtension`
+ * imports are scoped to the extension's package namespace at build.
+ */
+export async function bundleAuthoredModuleForDistribution(
+  modulePath: string,
+  options: AuthoredModuleLoadOptions = {},
+): Promise<string> {
+  const code = await buildAuthoredModuleBundle(modulePath, options, {
+    channelIdentity: false,
+    packageBoundaryPlugin: createRuntimeLoaderPackageBoundaryPlugin({
+      externalDependencies: normalizeExternalDependencies(options.externalDependencies),
+      packageRoot: resolveAuthoredPackageRoot(modulePath),
+    }),
+    plugins: [createAuthoredDirectiveGuardPlugin()],
+    sourcemap: false,
+  });
+
+  return removeRolldownModuleRegionComments(code);
+}
+
+/**
  * Bundles every runtime-authored module in one immutable generation graph.
  * Shared dependencies are parsed and emitted once instead of once per authored
  * entry.
@@ -196,11 +226,16 @@ export async function bundleAuthoredModuleMapForGeneration(input: {
     manifest: input.manifest,
     moduleMapPath: input.moduleMapPath,
   });
+  // Source-free mounts ship pre-scoped `.mjs`, so scoping them again would
+  // double-prefix their state/config namespace — only source-backed mounts are
+  // scoped here.
   const extensionScopePlugin = createExtensionScopePlugin(
-    input.manifest.extensionMounts.map((mount) => ({
-      packageNamespace: mount.packageNamespace,
-      sourceRoot: mount.sourceRoot,
-    })),
+    input.manifest.extensionMounts
+      .filter((mount) => !mount.sourceFree)
+      .map((mount) => ({
+        packageNamespace: mount.packageNamespace,
+        sourceRoot: mount.sourceRoot,
+      })),
   );
   const plugins = [
     createVirtualGenerationModuleMapPlugin({

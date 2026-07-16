@@ -80,12 +80,16 @@ async function hydrateCompiledModuleMapFromManifest(
       })),
   ];
 
+  // Source-free mounts ship pre-scoped `.mjs`, so their contributions and mount
+  // module must not be re-scoped by the loader — only source-backed mounts feed
+  // the scope index.
+  const sourceBackedMounts = manifest.extensionMounts.filter((mount) => !mount.sourceFree);
   const scopeIndex: ExtensionScopeIndex = {
     byMountNamespace: new Map(
-      manifest.extensionMounts.map((mount) => [mount.namespace, mount.packageNamespace]),
+      sourceBackedMounts.map((mount) => [mount.namespace, mount.packageNamespace]),
     ),
     byMountSourceId: new Map(
-      manifest.extensionMounts.map((mount) => [mount.mountSourceId, mount.packageNamespace]),
+      sourceBackedMounts.map((mount) => [mount.mountSourceId, mount.packageNamespace]),
     ),
   };
   for (const nodeManifest of nodeManifests) {

@@ -1,4 +1,5 @@
 import { basename, relative, resolve } from "node:path";
+import type { ExtensionArtifact } from "#compiler/extension-artifact.js";
 import type {
   MarkdownSourceRef,
   ModuleSourceRef,
@@ -138,9 +139,11 @@ export type LibSourceRef = ModuleSourceRef;
 export type ExtensionSourceRef = ModuleSourceRef;
 
 /**
- * A mounted extension resolved to its package and discovered agent-shaped
- * source tree. The compiler composes each mount's {@link manifest} into the
- * consuming agent, prefixing contributions with {@link namespace}.
+ * A mounted extension resolved to its package and either its discovered
+ * agent-shaped source tree ({@link manifest}) or its pre-compiled source-free
+ * artifact ({@link artifact}). Exactly one of the two is present. The compiler
+ * composes the mount's contributions into the consuming agent, prefixing them
+ * with {@link namespace}.
  */
 export interface ResolvedExtensionMount {
   /** Mount namespace derived from the mount filename (e.g. `crm`). */
@@ -151,10 +154,24 @@ export interface ResolvedExtensionMount {
   readonly packageName: string;
   /** Absolute path to the resolved package root. */
   readonly packageRoot: string;
-  /** Absolute path to the extension's agent-shaped source root. */
+  /**
+   * Absolute root the extension's contribution logical paths are relative to:
+   * the agent-shaped source root for a source-backed mount, or the artifact's
+   * `dist/` directory for a source-free mount.
+   */
   readonly sourceRoot: string;
-  /** Discovered agent-shaped source manifest for the extension. */
-  readonly manifest: AgentSourceManifest;
+  /**
+   * Discovered agent-shaped source manifest for the extension. Present for a
+   * source-backed mount (the package ships no compiled artifact); the compiler
+   * recompiles these contributions from source.
+   */
+  readonly manifest?: AgentSourceManifest;
+  /**
+   * Pre-compiled source-free artifact read from `dist/_ext-manifest.json`.
+   * Present for a source-free mount; the compiler composes its contributions
+   * without recompiling or executing the extension's source.
+   */
+  readonly artifact?: ExtensionArtifact;
   /**
    * Consumer-authored overrides discovered in the mount directory form
    * (`extensions/<ns>/{tools,connections,…}/`). Composed under the same

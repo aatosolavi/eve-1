@@ -57,6 +57,7 @@ export async function compileAgentManifest(
       packageName: mount.packageName,
       packageNamespace: packageStateNamespace(mount.packageName),
       sourceRoot: mount.sourceRoot,
+      sourceFree: mount.artifact !== undefined,
       mountSourceId: mountRef?.sourceId ?? `extensions/${mount.namespace}`,
       mountLogicalPath: mountRef?.logicalPath ?? `extensions/${mount.namespace}`,
     };

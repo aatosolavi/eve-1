@@ -647,11 +647,16 @@ function createApplicationNitroBundlerConfiguration(
       : unconfiguredOptionalEnginePackages
     ).push(packageName);
   }
+  // Source-free mounts ship pre-scoped `.mjs`; scoping them again would
+  // double-prefix their state/config namespace, so only source-backed mounts
+  // are handed to the scope plugin.
   const extensionScopePlugin = createExtensionScopePlugin(
-    (preparedHost.compileResult.manifest.extensionMounts ?? []).map((mount) => ({
-      sourceRoot: mount.sourceRoot,
-      packageNamespace: mount.packageNamespace,
-    })),
+    (preparedHost.compileResult.manifest.extensionMounts ?? [])
+      .filter((mount) => !mount.sourceFree)
+      .map((mount) => ({
+        sourceRoot: mount.sourceRoot,
+        packageNamespace: mount.packageNamespace,
+      })),
   );
   const nitroBundlerPlugins = [
     compiledSandboxBackendPrunePlugin,

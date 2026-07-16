@@ -304,17 +304,12 @@ export async function discoverAgent(input: DiscoverAgentInput): Promise<Discover
       if (located.location === undefined) {
         continue;
       }
-
-      const extensionResult = await discoverAgent({
-        agentRoot: located.location.sourceRoot,
-        appRoot: located.location.packageRoot,
-        source,
-        role: "extension",
-      });
-      diagnostics.push(...extensionResult.diagnostics);
+      const location = located.location;
 
       // The mount directory's override slots discover as an agent-shaped source;
       // its `extension.<ext>` declaration matches no slot, so it is ignored here.
+      // Overrides are always consumer-authored source, regardless of whether the
+      // extension itself ships a source-free artifact.
       let overrides: AgentSourceManifest | undefined;
       if (descriptor.overridesRoot !== undefined) {
         const overridesResult = await discoverAgent({
@@ -329,13 +324,26 @@ export async function discoverAgent(input: DiscoverAgentInput): Promise<Discover
 
       const resolved: { -readonly [K in keyof ResolvedExtensionMount]: ResolvedExtensionMount[K] } =
         {
-          namespace: located.location.namespace,
-          specifier: located.location.specifier,
-          packageName: located.location.packageName,
-          packageRoot: located.location.packageRoot,
-          sourceRoot: located.location.sourceRoot,
-          manifest: extensionResult.manifest,
+          namespace: location.namespace,
+          specifier: location.specifier,
+          packageName: location.packageName,
+          packageRoot: location.packageRoot,
+          sourceRoot: location.sourceRoot,
         };
+      if (location.artifact !== undefined) {
+        // Source-free: compose from the shipped artifact; do not recurse into
+        // the (possibly absent) source tree.
+        resolved.artifact = location.artifact;
+      } else {
+        const extensionResult = await discoverAgent({
+          agentRoot: location.sourceRoot,
+          appRoot: location.packageRoot,
+          source,
+          role: "extension",
+        });
+        diagnostics.push(...extensionResult.diagnostics);
+        resolved.manifest = extensionResult.manifest;
+      }
       if (overrides !== undefined) {
         resolved.overrides = overrides;
       }
