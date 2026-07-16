@@ -25,7 +25,10 @@ export default defineEval({
 
     await t.respondAll("blue");
 
+    // `requireInputRequest` + `respondAll` already prove the park/resume
+    // mechanism. Whether the model echoes the chosen option in prose is
+    // model-dependent (it sometimes just acknowledges), so track it, don't gate.
     t.succeeded();
-    t.messageIncludes(/\bblue\b/i);
+    t.messageIncludes(/\bblue\b/i).soft();
   },
 });

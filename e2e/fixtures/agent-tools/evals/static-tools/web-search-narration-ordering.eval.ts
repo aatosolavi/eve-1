@@ -5,7 +5,15 @@ const TOOL_NAME = "web_search";
 
 export default defineEval({
   description: "Provider tools: narrated and un-narrated web searches preserve event order.",
+  // Quarantined: two live gateway searches, so it can fail on transient network
+  // blips (body timeout / socket hang up). Runs only in the non-gating `live`
+  // CI step.
+  tags: ["live"],
   async test(t) {
+    if (process.env.EVE_E2E_LIVE !== "1") {
+      t.skip("Live web_search smoke; runs in the non-gating `live` CI step (EVE_E2E_LIVE=1).");
+    }
+
     const narrated = await t.send(
       [
         `Before calling \`${TOOL_NAME}\`, write one short visible sentence explaining that you will search.`,

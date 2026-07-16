@@ -27,7 +27,14 @@ function completedToolResultCount(events: readonly HandleMessageStreamEvent[], t
 
 export default defineEval({
   description: "Provider tools smoke: ten parallel gateway web searches complete successfully.",
+  // Quarantined: hits the live gateway (ten parallel calls), so it can fail on
+  // transient network blips. Runs only in the non-gating `live` CI step.
+  tags: ["live"],
   async test(t) {
+    if (process.env.EVE_E2E_LIVE !== "1") {
+      t.skip("Live web_search smoke; runs in the non-gating `live` CI step (EVE_E2E_LIVE=1).");
+    }
+
     const turn = await t.send(
       "Using 10 parallel web_search calls: lookup the nba finals winner from 2026 back to 2017",
     );
@@ -38,6 +45,7 @@ export default defineEval({
       (events) => completedToolResultCount(events, TOOL_NAME) >= MIN_COMPLETED_SEARCHES,
     );
     t.noFailedActions();
-    t.judge.autoevals.factuality(EXPECTED_WINNERS, { on: turn.message }).atLeast(0.5);
+    // Factuality of live results is non-deterministic: record it, never gate.
+    t.judge.autoevals.factuality(EXPECTED_WINNERS, { on: turn.message }).soft();
   },
 });

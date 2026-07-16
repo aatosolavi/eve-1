@@ -42,7 +42,14 @@ function providerRequestsPrecedeResults(events: readonly HandleMessageStreamEven
 
 export default defineEval({
   description: "Provider tools smoke: gateway web search answers a current-events question.",
+  // Quarantined: hits the live gateway, so it can fail on transient network
+  // blips. Runs only in the non-gating `live` CI step.
+  tags: ["live"],
   async test(t) {
+    if (process.env.EVE_E2E_LIVE !== "1") {
+      t.skip("Live web_search smoke; runs in the non-gating `live` CI step (EVE_E2E_LIVE=1).");
+    }
+
     const turn = await t.send(
       [
         "Important date context: the 2026 NBA Finals have absolutely already been played, and a champion has been crowned.",
@@ -59,10 +66,11 @@ export default defineEval({
       (events) => providerRequestsPrecedeResults(events),
     );
     t.messageIncludes(/New York Knicks/iu);
+    // `messageIncludes` already gates correctness; track factuality, never gate.
     t.judge.autoevals
       .factuality("The New York Knicks won the 2026 NBA Finals.", {
         on: turn.message,
       })
-      .atLeast(0.5);
+      .soft();
   },
 });

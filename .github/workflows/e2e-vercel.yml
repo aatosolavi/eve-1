@@ -146,6 +146,15 @@ jobs:
           npx eve eval --strict --verbose --url "$DEPLOYMENT_URL" \
             --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}.xml"
 
+          # `live`-tagged evals hit the external provider gateway (web_search)
+          # and can fail on transient network blips, so they must not gate
+          # unrelated PRs. They self-skip in the strict run above (EVE_E2E_LIVE
+          # unset) and run here non-gating (`|| true`).
+          if npx eve eval --tag live --list >/dev/null 2>&1; then
+            EVE_E2E_LIVE=1 npx eve eval --tag live --verbose --url "$DEPLOYMENT_URL" \
+              --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-live.xml" || true
+          fi
+
           # Redeploy-tagged evals rebuild and redeploy the fixture from inside
           # the eval body, repointing a run-scoped alias at each new
           # deployment. They run against the alias (immutable deployment URLs

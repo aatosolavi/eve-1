@@ -13,8 +13,10 @@ export default defineEval({
     );
 
     t.succeeded();
+    // A correct sum proves the authored-sandbox path ran real Python. The
+    // exact input shape is the model's choice (it may pass the integers
+    // differently), so assert on the result, not the argument encoding.
     t.calledTool("run_python", {
-      input: { numbers: [2, 3, 4] },
       output: { sum: 9 },
     });
     t.messageIncludes(/\b9\b/);
