@@ -755,6 +755,7 @@ export async function createDevelopmentApplicationNitro(
   const nitroBuildDir = preparedHost.workspace.nitroBuildDir;
   const bundler = createApplicationNitroBundlerConfiguration(preparedHost, undefined);
   const plugins = createApplicationNitroPlugins(preparedHost);
+  plugins.push(resolvePackageSourceFilePath("src/internal/nitro/host/development-log-plugin.ts"));
 
   await prepareEveVersionedCacheDirectory(nitroBuildDir);
   const nitro = await createNitro(

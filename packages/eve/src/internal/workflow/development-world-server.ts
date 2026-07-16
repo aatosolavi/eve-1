@@ -23,12 +23,8 @@ import {
   DEVELOPMENT_WORLD_OPERATIONS,
   type DevelopmentWorldCall,
 } from "#internal/workflow/development-world-protocol.js";
-import { DevelopmentSessionLogRecorder } from "#internal/session-logs/recorder.js";
-import {
-  areSessionLogsEnabled,
-  developmentSessionLogBatchSchema,
-  DEVELOPMENT_SESSION_LOG_ROUTE,
-} from "#internal/session-logs/protocol.js";
+import type { DevelopmentLog } from "#internal/dev-logs/development-log.js";
+import { DevelopmentLogRecorder } from "#internal/dev-logs/recorder.js";
 
 /**
  * The application's one local Workflow World, owned by the CLI parent.
@@ -55,6 +51,7 @@ export interface ParentDevelopmentWorkflowWorld {
 export function createParentDevelopmentWorkflowWorld(input: {
   readonly agentName: string;
   readonly appRoot: string;
+  readonly developmentLog: DevelopmentLog | undefined;
   readonly resolveActiveGenerationId: () => string;
   readonly transportSecret: string;
 }): ParentDevelopmentWorkflowWorld {
@@ -67,13 +64,14 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
   readonly #resolveActiveGenerationId: () => string;
   readonly #transportSecret: string;
   readonly #world: World;
-  readonly #sessionLogs: DevelopmentSessionLogRecorder | undefined;
+  readonly #developmentLogRecorder: DevelopmentLogRecorder | undefined;
   #closed = false;
   #started = false;
 
   constructor(input: {
     readonly agentName: string;
     readonly appRoot: string;
+    readonly developmentLog: DevelopmentLog | undefined;
     readonly resolveActiveGenerationId: () => string;
     readonly transportSecret: string;
   }) {
@@ -88,9 +86,10 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
       dataDir: resolveLocalWorkflowWorldDataDirectory(input.appRoot),
       recoverActiveRuns: false,
     });
-    this.#sessionLogs = areSessionLogsEnabled()
-      ? new DevelopmentSessionLogRecorder({ appRoot: input.appRoot, world: this.#world })
-      : undefined;
+    this.#developmentLogRecorder =
+      input.developmentLog === undefined
+        ? undefined
+        : new DevelopmentLogRecorder({ log: input.developmentLog, world: this.#world });
   }
 
   async start(): Promise<void> {
@@ -115,7 +114,6 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     await this.#world.start?.();
     this.#started = true;
-    this.#sessionLogs?.start();
     await reenqueueActiveDevelopmentRuns({
       enqueue: this.#queue.bind(this),
       prefix: deriveEveWorkflowQueuePrefix(this.#agentName),
@@ -130,7 +128,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     }
     this.#closed = true;
     this.#started = false;
-    await this.#sessionLogs?.close();
+    await this.#developmentLogRecorder?.close();
     await this.#world.close?.();
   }
 
@@ -142,33 +140,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     if (url.pathname === DEVELOPMENT_WORKFLOW_STREAM_ROUTE) {
       return await this.#handleStream(request, url);
     }
-    if (url.pathname === DEVELOPMENT_SESSION_LOG_ROUTE) {
-      return await this.#handleSessionLog(request);
-    }
     return undefined;
-  }
-
-  async #handleSessionLog(request: Request): Promise<Response> {
-    if (!this.#isTrusted(request) || request.method !== "POST") {
-      return Response.json({ error: "Session log request is not trusted." }, { status: 401 });
-    }
-    if (this.#sessionLogs === undefined) {
-      return new Response(null, { status: 204 });
-    }
-    try {
-      const parsed = developmentSessionLogBatchSchema.safeParse(
-        decodeDevelopmentWorldValue(await request.text()),
-      );
-      if (!parsed.success) {
-        return Response.json({ error: "Session log request is malformed." }, { status: 400 });
-      }
-      await this.#sessionLogs.appendOutputEvents(parsed.data.events);
-      return new Response(null, { status: 204 });
-    } catch (error) {
-      return new Response(encodeDevelopmentWorldValue(serializeDevelopmentWorldError(error)), {
-        status: 500,
-      });
-    }
   }
 
   async #collectActiveTurnGenerationIds(): Promise<ReadonlySet<string>> {
@@ -290,7 +262,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
     if (call.operation === "events.create") {
       const runId = readCommittedEventRunId(result);
       if (runId !== undefined) {
-        this.#sessionLogs?.observeRunCommitted(runId);
+        this.#developmentLogRecorder?.observeRunCommitted(runId);
       }
     }
     return result;
@@ -299,7 +271,7 @@ class LocalParentDevelopmentWorkflowWorld implements ParentDevelopmentWorkflowWo
   #observeSessionEventStream(args: readonly unknown[]): void {
     const [runId, name] = args;
     if (typeof runId !== "string" || typeof name !== "string") return;
-    this.#sessionLogs?.observeSessionEventStream(runId, name);
+    this.#developmentLogRecorder?.observeSessionEventStream(runId, name);
   }
 
   #isTrusted(request: Request): boolean {

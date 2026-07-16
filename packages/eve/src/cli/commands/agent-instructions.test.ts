@@ -74,7 +74,7 @@ describe("initAgentDevHandoff", () => {
     expect(handoff).toContain("defineTool");
 
     // Headless dev exercises the real protocol; logs expose the persisted runtime evidence.
-    expect(handoff).toContain("npx eve logs <session-id> --no-follow");
+    expect(handoff).toContain("npx eve logs <log-id> --no-follow");
     expect(handoff).toContain("npx eve logs ls");
     expect(handoff).toContain("npm exec -- eve dev --no-ui");
     expect(handoff).toMatch(/give them the interactive\s+command/);

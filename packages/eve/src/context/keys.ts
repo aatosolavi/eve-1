@@ -89,7 +89,7 @@ export const SessionKey = new ContextKey<Session>("eve.session");
 export const SandboxKey = new ContextKey<SandboxAccess>("eve.sandbox");
 
 /** Root user-facing session whose local diagnostic log owns this step's output. */
-export const SessionLogIdKey = new ContextKey<string>("eve.sessionLogId");
+export const DevelopmentLogSessionIdKey = new ContextKey<string>("eve.developmentLog.sessionId");
 
 // ---------------------------------------------------------------------------
 // Dynamic model keys

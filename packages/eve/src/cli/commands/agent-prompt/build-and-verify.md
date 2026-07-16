@@ -25,10 +25,11 @@ through the documented session HTTP protocol:
 
     {{devCommand}} --no-ui
 
-Use the returned `sessionId` to inspect its automatically recorded local log.
-To find another local run, list the available logs:
+Use the current `eve dev` invocation log to inspect the full local runtime trace.
+To find an earlier invocation, list the available logs:
 
-    npx eve logs <session-id> --no-follow
+    npx eve logs --no-follow
+    npx eve logs <log-id> --no-follow
     npx eve logs ls
 
 When the user is ready to use their agent's REPL, give them the interactive

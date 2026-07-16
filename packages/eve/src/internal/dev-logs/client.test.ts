@@ -14,7 +14,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("development session log client", () => {
+describe("development log client", () => {
   it("flushes adjacent output events in one ordered request", async () => {
     process.env.WORKFLOW_LOCAL_BASE_URL = "http://eve-dev.local";
     process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV] = "development-secret";
@@ -23,30 +23,31 @@ describe("development session log client", () => {
       requests.push(new Request(input, init));
       return new Response(null, { status: 204 });
     });
-    const { flushDevelopmentSessionLogs, writeDevelopmentSessionLog } =
-      await import("#internal/session-logs/client.js");
+    const { flushDevelopmentLogs, writeDevelopmentLog } =
+      await import("#internal/dev-logs/client.js");
     const first = {
       at: "2026-07-16T18:00:00.000Z",
-      sessionId: "wrun_session",
+      process: "worker" as const,
       stream: "stdout" as const,
       text: "hello",
       type: "process.output" as const,
     };
     const second = {
       at: "2026-07-16T18:00:00.001Z",
+      process: "worker" as const,
       sessionId: "wrun_session",
       stream: "stderr" as const,
       text: "failure",
       type: "process.output" as const,
     };
 
-    void writeDevelopmentSessionLog(first);
-    void writeDevelopmentSessionLog(second);
-    await flushDevelopmentSessionLogs();
+    void writeDevelopmentLog(first);
+    void writeDevelopmentLog(second);
+    await flushDevelopmentLogs();
 
     expect(requests).toHaveLength(1);
     const request = requests[0];
-    if (request === undefined) throw new Error("Expected a batched session log request.");
+    if (request === undefined) throw new Error("Expected a batched development log request.");
     expect(decodeDevelopmentWorldValue(await request.text())).toEqual({
       events: [first, second],
     });

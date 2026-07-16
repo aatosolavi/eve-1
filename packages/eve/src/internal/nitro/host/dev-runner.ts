@@ -3,13 +3,13 @@ import { Worker } from "node:worker_threads";
 
 import { BaseEnvRunner } from "#compiled/env-runner/index.js";
 import { resolvePackageCompiledFilePath } from "#internal/application/package.js";
-import { DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE } from "#internal/session-logs/protocol.js";
+import { DEVELOPMENT_LOG_FLUSH_ROUTE } from "#internal/dev-logs/protocol.js";
 import {
   DEVELOPMENT_WORKFLOW_SECRET_ENV,
   DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER,
 } from "#internal/workflow/development-world-protocol.js";
 
-const SESSION_LOG_FLUSH_TIMEOUT_MS = 1_000;
+const DEVELOPMENT_LOG_FLUSH_TIMEOUT_MS = 1_000;
 
 export interface DevelopmentRunner {
   readonly closed: boolean;
@@ -104,20 +104,20 @@ class NodeDevelopmentRunner extends BaseEnvRunner implements DevelopmentRunner {
       return;
     }
 
-    await this.#flushSessionLogs();
+    await this.#flushDevelopmentLogs();
     this.#worker = undefined;
     worker.removeAllListeners();
     await worker.terminate();
   }
 
-  async #flushSessionLogs(): Promise<void> {
+  async #flushDevelopmentLogs(): Promise<void> {
     const secret = process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV];
     if (secret === undefined) return;
     try {
-      await this.fetch(DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE, {
+      await this.fetch(DEVELOPMENT_LOG_FLUSH_ROUTE, {
         headers: { [DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER]: secret },
         method: "POST",
-        signal: AbortSignal.timeout(SESSION_LOG_FLUSH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(DEVELOPMENT_LOG_FLUSH_TIMEOUT_MS),
       });
     } catch {
       // Worker shutdown must proceed when diagnostics are unavailable.

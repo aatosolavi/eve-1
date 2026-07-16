@@ -49,7 +49,7 @@ describe("CLI command registration", () => {
 
     const help = output.join("\n");
     expect(help).toContain("init [options] [target]");
-    expect(help).toContain("logs [options] [session-id]");
+    expect(help).toContain("logs [options] [log-id]");
     expect(help).not.toContain("doctor");
     expect(help).not.toContain("check");
     expect(help).not.toContain("ask <prompt...>");

@@ -28,7 +28,7 @@ import type {
 } from "#internal/nitro/routes/runtime-artifacts.js";
 import { deriveEveWorkflowQueuePrefix } from "#internal/workflow/queue-namespace.js";
 import { usesParentDevelopmentWorkflowWorld } from "#internal/workflow/development-world-protocol.js";
-import { DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE } from "#internal/session-logs/protocol.js";
+import { DEVELOPMENT_LOG_FLUSH_ROUTE } from "#internal/dev-logs/protocol.js";
 import {
   computeChannelRouteRegistrations,
   registerChannelVirtualHandlers,
@@ -320,10 +320,10 @@ function registerDevelopmentControlRoutes(
   artifactsConfig: DevelopmentNitroArtifactsConfig,
 ): void {
   addFrameworkVirtualHandler(nitro, {
-    handlerExport: "handleDevSessionLogFlushRequest",
+    handlerExport: "handleDevLogFlushRequest",
     method: "POST",
-    modulePath: resolvePackageSourceFilePath("src/internal/nitro/routes/dev-session-log-flush.ts"),
-    route: DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE,
+    modulePath: resolvePackageSourceFilePath("src/internal/nitro/routes/dev-log-flush.ts"),
+    route: DEVELOPMENT_LOG_FLUSH_ROUTE,
   });
   addFrameworkVirtualHandler(nitro, {
     args: JSON.stringify({ appRoot: artifactsConfig.appRoot }),

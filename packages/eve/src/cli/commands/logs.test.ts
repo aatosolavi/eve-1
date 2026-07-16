@@ -5,84 +5,62 @@ import {
   runLogsTailCommand,
   type LogsCommandDependencies,
 } from "#cli/commands/logs.js";
-import type { LocalSessionSummary } from "#internal/workflow/local-sessions.js";
-import type { SessionLogFile } from "#internal/session-logs/files.js";
+import type { DevelopmentLogFile } from "#internal/dev-logs/files.js";
 
-const olderSession: LocalSessionSummary = {
-  createdAt: new Date("2026-07-15T20:00:00.000Z"),
-  deploymentId: "generation-1",
-  errorCode: undefined,
-  sessionId: "wrun_older",
-  status: "completed",
-  title: "Older",
-  trigger: "http",
-  updatedAt: new Date("2026-07-15T20:01:00.000Z"),
-};
-
-const newerSession: LocalSessionSummary = {
-  ...olderSession,
-  sessionId: "wrun_newer",
-  status: "running",
-  title: "Newer",
-  updatedAt: new Date("2026-07-15T20:02:00.000Z"),
-};
-
-const files: readonly SessionLogFile[] = [
+const files: readonly DevelopmentLogFile[] = [
   {
-    modifiedAt: new Date("2026-07-15T21:00:00.000Z"),
-    path: "/logs/older.log",
-    sessionId: "wrun_older",
+    logId: "older-invocation",
+    modifiedAt: new Date("2026-07-15T20:00:00.000Z"),
+    path: "/logs/older-invocation.log",
   },
   {
-    modifiedAt: new Date("2026-07-15T19:00:00.000Z"),
-    path: "/logs/newer.log",
-    sessionId: "wrun_newer",
+    logId: "newer-invocation",
+    modifiedAt: new Date("2026-07-15T21:00:00.000Z"),
+    path: "/logs/newer-invocation.log",
   },
 ];
 
-describe("local session log commands", () => {
-  it("lists logs by Workflow updatedAt rather than file mtime", async () => {
+describe("local development log commands", () => {
+  it("lists invocation logs by file recency", async () => {
     const output = { log: vi.fn() };
-    const dependencies = createDependencies();
 
-    await runLogsListCommand(output, "/app", dependencies);
+    await runLogsListCommand(output, "/app", createDependencies());
 
     expect(output.log).toHaveBeenCalledWith(
       [
-        "SESSION ID  STATUS     UPDATED                   TITLE",
-        "wrun_newer  running    2026-07-15T20:02:00.000Z  Newer",
-        "wrun_older  completed  2026-07-15T20:01:00.000Z  Older",
+        "LOG ID            UPDATED",
+        "newer-invocation  2026-07-15T21:00:00.000Z",
+        "older-invocation  2026-07-15T20:00:00.000Z",
       ].join("\n"),
     );
   });
 
-  it("tails the most recently updated Workflow session by default", async () => {
+  it.each([undefined, "mru"])("tails the most recent invocation for %s", async (logId) => {
     const output = { log: vi.fn(), write: vi.fn() };
     const dependencies = createDependencies();
 
-    await runLogsTailCommand(output, "/app", undefined, { follow: true, lines: 10 }, dependencies);
+    await runLogsTailCommand(output, "/app", logId, { follow: true, lines: 10 }, dependencies);
 
-    expect(dependencies.tail).toHaveBeenCalledWith("/logs/newer.log", {
+    expect(dependencies.tail).toHaveBeenCalledWith("/logs/newer-invocation.log", {
       follow: true,
       lines: 10,
       write: expect.any(Function),
     });
   });
 
-  it("tails an exact session without consulting MRU ordering", async () => {
+  it("tails an exact invocation log", async () => {
     const output = { log: vi.fn(), write: vi.fn() };
     const dependencies = createDependencies();
 
     await runLogsTailCommand(
       output,
       "/app",
-      "wrun_older",
+      "older-invocation",
       { follow: false, lines: 3 },
       dependencies,
     );
 
-    expect(dependencies.listSessions).not.toHaveBeenCalled();
-    expect(dependencies.tail).toHaveBeenCalledWith("/logs/older.log", {
+    expect(dependencies.tail).toHaveBeenCalledWith("/logs/older-invocation.log", {
       follow: false,
       lines: 3,
       write: expect.any(Function),
@@ -91,12 +69,10 @@ describe("local session log commands", () => {
 });
 
 function createDependencies(): LogsCommandDependencies & {
-  readonly listSessions: ReturnType<typeof vi.fn>;
   readonly tail: ReturnType<typeof vi.fn>;
 } {
   return {
     listFiles: vi.fn().mockResolvedValue(files),
-    listSessions: vi.fn().mockResolvedValue([newerSession, olderSession]),
     tail: vi.fn().mockResolvedValue(undefined),
   };
 }

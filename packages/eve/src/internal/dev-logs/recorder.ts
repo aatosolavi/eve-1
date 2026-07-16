@@ -1,8 +1,7 @@
 import { getWorkflowRunStreamId } from "#compiled/@workflow/core/util.js";
-import type { Event, WorkflowRunWithoutData, World } from "#compiled/@workflow/world/index.js";
-import { compareWorkflowEvents } from "#internal/session-logs/format.js";
-import type { DevelopmentSessionLogEvent } from "#internal/session-logs/protocol.js";
-import { SessionLogSink } from "#internal/session-logs/session-log-sink.js";
+import type { Event, World } from "#compiled/@workflow/world/index.js";
+import type { DevelopmentLogEvent } from "#internal/dev-logs/protocol.js";
+import type { DevelopmentLog } from "#internal/dev-logs/development-log.js";
 
 interface FetchedEvents {
   readonly cursor: string | undefined;
@@ -13,7 +12,6 @@ interface StreamFollower {
   readonly name: string;
   readonly reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly runId: string;
-  readonly sessionId: string;
   readonly task: Promise<void>;
 }
 
@@ -29,31 +27,19 @@ interface ActiveFollower {
 
 type FollowerState = ActiveFollower | StartingFollower;
 
-/**
- * Parent-process observer that projects durable workflow and eve events into
- * per-session development logs. Process and sandbox output arrive separately
- * because they have no durable Workflow event source.
- */
-export class DevelopmentSessionLogRecorder {
-  readonly #appRoot: string;
+/** Reconciles committed Workflow data into the current `eve dev` invocation log. */
+export class DevelopmentLogRecorder {
   readonly #backgroundTasks = new Set<Promise<void>>();
   readonly #eventCursorByRun = new Map<string, string>();
   readonly #followers = new Map<string, FollowerState>();
+  readonly #log: DevelopmentLog;
   readonly #reconciliationByRun = new Map<string, Promise<void>>();
-  readonly #sinks = new Map<string, SessionLogSink>();
   readonly #world: World;
   #closing = false;
 
-  constructor(input: { readonly appRoot: string; readonly world: World }) {
-    this.#appRoot = input.appRoot;
+  constructor(input: { readonly log: DevelopmentLog; readonly world: World }) {
+    this.#log = input.log;
     this.#world = input.world;
-  }
-
-  start(): void {
-    this.#runInBackground(
-      this.#discoverExistingSessionData(),
-      "failed to reconcile existing local session logs",
-    );
   }
 
   async close(): Promise<void> {
@@ -69,29 +55,16 @@ export class DevelopmentSessionLogRecorder {
         await this.#reconcileSessionEventChunks({
           name: follower.name,
           runId: follower.runId,
-          sessionId: follower.sessionId,
           tailIndex,
         });
       }),
     );
     await Promise.allSettled(followers.map(async ({ reader }) => await reader.cancel()));
     await Promise.allSettled(followers.map(({ task }) => task));
-    await Promise.allSettled([...this.#sinks.values()].map(async (sink) => await sink.close()));
   }
 
-  async appendOutputEvents(events: readonly DevelopmentSessionLogEvent[]): Promise<void> {
-    const eventsBySession = new Map<string, DevelopmentSessionLogEvent[]>();
-    for (const event of events) {
-      const sessionEvents = eventsBySession.get(event.sessionId) ?? [];
-      sessionEvents.push(event);
-      eventsBySession.set(event.sessionId, sessionEvents);
-    }
-    await Promise.all(
-      [...eventsBySession].map(
-        async ([sessionId, sessionEvents]) =>
-          await this.#sink(sessionId).appendOutputEvents(sessionEvents),
-      ),
-    );
+  async appendOutputEvents(events: readonly DevelopmentLogEvent[]): Promise<void> {
+    await this.#log.appendOutputEvents(events);
   }
 
   observeRunCommitted(runId: string): void {
@@ -107,7 +80,7 @@ export class DevelopmentSessionLogRecorder {
           this.#reconciliationByRun.delete(runId);
         }
       }),
-      `failed to reconcile local session log for ${runId}`,
+      `failed to reconcile development log for ${runId}`,
     );
   }
 
@@ -129,50 +102,9 @@ export class DevelopmentSessionLogRecorder {
     );
   }
 
-  async #discoverExistingSessionData(): Promise<void> {
-    const runs = await this.#listRuns();
-    const runsBySession = new Map<string, WorkflowRunWithoutData[]>();
-    for (const run of runs) {
-      const sessionId = resolveLogSessionId(run);
-      if (sessionId === undefined) continue;
-      const sessionRuns = runsBySession.get(sessionId) ?? [];
-      sessionRuns.push(run);
-      runsBySession.set(sessionId, sessionRuns);
-    }
-
-    await Promise.all(
-      [...runsBySession].map(async ([sessionId, sessionRuns]) => {
-        const fetched = await Promise.all(
-          sessionRuns.map(async (run) => ({
-            events: await this.#fetchEvents(run.runId),
-            runId: run.runId,
-          })),
-        );
-        const events = fetched.flatMap((entry) => entry.events.events).sort(compareWorkflowEvents);
-        await this.#sink(sessionId).appendWorkflowEvents(events);
-        for (const entry of fetched) {
-          if (entry.events.cursor !== undefined) {
-            this.#eventCursorByRun.set(entry.runId, entry.events.cursor);
-          }
-        }
-      }),
-    );
-
-    for (const run of runs) {
-      const names = await this.#world.streams.list(run.runId);
-      for (const name of names) {
-        this.observeSessionEventStream(run.runId, name);
-      }
-    }
-  }
-
   async #startStreamFollower(key: string, runId: string, name: string): Promise<void> {
-    const run = await this.#world.runs.get(runId, { resolveData: "none" });
-    const sessionId = resolveLogSessionId(run);
-    if (sessionId === undefined || this.#closing) return;
-
     const { tailIndex } = await this.#world.streams.getInfo(runId, name);
-    await this.#reconcileSessionEventChunks({ name, runId, sessionId, tailIndex });
+    await this.#reconcileSessionEventChunks({ name, runId, tailIndex });
     if (this.#closing) return;
 
     const stream = await this.#world.streams.get(runId, name, tailIndex + 1);
@@ -182,7 +114,6 @@ export class DevelopmentSessionLogRecorder {
       nextChunkIndex: tailIndex + 1,
       reader,
       runId,
-      sessionId,
     })
       .catch((error: unknown) => {
         if (!this.#closing) {
@@ -195,7 +126,7 @@ export class DevelopmentSessionLogRecorder {
         }
         reader.releaseLock();
       });
-    const follower = { name, reader, runId, sessionId, task } satisfies StreamFollower;
+    const follower = { name, reader, runId, task } satisfies StreamFollower;
     active = { follower, kind: "active" };
     this.#followers.set(key, active);
   }
@@ -204,17 +135,12 @@ export class DevelopmentSessionLogRecorder {
     readonly nextChunkIndex: number;
     readonly reader: ReadableStreamDefaultReader<Uint8Array>;
     readonly runId: string;
-    readonly sessionId: string;
   }): Promise<void> {
     let chunkIndex = input.nextChunkIndex;
     for (;;) {
       const { done, value } = await input.reader.read();
       if (done) return;
-      await this.#sink(input.sessionId).appendSessionEventChunk({
-        chunk: value,
-        chunkIndex,
-        runId: input.runId,
-      });
+      await this.#log.appendSessionEventChunk({ chunk: value, chunkIndex, runId: input.runId });
       chunkIndex++;
     }
   }
@@ -222,7 +148,6 @@ export class DevelopmentSessionLogRecorder {
   async #reconcileSessionEventChunks(input: {
     readonly name: string;
     readonly runId: string;
-    readonly sessionId: string;
     readonly tailIndex: number;
   }): Promise<void> {
     let cursor: string | undefined;
@@ -233,7 +158,7 @@ export class DevelopmentSessionLogRecorder {
       });
       for (const chunk of page.data) {
         if (chunk.index > input.tailIndex) break;
-        await this.#sink(input.sessionId).appendSessionEventChunk({
+        await this.#log.appendSessionEventChunk({
           chunk: chunk.data,
           chunkIndex: chunk.index,
           runId: input.runId,
@@ -244,12 +169,8 @@ export class DevelopmentSessionLogRecorder {
   }
 
   async #reconcileRun(runId: string): Promise<void> {
-    const run = await this.#world.runs.get(runId, { resolveData: "none" });
-    const sessionId = resolveLogSessionId(run);
-    if (sessionId === undefined) return;
-
     const events = await this.#fetchEvents(runId, this.#eventCursorByRun.get(runId));
-    await this.#sink(sessionId).appendWorkflowEvents(events.events);
+    await this.#log.appendWorkflowEvents(events.events);
     if (events.cursor !== undefined) {
       this.#eventCursorByRun.set(runId, events.cursor);
     }
@@ -273,20 +194,6 @@ export class DevelopmentSessionLogRecorder {
     return { cursor, events };
   }
 
-  async #listRuns(): Promise<readonly WorkflowRunWithoutData[]> {
-    const runs: WorkflowRunWithoutData[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await this.#world.runs.list({
-        pagination: { cursor, limit: 1_000, sortOrder: "asc" },
-        resolveData: "none",
-      });
-      runs.push(...page.data);
-      cursor = page.hasMore ? (page.cursor ?? undefined) : undefined;
-    } while (cursor !== undefined);
-    return runs;
-  }
-
   #activeFollowers(): StreamFollower[] {
     return [...this.#followers.values()].flatMap((state) =>
       state.kind === "active" ? [state.follower] : [],
@@ -306,21 +213,6 @@ export class DevelopmentSessionLogRecorder {
       });
     this.#backgroundTasks.add(tracked);
   }
-
-  #sink(sessionId: string): SessionLogSink {
-    const existing = this.#sinks.get(sessionId);
-    if (existing !== undefined) return existing;
-    const sink = new SessionLogSink({ appRoot: this.#appRoot, sessionId });
-    this.#sinks.set(sessionId, sink);
-    return sink;
-  }
-}
-
-function resolveLogSessionId(run: WorkflowRunWithoutData): string | undefined {
-  const type = run.attributes["$eve.type"];
-  if (type === "session") return run.runId;
-  const root = run.attributes["$eve.root"];
-  return typeof root === "string" && root.length > 0 ? root : undefined;
 }
 
 function followerKey(runId: string, name: string): string {

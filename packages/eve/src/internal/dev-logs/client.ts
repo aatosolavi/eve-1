@@ -1,10 +1,8 @@
-import { contextStorage } from "#context/container.js";
-import { SessionLogIdKey } from "#context/keys.js";
 import {
-  areSessionLogsEnabled,
-  DEVELOPMENT_SESSION_LOG_ROUTE,
-  type DevelopmentSessionLogEvent,
-} from "#internal/session-logs/protocol.js";
+  areDevelopmentLogsEnabled,
+  DEVELOPMENT_LOG_ROUTE,
+  type DevelopmentLogEvent,
+} from "#internal/dev-logs/protocol.js";
 import {
   DEVELOPMENT_WORKFLOW_SECRET_ENV,
   DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER,
@@ -14,33 +12,23 @@ import { encodeDevelopmentWorldValue } from "#internal/workflow/development-worl
 const WORKFLOW_LOCAL_BASE_URL_ENV = "WORKFLOW_LOCAL_BASE_URL";
 const MAX_BATCH_SIZE = 256;
 
-let pendingEvents: DevelopmentSessionLogEvent[] = [];
+let pendingEvents: DevelopmentLogEvent[] = [];
 let pendingWrite: Promise<void> | undefined;
 
-export function readActiveSessionLogId(): string | undefined {
-  return contextStorage.getStore()?.get(SessionLogIdKey);
-}
-
-/**
- * Queues one best-effort event for the parent-owned development log writer.
- * Diagnostics must never make the behavior being diagnosed fail.
- */
-export function writeDevelopmentSessionLog(event: DevelopmentSessionLogEvent): Promise<void> {
-  if (!canWriteDevelopmentSessionLogs()) {
-    return Promise.resolve();
-  }
-
+/** Queues one best-effort event for the parent-owned development log. */
+export function writeDevelopmentLog(event: DevelopmentLogEvent): Promise<void> {
+  if (!canWriteDevelopmentLogs()) return Promise.resolve();
   pendingEvents.push(event);
   return scheduleDrain();
 }
 
-export function flushDevelopmentSessionLogs(): Promise<void> {
+export function flushDevelopmentLogs(): Promise<void> {
   return pendingWrite ?? (pendingEvents.length === 0 ? Promise.resolve() : scheduleDrain());
 }
 
-export function canWriteDevelopmentSessionLogs(): boolean {
+export function canWriteDevelopmentLogs(): boolean {
   return (
-    areSessionLogsEnabled() &&
+    areDevelopmentLogsEnabled() &&
     typeof process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV] === "string" &&
     typeof process.env[WORKFLOW_LOCAL_BASE_URL_ENV] === "string"
   );
@@ -58,7 +46,7 @@ async function drainPendingEvents(): Promise<void> {
       try {
         await postEvents(events);
       } catch {
-        // A recorder failure must not alter model, tool, or sandbox behavior.
+        // Diagnostics must not alter the behavior being diagnosed.
       }
     }
   } finally {
@@ -67,20 +55,17 @@ async function drainPendingEvents(): Promise<void> {
   }
 }
 
-async function postEvents(events: readonly DevelopmentSessionLogEvent[]): Promise<void> {
+async function postEvents(events: readonly DevelopmentLogEvent[]): Promise<void> {
   const baseUrl = process.env[WORKFLOW_LOCAL_BASE_URL_ENV];
   const secret = process.env[DEVELOPMENT_WORKFLOW_SECRET_ENV];
-  if (baseUrl === undefined || secret === undefined) {
-    return;
-  }
+  if (baseUrl === undefined || secret === undefined) return;
 
-  const url = new URL(DEVELOPMENT_SESSION_LOG_ROUTE, baseUrl);
-  const response = await fetch(url, {
+  const response = await fetch(new URL(DEVELOPMENT_LOG_ROUTE, baseUrl), {
     body: encodeDevelopmentWorldValue({ events }),
     headers: { [DEVELOPMENT_WORKFLOW_TRANSPORT_HEADER]: secret },
     method: "POST",
   });
   if (!response.ok) {
-    throw new Error(`Development session log write failed (${String(response.status)}).`);
+    throw new Error(`Development log write failed (${String(response.status)}).`);
   }
 }

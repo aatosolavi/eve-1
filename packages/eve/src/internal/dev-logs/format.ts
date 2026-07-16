@@ -1,8 +1,8 @@
 import { inspect } from "node:util";
 
 import type { Event } from "#compiled/@workflow/world/index.js";
-import type { DecodedPersistedSessionEvent } from "#internal/session-logs/event-timing.js";
-import type { DevelopmentSessionLogEvent } from "#internal/session-logs/protocol.js";
+import type { DecodedPersistedSessionEvent } from "#internal/dev-logs/event-timing.js";
+import type { DevelopmentLogEvent } from "#internal/dev-logs/protocol.js";
 
 export const WORKFLOW_EVENT_MARKER = /^\[[^\]]+\] \[workflow-complete\] event=([^\s]+)$/gmu;
 export const SESSION_EVENT_MARKER =
@@ -45,13 +45,14 @@ export function formatSessionEvent(
   ].join("\n");
 }
 
-export function formatOutputEvent(event: DevelopmentSessionLogEvent): string {
+export function formatOutputEvent(event: DevelopmentLogEvent): string {
   const source =
     event.type === "process.output"
-      ? `process.${event.stream}`
+      ? `${event.process}.${event.stream}`
       : `sandbox.${event.stream} sandbox=${event.sandboxId}`;
+  const correlation = event.sessionId === undefined ? "" : ` session=${event.sessionId}`;
   const terminated = event.text.endsWith("\n") ? event.text : `${event.text}\n`;
-  return `[${event.at}] [${source}]\n${terminated}\n`;
+  return `[${event.at}] [${source}]${correlation}\n${terminated}\n`;
 }
 
 export function sessionEventKey(runId: string, chunkIndex: number, lineIndex: number): string {

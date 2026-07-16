@@ -13,11 +13,11 @@ export function registerProjectCommands(input: {
 }): void {
   const logs = input.program
     .command("logs")
-    .description("Tail the most recently used local session log.")
-    .argument("[session-id]", "Local session ID (defaults to the most recently used log)")
+    .description("Tail a local eve dev invocation log.")
+    .argument("[log-id]", "Local log ID (defaults to mru)")
     .option("-n, --lines <count>", "Number of existing lines to print", parseLogLineCount, 10)
     .option("--no-follow", "Print existing lines and exit")
-    .action(async (sessionId: string | undefined, options: { follow: boolean; lines: number }) => {
+    .action(async (logId: string | undefined, options: { follow: boolean; lines: number }) => {
       const { runLogsTailCommand } = await import("./logs.js");
       await runLogsTailCommand(
         {
@@ -27,14 +27,14 @@ export function registerProjectCommands(input: {
           },
         },
         input.appRoot,
-        sessionId,
+        logId,
         options,
       );
     });
 
   logs
     .command("ls")
-    .description("List local session logs.")
+    .description("List local eve dev invocation logs.")
     .action(async () => {
       const { runLogsListCommand } = await import("./logs.js");
       await runLogsListCommand(input.logger, input.appRoot);

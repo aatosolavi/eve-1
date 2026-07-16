@@ -1,7 +1,6 @@
 import { open, watch } from "node:fs/promises";
 
-import { listLocalSessions, type LocalSessionSummary } from "#internal/workflow/local-sessions.js";
-import { listSessionLogFiles, type SessionLogFile } from "#internal/session-logs/files.js";
+import { listDevelopmentLogFiles, type DevelopmentLogFile } from "#internal/dev-logs/files.js";
 
 interface LogsCliOutput {
   log(message: string): void;
@@ -9,8 +8,7 @@ interface LogsCliOutput {
 }
 
 export interface LogsCommandDependencies {
-  listFiles(appRoot: string): Promise<readonly SessionLogFile[]>;
-  listSessions(appRoot: string): Promise<readonly LocalSessionSummary[]>;
+  listFiles(appRoot: string): Promise<readonly DevelopmentLogFile[]>;
   tail(
     path: string,
     options: {
@@ -22,9 +20,8 @@ export interface LogsCommandDependencies {
 }
 
 const defaultDependencies: LogsCommandDependencies = {
-  listFiles: listSessionLogFiles,
-  listSessions: listLocalSessions,
-  tail: tailSessionLogFile,
+  listFiles: listDevelopmentLogFiles,
+  tail: tailDevelopmentLogFile,
 };
 
 export async function runLogsListCommand(
@@ -32,38 +29,22 @@ export async function runLogsListCommand(
   appRoot: string,
   dependencies: LogsCommandDependencies = defaultDependencies,
 ): Promise<void> {
-  const [files, sessions] = await Promise.all([
-    dependencies.listFiles(appRoot),
-    dependencies.listSessions(appRoot),
-  ]);
+  const files = await dependencies.listFiles(appRoot);
   if (files.length === 0) {
-    output.log("No local session logs found.");
+    output.log("No local development logs found.");
     return;
   }
 
-  const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
   const rows = [...files]
-    .sort(
-      (left, right) =>
-        resolveUpdatedAt(right, sessionsById).getTime() -
-        resolveUpdatedAt(left, sessionsById).getTime(),
-    )
-    .map((file) => {
-      const session = sessionsById.get(file.sessionId);
-      return [
-        file.sessionId,
-        session?.status ?? "unknown",
-        resolveUpdatedAt(file, sessionsById).toISOString(),
-        session?.title ?? "",
-      ];
-    });
-  output.log(renderTable(["SESSION ID", "STATUS", "UPDATED", "TITLE"], rows));
+    .sort((left, right) => right.modifiedAt.getTime() - left.modifiedAt.getTime())
+    .map((file) => [file.logId, file.modifiedAt.toISOString()]);
+  output.log(renderTable(["LOG ID", "UPDATED"], rows));
 }
 
 export async function runLogsTailCommand(
   output: LogsCliOutput,
   appRoot: string,
-  sessionId: string | undefined,
+  logId: string | undefined,
   options: { readonly follow: boolean; readonly lines: number },
   dependencies: LogsCommandDependencies = defaultDependencies,
 ): Promise<void> {
@@ -73,14 +54,14 @@ export async function runLogsTailCommand(
 
   const files = await dependencies.listFiles(appRoot);
   const selected =
-    sessionId === undefined
-      ? await selectMostRecentlyUsedLog(files, appRoot, dependencies)
-      : files.find((file) => file.sessionId === sessionId);
+    logId === undefined || logId === "mru"
+      ? selectMostRecentlyUsedLog(files)
+      : files.find((file) => file.logId === logId);
   if (selected === undefined) {
     output.log(
-      sessionId === undefined
-        ? "No local session logs found."
-        : `Local session log ${sessionId} was not found.`,
+      logId === undefined || logId === "mru"
+        ? "No local development logs found."
+        : `Local development log ${logId} was not found.`,
     );
     return;
   }
@@ -92,34 +73,16 @@ export async function runLogsTailCommand(
   });
 }
 
-async function selectMostRecentlyUsedLog(
-  files: readonly SessionLogFile[],
-  appRoot: string,
-  dependencies: LogsCommandDependencies,
-): Promise<SessionLogFile | undefined> {
-  if (files.length === 0) {
-    return undefined;
-  }
-  const filesBySessionId = new Map(files.map((file) => [file.sessionId, file]));
-  const sessions = await dependencies.listSessions(appRoot);
-  for (const session of sessions) {
-    const file = filesBySessionId.get(session.sessionId);
-    if (file !== undefined) {
-      return file;
-    }
-  }
-  return undefined;
-}
-
-function resolveUpdatedAt(
-  file: SessionLogFile,
-  sessionsById: ReadonlyMap<string, LocalSessionSummary>,
-): Date {
-  return sessionsById.get(file.sessionId)?.updatedAt ?? file.modifiedAt;
+function selectMostRecentlyUsedLog(
+  files: readonly DevelopmentLogFile[],
+): DevelopmentLogFile | undefined {
+  return [...files].sort(
+    (left, right) => right.modifiedAt.getTime() - left.modifiedAt.getTime(),
+  )[0];
 }
 
 /** Prints the last N lines and follows subsequent appends until Ctrl-C. */
-export async function tailSessionLogFile(
+export async function tailDevelopmentLogFile(
   path: string,
   options: {
     readonly follow: boolean;

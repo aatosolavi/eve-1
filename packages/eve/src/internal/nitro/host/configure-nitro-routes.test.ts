@@ -89,7 +89,7 @@ const { configureDevelopmentNitroRoutes, configureProductionNitroRoutes } =
   await import("./configure-nitro-routes.js");
 const { EVE_DEV_DISPATCH_SCHEDULE_ROUTE_PATTERN, EVE_HEALTH_ROUTE_PATH, EVE_INFO_ROUTE_PATH } =
   await import("#protocol/routes.js");
-const { DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE } = await import("#internal/session-logs/protocol.js");
+const { DEVELOPMENT_LOG_FLUSH_ROUTE } = await import("#internal/dev-logs/protocol.js");
 
 function createNitroStub(
   input: { buildDir?: string; dev?: boolean; rootDir?: string } = {},
@@ -337,7 +337,7 @@ describe("Nitro route configuration", () => {
     );
   });
 
-  it("registers the worker session-log flush route only in dev mode", async () => {
+  it("registers the worker development-log flush route only in dev mode", async () => {
     const devNitro = createNitroStub({ dev: true });
     const prodNitro = createNitroStub({ dev: false });
 
@@ -345,15 +345,15 @@ describe("Nitro route configuration", () => {
     await configureProductionNitroRoutes(prodNitro, createPreparedHost(), "app");
 
     expect(devNitro.options.handlers).toContainEqual({
-      handler: `#eve-route${DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE}`,
+      handler: `#eve-route${DEVELOPMENT_LOG_FLUSH_ROUTE}`,
       method: "POST",
-      route: DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE,
+      route: DEVELOPMENT_LOG_FLUSH_ROUTE,
     });
-    expect(devNitro.options.virtual[`#eve-route${DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE}`]).toContain(
-      "handleDevSessionLogFlushRequest(event.req)",
+    expect(devNitro.options.virtual[`#eve-route${DEVELOPMENT_LOG_FLUSH_ROUTE}`]).toContain(
+      "handleDevLogFlushRequest(event.req)",
     );
     expect(prodNitro.options.handlers).not.toContainEqual(
-      expect.objectContaining({ route: DEVELOPMENT_SESSION_LOG_FLUSH_ROUTE }),
+      expect.objectContaining({ route: DEVELOPMENT_LOG_FLUSH_ROUTE }),
     );
   });
 
