@@ -456,18 +456,17 @@ The request’s `AbortSignal` is forwarded through tool context. A disconnected 
 
 The existing compiled manifest retains static instructions and skill descriptors but deliberately removes skill package bytes after materializing `.eve/compile/workspace-resources`. Production channel code cannot assume the authored filesystem or that directory is available.
 
-When an authored root MCP channel is present, generate an app-only static resource artifact containing:
+When an authored root MCP channel is present, generate an app-only resource index containing:
 
 - node id and local namespace;
-- instruction descriptors;
 - resource URI and metadata;
-- skill-file bytes, base64-encoded when binary.
+- the relative path of the corresponding private asset.
 
-Runtime behavior remains in the eve package; the generated artifact contains data only.
+Trace the indexed instruction and skill files into a private MCP asset tree in the app function package. Preserve their raw bytes rather than embedding text or base64 data in a generated module. `resources/list` reads only the index; `resources/read` reads only the exact indexed asset and base64-encodes binary content at the MCP response boundary. These assets have no public URL and are reachable only through the authenticated route.
 
-Development may read the active compiled workspace-resource snapshot through the same reader interface. Production and Vercel-shaped applications use the bundled artifact. Workflow and flow bundles must not receive MCP resource bytes.
+Runtime behavior remains in the eve package; the generated index and asset tree contain data only. Development may read the active compiled workspace-resource snapshot through the same reader interface. Production and Vercel-shaped applications use the traced private assets. Workflow and flow bundles must not receive the index or MCP resource bytes.
 
-The artifact is generated only for applications that opt into `mcpChannel()`. Changing instructions or skill files requires recompilation or development reload, matching the static v1 contract.
+The index and assets are generated only for applications that opt into `mcpChannel()`. The app function grows by the raw size of the exposed static resources plus the small index. Changing instructions or skill files requires recompilation or development reload, matching the static v1 contract.
 
 ## Security and operations
 
@@ -550,7 +549,8 @@ Cover invalid MCP names, overlength names, root-versus-child collisions, determi
 ### Packaging and repository checks
 
 - Development, production Nitro, and Vercel-shaped scenario builds can read identical resource bytes.
-- MCP resources are bundled only in the app surface and not in workflow or flow bundles.
+- MCP resources are raw private assets indexed only in the app surface, are absent from generated JavaScript data, and do not enter workflow or flow bundles.
+- Resource listing does not read asset bytes, and resource reads do not create a sandbox.
 - Public API exports, declaration generation, documentation, and package publishing are covered.
 - Run targeted unit, integration, and scenario suites, followed by format, lint, typecheck, invariant guard, docs validation, and the full unit tier.
 
