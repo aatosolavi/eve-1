@@ -74,6 +74,76 @@ const EXT_TREE: Readonly<Record<string, string>> = {
     "});",
     "",
   ].join("\n"),
+  "extension/tools/dynamic.ts": [
+    'import { defineDynamic, defineTool } from "eve/tools";',
+    'import extension from "../extension.js";',
+    "export default defineDynamic({",
+    "  events: {",
+    '    "session.started": async () => ({',
+    "      quote: defineTool({",
+    '        description: "Quote the configured API key.",',
+    '        inputSchema: { type: "object", properties: {}, additionalProperties: false },',
+    "        async execute() {",
+    "          return { apiKey: extension.config.apiKey };",
+    "        },",
+    "      }),",
+    "    }),",
+    "  },",
+    "});",
+    "",
+  ].join("\n"),
+  "extension/skills/notes.ts": [
+    'import { defineSkill } from "eve/skills";',
+    "export default defineSkill({",
+    '  description: "Take structured notes.",',
+    '  markdown: "# Notes\\nRecord decisions as bullet points.",',
+    "});",
+    "",
+  ].join("\n"),
+  "extension/skills/research.ts": [
+    'import { defineSkill } from "eve/skills";',
+    "export default defineSkill({",
+    '  description: "Research an account.",',
+    '  markdown: "# Research\\nUse the checklist.",',
+    '  files: { "references/checklist.md": "# Checklist\\n" },',
+    "});",
+    "",
+  ].join("\n"),
+  "extension/skills/guide/SKILL.md": [
+    "---",
+    "description: How to triage with the CRM.",
+    "---",
+    "",
+    "# Guide",
+    "",
+    "Follow references/steps.md.",
+    "",
+  ].join("\n"),
+  "extension/skills/guide/references/steps.md": "# Steps\n",
+  "extension/skills/oncall.ts": [
+    'import { defineDynamic, defineSkill } from "eve/skills";',
+    "export default defineDynamic({",
+    "  events: {",
+    '    "session.started": async () => ({',
+    "      escalation: defineSkill({",
+    '        description: "Escalate an incident.",',
+    '        markdown: "# Escalation\\nPage the on-call.",',
+    "      }),",
+    "    }),",
+    "  },",
+    "});",
+    "",
+  ].join("\n"),
+  "extension/instructions/dynamic.ts": [
+    'import { defineDynamic, defineInstructions } from "eve/instructions";',
+    "export default defineDynamic({",
+    "  events: {",
+    '    "session.started": async () =>',
+    '      defineInstructions({ markdown: "Prefer the CRM tools for account questions." }),',
+    "  },",
+    "});",
+    "",
+  ].join("\n"),
 };
 
 /**
@@ -97,8 +167,8 @@ async function buildSourceFreeExtensionFiles(): Promise<Record<string, string>> 
     join(extRoot, "node_modules", "eve"),
     "dir",
   );
-  await mkdir(join(extRoot, "extension", "tools"), { recursive: true });
   for (const [path, contents] of Object.entries(EXT_TREE)) {
+    await mkdir(dirname(join(extRoot, path)), { recursive: true });
     await writeFile(join(extRoot, path), contents, "utf8");
   }
 
@@ -169,5 +239,71 @@ describe("mounted source-free extension", () => {
     await expect(shout?.execute?.({}, { messages: [], toolCallId: "call_2" })).resolves.toEqual({
       apiKey: "SK-PREBUILT",
     });
+
+    // Static skills in all three authoring forms, namespaced by the mount.
+    const skillNames = graph.root.agent.skills.map((skill) => skill.name);
+    expect(skillNames).toEqual(
+      expect.arrayContaining(["crm__notes", "crm__research", "crm__guide"]),
+    );
+    const notes = graph.root.agent.skills.find((skill) => skill.name === "crm__notes");
+    expect(notes?.markdown).toContain("Record decisions as bullet points.");
+    const research = graph.root.agent.skills.find((skill) => skill.name === "crm__research");
+    expect(research?.sourceKind).toBe("skill-package");
+    const guide = graph.root.agent.skills.find((skill) => skill.name === "crm__guide");
+    expect(guide?.sourceKind).toBe("skill-package");
+
+    // Skill-package files (markdown-authored and defineSkill `files`) are
+    // materialized into the consumer's workspace resources under the
+    // namespaced skill directory.
+    const skillsResourceRoot = join(
+      app.appRoot,
+      ".eve",
+      "compile",
+      "workspace-resources",
+      "__root__",
+      "skills",
+    );
+    expect(await readFile(join(skillsResourceRoot, "crm__guide", "SKILL.md"), "utf8")).toContain(
+      "Follow references/steps.md.",
+    );
+    expect(
+      await readFile(join(skillsResourceRoot, "crm__guide", "references", "steps.md"), "utf8"),
+    ).toBe("# Steps\n");
+    expect(
+      await readFile(
+        join(skillsResourceRoot, "crm__research", "references", "checklist.md"),
+        "utf8",
+      ),
+    ).toBe("# Checklist\n");
+
+    // Dynamic tool resolver from the artifact: the produced tool reads the
+    // mount-bound config through the shared handle chunk.
+    const dynamicTools = graph.root.agent.dynamicToolResolvers.find(
+      (resolver) => resolver.slug === "crm__dynamic",
+    );
+    expect(dynamicTools?.extensionNamespace).toBe("crm");
+    const producedTools = (await dynamicTools?.events["session.started"]?.({}, {})) as {
+      quote: { execute: (input: unknown, ctx: unknown) => Promise<unknown> };
+    };
+    await expect(producedTools.quote.execute({}, {})).resolves.toEqual({ apiKey: "sk-prebuilt" });
+
+    const dynamicSkills = graph.root.agent.dynamicSkillResolvers.find(
+      (resolver) => resolver.slug === "crm__oncall",
+    );
+    expect(dynamicSkills?.extensionNamespace).toBe("crm");
+    const producedSkills = (await dynamicSkills?.events["session.started"]?.({}, {})) as {
+      escalation: { markdown: string };
+    };
+    expect(producedSkills.escalation.markdown).toContain("Page the on-call.");
+
+    const dynamicInstructions = graph.root.agent.dynamicInstructionsResolvers.find(
+      (resolver) => resolver.slug === "crm__dynamic",
+    );
+    expect(dynamicInstructions).toBeDefined();
+    const producedInstructions = (await dynamicInstructions?.events["session.started"]?.(
+      {},
+      {},
+    )) as { markdown: string };
+    expect(producedInstructions.markdown).toBe("Prefer the CRM tools for account questions.");
   });
 });
