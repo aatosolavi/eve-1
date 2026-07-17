@@ -1,7 +1,14 @@
 "use client";
 
-import { ArrowUpRightIcon, GitBranchIcon, SearchIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  GitBranchIcon,
+  SearchIcon,
+} from "lucide-react";
 import Link from "next/link";
+import { Select } from "radix-ui";
 import { useMemo, useState } from "react";
 import type {
   RegistryCategory,
@@ -45,29 +52,44 @@ const FilterSelect = <T extends string>({
   options,
   value,
 }: FilterSelectProps<T>) => (
-  <label className="relative min-w-0 flex-1">
-    <span className="sr-only">{label}</span>
-    <select
-      className="h-10 w-full appearance-none rounded-md border border-gray-alpha-400 bg-background-100 px-3 pr-9 text-gray-1000 text-sm outline-none transition-colors hover:border-gray-alpha-500 focus:border-gray-700"
-      onChange={(event) => onChange(event.target.value as FilterValue<T>)}
-      value={value}
+  <Select.Root onValueChange={(nextValue) => onChange(nextValue as FilterValue<T>)} value={value}>
+    <Select.Trigger
+      aria-label={label}
+      className="flex h-10 w-full min-w-0 items-center justify-between gap-3 rounded-md border border-gray-alpha-400 bg-background-100 px-3 text-gray-1000 text-sm outline-none transition-colors hover:border-gray-alpha-500 focus:border-gray-700 data-[state=open]:border-gray-700"
     >
-      <option value={ALL}>{allLabel}</option>
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
-    </select>
-    <svg
-      aria-hidden="true"
-      className="pointer-events-none absolute top-1/2 right-3 size-3 -translate-y-1/2 text-gray-800"
-      fill="none"
-      viewBox="0 0 12 12"
-    >
-      <path d="m2.5 4.5 3.5 3 3.5-3" stroke="currentColor" strokeLinecap="round" />
-    </svg>
-  </label>
+      <Select.Value />
+      <Select.Icon asChild>
+        <ChevronDownIcon aria-hidden="true" className="size-3.5 shrink-0 text-gray-700" />
+      </Select.Icon>
+    </Select.Trigger>
+    <Select.Portal>
+      <Select.Content
+        align="start"
+        className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-gray-alpha-400 bg-background-100 p-1 shadow-lg shadow-black/20"
+        position="popper"
+        sideOffset={6}
+      >
+        <Select.Viewport>
+          <FilterOption label={allLabel} value={ALL} />
+          {options.map((option) => (
+            <FilterOption key={option} label={option} value={option} />
+          ))}
+        </Select.Viewport>
+      </Select.Content>
+    </Select.Portal>
+  </Select.Root>
+);
+
+const FilterOption = ({ label, value }: { label: string; value: string }) => (
+  <Select.Item
+    className="relative flex h-8 cursor-default select-none items-center rounded px-2 pr-8 text-gray-900 text-sm outline-none data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-1000"
+    value={value}
+  >
+    <Select.ItemText>{label}</Select.ItemText>
+    <Select.ItemIndicator className="absolute right-2 inline-flex items-center">
+      <CheckIcon aria-hidden="true" className="size-3.5 text-gray-1000" />
+    </Select.ItemIndicator>
+  </Select.Item>
 );
 
 const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
