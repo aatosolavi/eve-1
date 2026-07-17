@@ -28,10 +28,10 @@ export const generateMetadata = async ({
   const entry = getRegistryEntry(slug);
   return entry
     ? { title: entry.title, description: entry.description }
-    : { title: "Template not found" };
+    : { title: "Registry entry not found" };
 };
 
-const TemplateDetailPage = async ({ params }: { params: Promise<PageParams> }) => {
+const RegistryDetailPage = async ({ params }: { params: Promise<PageParams> }) => {
   const { slug } = await params;
   const entry = getRegistryEntry(slug);
   if (!entry) {
@@ -42,10 +42,10 @@ const TemplateDetailPage = async ({ params }: { params: Promise<PageParams> }) =
     <main className="mx-auto w-full max-w-[1080px] px-4 pt-12 pb-32 sm:px-6">
       <Link
         className="inline-flex items-center gap-1.5 text-gray-800 text-sm no-underline transition-colors hover:text-gray-1000"
-        href="/templates"
+        href="/registry"
       >
         <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
-        Templates
+        Registry
       </Link>
 
       <header className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -126,4 +126,4 @@ const OverviewItem = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-export default TemplateDetailPage;
+export default RegistryDetailPage;

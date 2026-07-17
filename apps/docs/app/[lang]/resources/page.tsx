@@ -1,5 +1,5 @@
 import { permanentRedirect } from "next/navigation";
 
-const ResourcesPage = () => permanentRedirect("/templates");
+const ResourcesPage = () => permanentRedirect("/registry");
 
 export default ResourcesPage;

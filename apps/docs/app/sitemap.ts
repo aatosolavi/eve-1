@@ -36,12 +36,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       changeFrequency: "weekly",
       priority: 0.5,
-      url: url("/templates"),
+      url: url("/registry"),
     },
     ...registryEntries.map((entry) => ({
       changeFrequency: "weekly" as const,
       priority: 0.4,
-      url: url(`/templates/${entry.slug}`),
+      url: url(`/registry/${entry.slug}`),
     })),
     ...pages,
   ];

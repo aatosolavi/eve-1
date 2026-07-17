@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { ArrowUpRightIcon } from "lucide-react";
 import { translations } from "@/geistdocs";
 import { registryEntries } from "@/lib/registry/data";
-import { TemplateGallery } from "./template-gallery";
+import { RegistryGallery } from "./registry-gallery";
 
-const title = "Templates";
+const title = "Registry";
 const description =
   "Discover templates and example agents from the eve community, then deploy one or use its source as a starting point.";
 
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export const generateStaticParams = () => Object.keys(translations).map((lang) => ({ lang }));
 
-const TemplatesPage = () => (
+const RegistryPage = () => (
   <main className="mx-auto w-full max-w-[1080px] px-4 pb-32 sm:px-6">
     <header className="pt-16 pb-10 sm:pt-20 sm:pb-12">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -27,7 +27,7 @@ const TemplatesPage = () => (
         </div>
         <a
           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-gray-1000 px-4 font-medium text-background-100 text-sm no-underline transition-opacity hover:opacity-80"
-          href="https://github.com/vercel/eve/issues/new?template=template_submission.yml"
+          href="https://github.com/vercel/eve/issues/new?template=registry_submission.yml"
           rel="noopener noreferrer"
           target="_blank"
         >
@@ -36,8 +36,8 @@ const TemplatesPage = () => (
         </a>
       </div>
     </header>
-    <TemplateGallery entries={registryEntries} />
+    <RegistryGallery entries={registryEntries} />
   </main>
 );
 
-export default TemplatesPage;
+export default RegistryPage;
