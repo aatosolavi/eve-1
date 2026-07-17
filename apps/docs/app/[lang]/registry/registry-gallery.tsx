@@ -1,0 +1,228 @@
+"use client";
+
+import { ArrowUpRightIcon, GitBranchIcon, SearchIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import type {
+  RegistryCategory,
+  RegistryEntry,
+  RegistryIntegration,
+  RegistrySource,
+} from "@/lib/registry/data";
+
+const ALL = "all" as const;
+
+type FilterValue<T extends string> = typeof ALL | T;
+
+const categories: RegistryCategory[] = ["Chat", "Collaboration", "Example"];
+const integrations: RegistryIntegration[] = ["HTTP API", "Slack", "Web chat"];
+const sources: RegistrySource[] = ["GitHub", "Vercel Templates"];
+
+interface RegistryGalleryProps {
+  entries: RegistryEntry[];
+}
+
+interface FilterSelectProps<T extends string> {
+  allLabel: string;
+  label: string;
+  onChange: (value: FilterValue<T>) => void;
+  options: T[];
+  value: FilterValue<T>;
+}
+
+const FilterSelect = <T extends string>({
+  allLabel,
+  label,
+  onChange,
+  options,
+  value,
+}: FilterSelectProps<T>) => (
+  <label className="relative min-w-0 flex-1">
+    <span className="sr-only">{label}</span>
+    <select
+      className="h-10 w-full appearance-none rounded-md border border-gray-alpha-400 bg-background-100 px-3 pr-9 text-gray-1000 text-sm outline-none transition-colors hover:border-gray-alpha-500 focus:border-gray-700"
+      onChange={(event) => onChange(event.target.value as FilterValue<T>)}
+      value={value}
+    >
+      <option value={ALL}>{allLabel}</option>
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none absolute top-1/2 right-3 size-3 -translate-y-1/2 text-gray-800"
+      fill="none"
+      viewBox="0 0 12 12"
+    >
+      <path d="m2.5 4.5 3.5 3 3.5-3" stroke="currentColor" strokeLinecap="round" />
+    </svg>
+  </label>
+);
+
+const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
+  <article className="group relative flex min-h-44 flex-col rounded-lg border border-gray-alpha-400 bg-background-100 p-5 transition-colors hover:border-gray-alpha-500 hover:bg-gray-100/40">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <span className="text-gray-700 text-xs uppercase tracking-wide">{entry.category}</span>
+        <h2 className="mt-1 font-medium text-lg text-gray-1000 leading-snug">
+          <a
+            className="after:absolute after:inset-0 no-underline"
+            href={entry.href}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {entry.title}
+          </a>
+        </h2>
+      </div>
+      <ArrowUpRightIcon
+        aria-hidden="true"
+        className="size-4 shrink-0 text-gray-700 transition-colors group-hover:text-gray-1000"
+      />
+    </div>
+    <p className="mt-2 line-clamp-3 text-gray-900 text-sm leading-relaxed">{entry.description}</p>
+    <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
+      {entry.integrations.map((integration) => (
+        <span
+          className="rounded-full border border-gray-alpha-400 bg-background-100 px-2 py-0.5 text-gray-900 text-xs"
+          key={integration}
+        >
+          {integration}
+        </span>
+      ))}
+      <span className="rounded-full border border-gray-alpha-400 bg-background-100 px-2 py-0.5 text-gray-900 text-xs">
+        {entry.source}
+      </span>
+      <a
+        className="relative z-10 ml-auto inline-flex items-center gap-1.5 text-gray-800 text-xs no-underline hover:text-gray-1000"
+        href={entry.sourceHref}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        <GitBranchIcon aria-hidden="true" className="size-3.5" />
+        Source
+      </a>
+    </div>
+  </article>
+);
+
+export const RegistryGallery = ({ entries }: RegistryGalleryProps) => {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<FilterValue<RegistryCategory>>(ALL);
+  const [integration, setIntegration] = useState<FilterValue<RegistryIntegration>>(ALL);
+  const [source, setSource] = useState<FilterValue<RegistrySource>>(ALL);
+
+  const results = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return entries.filter((entry) => {
+      if (category !== ALL && entry.category !== category) {
+        return false;
+      }
+      if (integration !== ALL && !entry.integrations.includes(integration)) {
+        return false;
+      }
+      if (source !== ALL && entry.source !== source) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return [entry.title, entry.description, entry.category, entry.source, ...entry.integrations]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [category, entries, integration, query, source]);
+
+  const hasFilters = query !== "" || category !== ALL || integration !== ALL || source !== ALL;
+
+  const clearFilters = () => {
+    setQuery("");
+    setCategory(ALL);
+    setIntegration(ALL);
+    setSource(ALL);
+  };
+
+  return (
+    <section aria-label="Registry entries" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3">
+        <label className="relative">
+          <span className="sr-only">Search registry</span>
+          <SearchIcon
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-gray-700"
+          />
+          <input
+            className="h-12 w-full rounded-md border border-gray-alpha-400 bg-background-100 pr-4 pl-10 text-gray-1000 text-sm outline-none transition-colors placeholder:text-gray-700 hover:border-gray-alpha-500 focus:border-gray-700"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search templates and examples"
+            type="search"
+            value={query}
+          />
+        </label>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <FilterSelect
+            allLabel="All categories"
+            label="Filter by category"
+            onChange={setCategory}
+            options={categories}
+            value={category}
+          />
+          <FilterSelect
+            allLabel="All integrations"
+            label="Filter by integration"
+            onChange={setIntegration}
+            options={integrations}
+            value={integration}
+          />
+          <FilterSelect
+            allLabel="All sources"
+            label="Filter by source"
+            onChange={setSource}
+            options={sources}
+            value={source}
+          />
+        </div>
+      </div>
+
+      <div className="flex min-h-5 items-center justify-between gap-4 text-gray-800 text-sm">
+        <span>
+          {results.length} {results.length === 1 ? "entry" : "entries"}
+        </span>
+        {hasFilters ? (
+          <button
+            className="text-gray-900 underline decoration-gray-alpha-500 underline-offset-4 hover:text-gray-1000"
+            onClick={clearFilters}
+            type="button"
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+
+      {results.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {results.map((entry) => (
+            <RegistryCard entry={entry} key={entry.title} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-alpha-400 py-16 text-center">
+          <p className="font-medium text-gray-1000">No registry entries found</p>
+          <p className="text-gray-800 text-sm">Try a different search or filter.</p>
+          <button
+            className="mt-3 font-medium text-gray-1000 text-sm underline underline-offset-4"
+            onClick={clearFilters}
+            type="button"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+    </section>
+  );
+};

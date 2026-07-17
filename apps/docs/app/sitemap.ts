@@ -35,7 +35,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       changeFrequency: "weekly",
       priority: 0.5,
-      url: url("/resources"),
+      url: url("/registry"),
     },
     ...pages,
   ];
