@@ -18,7 +18,7 @@ export const generateStaticParams = () => Object.keys(translations).map((lang) =
 const RegistryPage = () => (
   <main className="mx-auto w-full max-w-[1080px] px-4 pb-32 sm:px-6">
     <header className="pt-16 pb-10 sm:pt-20 sm:pb-12">
-      <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-0">
           <h1 className="font-semibold text-[40px] text-gray-1000 tracking-tighter sm:text-5xl">
             {title}

@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpRightIcon, GitBranchIcon, SearchIcon } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type {
   RegistryCategory,
@@ -8,13 +9,21 @@ import type {
   RegistryIntegration,
   RegistrySource,
 } from "@/lib/registry/data";
+import { integrationIcons } from "./integration-icons";
 
 const ALL = "all" as const;
 
 type FilterValue<T extends string> = typeof ALL | T;
 
 const categories: RegistryCategory[] = ["Chat", "Collaboration", "Example"];
-const integrations: RegistryIntegration[] = ["HTTP API", "Slack", "Web chat"];
+const integrations: RegistryIntegration[] = [
+  "HTTP API",
+  "Linear",
+  "Notion",
+  "Sentry",
+  "Slack",
+  "Web chat",
+];
 const sources: RegistrySource[] = ["GitHub", "Vercel Templates"];
 
 interface RegistryGalleryProps {
@@ -67,14 +76,12 @@ const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
       <div>
         <span className="text-gray-700 text-xs uppercase tracking-wide">{entry.category}</span>
         <h2 className="mt-1 font-medium text-lg text-gray-1000 leading-snug">
-          <a
+          <Link
             className="after:absolute after:inset-0 no-underline"
-            href={entry.href}
-            rel="noopener noreferrer"
-            target="_blank"
+            href={`/registry/${entry.slug}`}
           >
             {entry.title}
-          </a>
+          </Link>
         </h2>
       </div>
       <ArrowUpRightIcon
@@ -84,17 +91,22 @@ const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
     </div>
     <p className="mt-2 line-clamp-3 text-gray-900 text-sm leading-relaxed">{entry.description}</p>
     <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
-      {entry.integrations.map((integration) => (
-        <span
-          className="rounded-full border border-gray-alpha-400 bg-background-100 px-2 py-0.5 text-gray-900 text-xs"
-          key={integration}
-        >
-          {integration}
-        </span>
-      ))}
-      <span className="rounded-full border border-gray-alpha-400 bg-background-100 px-2 py-0.5 text-gray-900 text-xs">
-        {entry.source}
-      </span>
+      <ul className="flex items-center gap-2">
+        {entry.integrations.map((integration) => {
+          const Icon = integrationIcons[integration];
+          return (
+            <li
+              className="text-gray-700 transition-colors group-hover:text-gray-1000"
+              key={integration}
+              title={integration}
+            >
+              <Icon aria-hidden="true" className="size-4" />
+              <span className="sr-only">{integration}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <span className="text-gray-700 text-xs">{entry.source}</span>
       <a
         className="relative z-10 ml-auto inline-flex items-center gap-1.5 text-gray-800 text-xs no-underline hover:text-gray-1000"
         href={entry.sourceHref}
@@ -164,7 +176,7 @@ export const RegistryGallery = ({ entries }: RegistryGalleryProps) => {
             value={query}
           />
         </label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
           <FilterSelect
             allLabel="All categories"
             label="Filter by category"
