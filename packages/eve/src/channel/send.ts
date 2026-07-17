@@ -1,7 +1,13 @@
 import type { FilePart, UserContent } from "ai";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
-import type { DeliverInput, RunInput, Runtime, SessionAuthContext } from "#channel/types.js";
+import type {
+  DeliverInput,
+  RunInput,
+  RunProvenance,
+  Runtime,
+  SessionAuthContext,
+} from "#channel/types.js";
 import { createSession, type Session } from "#channel/session.js";
 import type { SendFn, SendOptions, SendPayload } from "#channel/routes.js";
 import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
@@ -14,7 +20,10 @@ export function createSendFn<TState = undefined>(
   runtime: Runtime,
   adapter: ChannelAdapter<any>,
   channelName: string,
-  metadata: { readonly requestId?: string } = {},
+  metadata: {
+    readonly provenance?: Omit<RunProvenance, "channel">;
+    readonly requestId?: string;
+  } = {},
 ): SendFn<TState> {
   return async (
     input: string | UserContent | SendPayload,
@@ -75,6 +84,10 @@ export function createSendFn<TState = undefined>(
       continuationToken,
       input: { message: message ?? "", context, outputSchema },
       mode,
+      provenance: {
+        ...(metadata.provenance ?? { origin: "channel" }),
+        channel: channelName,
+      },
       requestId: metadata.requestId,
       title,
     };
