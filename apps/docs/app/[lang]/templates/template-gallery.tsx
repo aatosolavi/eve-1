@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  ArrowUpRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  GitBranchIcon,
-  SearchIcon,
-} from "lucide-react";
+import { ArrowUpRightIcon, CheckIcon, ChevronDownIcon, SearchIcon } from "lucide-react";
 import Link from "next/link";
 import { Select } from "radix-ui";
 import { useMemo, useState } from "react";
@@ -96,8 +90,7 @@ const TemplateCard = ({ entry }: { entry: RegistryEntry }) => (
   <article className="group relative flex min-h-44 flex-col rounded-lg border border-gray-alpha-400 bg-background-100 p-5 transition-colors hover:border-gray-alpha-500 hover:bg-gray-100/40">
     <div className="flex items-start justify-between gap-4">
       <div>
-        <span className="text-gray-700 text-xs uppercase tracking-wide">{entry.category}</span>
-        <h2 className="mt-1 font-medium text-lg text-gray-1000 leading-snug">
+        <h2 className="font-medium text-lg text-gray-1000 leading-snug">
           <Link
             className="after:absolute after:inset-0 no-underline"
             href={`/templates/${entry.slug}`}
@@ -128,16 +121,6 @@ const TemplateCard = ({ entry }: { entry: RegistryEntry }) => (
           );
         })}
       </ul>
-      <span className="text-gray-700 text-xs">{entry.source}</span>
-      <a
-        className="relative z-10 ml-auto inline-flex items-center gap-1.5 text-gray-800 text-xs no-underline hover:text-gray-1000"
-        href={entry.sourceHref}
-        rel="noopener noreferrer"
-        target="_blank"
-      >
-        <GitBranchIcon aria-hidden="true" className="size-3.5" />
-        Source
-      </a>
     </div>
   </article>
 );
