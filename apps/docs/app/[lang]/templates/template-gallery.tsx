@@ -87,10 +87,10 @@ const FilterOption = ({ label, value }: { label: string; value: string }) => (
 );
 
 const TemplateCard = ({ entry }: { entry: RegistryEntry }) => (
-  <article className="group relative flex min-h-44 flex-col rounded-lg border border-gray-alpha-400 bg-background-100 p-5 transition-colors hover:border-gray-alpha-500 hover:bg-gray-100/40">
+  <article className="group relative flex min-h-40 flex-col rounded-lg border border-gray-alpha-400 bg-background-100 p-4 transition-colors hover:border-gray-alpha-500 hover:bg-gray-100/40">
     <div className="flex items-start justify-between gap-4">
       <div>
-        <h2 className="font-medium text-lg text-gray-1000 leading-snug">
+        <h2 className="font-medium text-base text-gray-1000 leading-snug">
           <Link
             className="after:absolute after:inset-0 no-underline"
             href={`/templates/${entry.slug}`}
@@ -105,7 +105,7 @@ const TemplateCard = ({ entry }: { entry: RegistryEntry }) => (
       />
     </div>
     <p className="mt-2 line-clamp-3 text-gray-900 text-sm leading-relaxed">{entry.description}</p>
-    <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
+    <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-4">
       <ul className="flex items-center gap-2">
         {entry.integrations.map((integration) => {
           const Icon = integrationIcons[integration];
@@ -206,23 +206,20 @@ export const TemplateGallery = ({ entries }: TemplateGalleryProps) => {
         </div>
       </div>
 
-      <div className="flex min-h-5 items-center justify-between gap-4 text-gray-800 text-sm">
-        <span>
-          {results.length} {results.length === 1 ? "entry" : "entries"}
-        </span>
-        {hasFilters ? (
+      {hasFilters ? (
+        <div className="flex justify-end">
           <button
-            className="text-gray-900 underline decoration-gray-alpha-500 underline-offset-4 hover:text-gray-1000"
+            className="text-gray-900 text-sm underline decoration-gray-alpha-500 underline-offset-4 hover:text-gray-1000"
             onClick={clearFilters}
             type="button"
           >
             Clear filters
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {results.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {results.map((entry) => (
             <TemplateCard entry={entry} key={entry.title} />
           ))}
