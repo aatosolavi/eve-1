@@ -52,6 +52,23 @@ function createStreamResponse(events: readonly unknown[]) {
   );
 }
 
+function createDisconnectingStreamResponse(events: readonly unknown[]) {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (index < events.length) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(events[index]!)}\n`));
+          index += 1;
+          return;
+        }
+        controller.error(new Error("socket disconnected"));
+      },
+    }),
+  );
+}
+
 describe("ClientSession", () => {
   it("cancels an accepted turn before its stream settles with freshly resolved auth", async () => {
     let headerResolution = 0;
@@ -458,5 +475,73 @@ describe("ClientSession", () => {
       "1",
       "1",
     ]);
+  });
+
+  it("resets the reconnect budget after forward progress", async () => {
+    const streamUrls: string[] = [];
+    const streams = [
+      () => createDisconnectingStreamResponse([{ type: "turn.started", data: {} }]),
+      () => createDisconnectingStreamResponse([{ type: "reasoning.appended", data: {} }]),
+      () => createDisconnectingStreamResponse([{ type: "step.completed", data: {} }]),
+      () =>
+        createStreamResponse([
+          {
+            type: "session.waiting",
+            data: { continuationToken: "eve:test", wait: "next-user-message" },
+          },
+        ]),
+    ];
+    let streamRequest = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return createAcceptedResponse();
+      }
+      streamUrls.push(
+        typeof request === "string" ? request : request instanceof URL ? request.href : request.url,
+      );
+      const handler = streams[streamRequest] ?? streams[streams.length - 1]!;
+      streamRequest += 1;
+      return handler();
+    });
+    const session = createSession(undefined, { maxReconnectAttempts: 1 });
+
+    const eventTypes: string[] = [];
+    for await (const event of await session.send("first")) {
+      eventTypes.push(event.type);
+    }
+
+    // Four opens far exceed the budget of 1; each progressing reconnect
+    // refreshed it, so the boundary is still reached.
+    expect(eventTypes).toEqual([
+      "turn.started",
+      "reasoning.appended",
+      "step.completed",
+      "session.waiting",
+    ]);
+    expect(streamUrls.length).toBe(4);
+  });
+
+  it("gives up after consecutive no-progress stream ends", async () => {
+    const streamUrls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return createAcceptedResponse();
+      }
+      streamUrls.push(
+        typeof request === "string" ? request : request instanceof URL ? request.href : request.url,
+      );
+      return createStreamResponse([]);
+    });
+    const session = createSession(undefined, { maxReconnectAttempts: 2 });
+
+    const eventTypes: string[] = [];
+    for await (const event of await session.send("first")) {
+      eventTypes.push(event.type);
+    }
+
+    // A finished session reopens to a clean EOF; the initial open plus two
+    // budgeted reconnects give up rather than looping forever.
+    expect(eventTypes).toEqual([]);
+    expect(streamUrls.length).toBe(3);
   });
 });

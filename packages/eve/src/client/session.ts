@@ -230,6 +230,8 @@ export class ClientSession {
 
     try {
       let currentStreamIndex = initialState.sessionId === sessionId ? initialState.streamIndex : 0;
+      // Spent only on consecutive reconnects that deliver no events (see the
+      // reset below), so a turn that keeps making progress is never cut off.
       let remainingReconnectAttempts = this.#context.maxReconnectAttempts;
 
       while (true) {
@@ -240,6 +242,7 @@ export class ClientSession {
           input.headers,
         );
 
+        const streamIndexBeforeRead = currentStreamIndex;
         let foundBoundary = false;
 
         try {
@@ -269,11 +272,15 @@ export class ClientSession {
           break;
         }
 
-        if (remainingReconnectAttempts <= 0) {
+        // A reconnect that delivered events restores the full budget; one that
+        // delivered nothing spends an attempt, so a dead stream still gives up.
+        if (currentStreamIndex > streamIndexBeforeRead) {
+          remainingReconnectAttempts = this.#context.maxReconnectAttempts;
+        } else if (remainingReconnectAttempts <= 0) {
           break;
+        } else {
+          remainingReconnectAttempts -= 1;
         }
-
-        remainingReconnectAttempts -= 1;
       }
     } finally {
       this.#state = advanceSession({
