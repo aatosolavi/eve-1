@@ -29,7 +29,7 @@
     "typescript": "catalog:"
   },
   "peerDependencies": {
-    "eve": "*"
+    "eve": ">=0.24.6 <1"
   },
   "eve": {
     "extension": "./extension"

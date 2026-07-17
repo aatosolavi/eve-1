@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -30,7 +31,20 @@ const PACKAGE_NAME = "@acme/installed-crm";
 const EXT_TREE: Readonly<Record<string, string>> = {
   "extension/extension.ts": [
     'import { defineExtension } from "eve/extension";',
-    'const config = { "~standard": { version: 1, vendor: "scenario", validate: (value) => ({ value }) } };',
+    "",
+    "interface CrmConfig {",
+    "  apiKey: string;",
+    "}",
+    "",
+    "const config = {",
+    '  "~standard": {',
+    "    version: 1,",
+    '    vendor: "scenario",',
+    "    validate: (value: unknown) => ({ value: value as CrmConfig }),",
+    "    types: undefined as { input: CrmConfig; output: CrmConfig } | undefined,",
+    "  },",
+    "} as const;",
+    "",
     "export default defineExtension({ config });",
     "",
   ].join("\n"),
@@ -62,8 +76,14 @@ async function buildInstalledExtensionFiles(): Promise<Record<string, string>> {
   tempRoots.push(extRoot);
   await writeFile(
     join(extRoot, "package.json"),
-    `${JSON.stringify({ name: PACKAGE_NAME, type: "module", eve: { extension: "./extension" } }, null, 2)}\n`,
+    `${JSON.stringify({ name: PACKAGE_NAME, type: "module", eve: { extension: "./extension" }, peerDependencies: { eve: ">=0.1.0 <1" } }, null, 2)}\n`,
     "utf8",
+  );
+  await mkdir(join(extRoot, "node_modules"), { recursive: true });
+  await symlink(
+    dirname(createRequire(import.meta.url).resolve("eve/package.json")),
+    join(extRoot, "node_modules", "eve"),
+    "dir",
   );
   await mkdir(join(extRoot, "extension", "tools"), { recursive: true });
   for (const [path, contents] of Object.entries(EXT_TREE)) {
@@ -71,21 +91,29 @@ async function buildInstalledExtensionFiles(): Promise<Record<string, string>> {
   }
 
   const config = await tryReadExtensionBuildConfig(extRoot);
-  await buildExtensionPackage(extRoot, config!);
+  const distDir = await buildExtensionPackage(extRoot, config!);
 
-  // `eve build` writes dist/ (compiled entrypoints + declarations) and the
-  // exports map into package.json; ship those plus the extension/ source verbatim.
-  const packaged = [
-    "package.json",
-    "dist/index.mjs",
-    "dist/index.d.ts",
-    "dist/tools/index.mjs",
-    "dist/tools/index.d.ts",
-    ...Object.keys(EXT_TREE),
-  ];
-  const files: Record<string, string> = {};
-  for (const path of packaged) {
+  // package.json is read after the build because the build rewrites its
+  // `exports` map; the consumer resolves the mount entry through it.
+  const files: Record<string, string> = {
+    [`node_modules/${PACKAGE_NAME}/package.json`]: await readFile(
+      join(extRoot, "package.json"),
+      "utf8",
+    ),
+  };
+  for (const path of Object.keys(EXT_TREE)) {
     files[`node_modules/${PACKAGE_NAME}/${path}`] = await readFile(join(extRoot, path), "utf8");
+  }
+  for (const entry of await readdir(distDir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const absolutePath = join(entry.parentPath, entry.name);
+    const distRelativePath = relative(distDir, absolutePath).replaceAll("\\", "/");
+    files[`node_modules/${PACKAGE_NAME}/dist/${distRelativePath}`] = await readFile(
+      absolutePath,
+      "utf8",
+    );
   }
   return files;
 }

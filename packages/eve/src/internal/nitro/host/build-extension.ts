@@ -1,11 +1,25 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
+import {
+  EXTENSION_CAPABILITY_VERSIONS,
+  type ExtensionCapabilityKind,
+} from "#compiler/extension-capabilities.js";
+import {
+  writeExtensionArtifact,
+  EXTENSION_ARTIFACT_KIND,
+  EXTENSION_ARTIFACT_VERSION,
+} from "#compiler/extension-artifact.js";
+import {
+  produceExtensionArtifactContributions,
+  type CompiledExtensionContributions,
+} from "#compiler/normalize-extension.js";
 import { discoverAgent } from "#discover/discover-agent.js";
 import { packageStateNamespace } from "#discover/extensions.js";
 import { discoverFlatModuleSource, readSortedDirectoryEntries } from "#discover/grammar.js";
 import { createDiskProjectSource } from "#discover/project-source.js";
 import { SUPPORTED_AUTHORED_MODULE_FILE_EXTENSIONS } from "#discover/filesystem.js";
+import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { bundleAuthoredModuleCode } from "#internal/authored-module-loader.js";
 
 /**
@@ -19,6 +33,12 @@ export interface ExtensionBuildConfig {
   readonly packageName: string;
   /** Short name a consumer mounts by (`@acme/crm` → `crm`). */
   readonly shortName: string;
+  /**
+   * Package names the extension declares as dependencies (regular, optional,
+   * or peer). Compiling contribution metadata loads the extension's modules,
+   * and declared packages stay external during that load.
+   */
+  readonly runtimeDependencies: readonly string[];
 }
 
 /**
@@ -29,7 +49,13 @@ export async function tryReadExtensionBuildConfig(
   rootDir: string,
 ): Promise<ExtensionBuildConfig | null> {
   const appRoot = resolve(rootDir);
-  let pkg: { name?: unknown; eve?: { extension?: unknown } };
+  let pkg: {
+    name?: unknown;
+    eve?: { extension?: unknown };
+    dependencies?: Record<string, unknown>;
+    optionalDependencies?: Record<string, unknown>;
+    peerDependencies?: Record<string, unknown>;
+  };
   try {
     pkg = JSON.parse(await readFile(join(appRoot, "package.json"), "utf8")) as typeof pkg;
   } catch {
@@ -48,6 +74,13 @@ export async function tryReadExtensionBuildConfig(
     sourceRoot: resolve(appRoot, extensionRoot),
     packageName,
     shortName,
+    runtimeDependencies: [
+      ...new Set([
+        ...Object.keys(pkg.dependencies ?? {}),
+        ...Object.keys(pkg.optionalDependencies ?? {}),
+        ...Object.keys(pkg.peerDependencies ?? {}),
+      ]),
+    ].sort(),
   };
 }
 
@@ -178,9 +211,53 @@ export async function buildExtensionPackage(
     scopeNamespace,
   });
 
+  const contributions = await produceExtensionArtifactContributions({
+    manifest,
+    externalDependencies: config.runtimeDependencies,
+  });
+  await writeExtensionArtifact(outDir, {
+    kind: EXTENSION_ARTIFACT_KIND,
+    version: EXTENSION_ARTIFACT_VERSION,
+    eveVersion: resolveInstalledPackageInfo().version,
+    packageName: config.packageName,
+    packageNamespace: scopeNamespace,
+    capabilityVersions: deriveCapabilityVersions(contributions),
+    contributions,
+  });
+
   await ensureExtensionExports(appRoot);
 
   return outDir;
+}
+
+/**
+ * Stamps the contract version of every capability the extension uses.
+ * `config` and `state` are always stamped: the mount factory can bind config
+ * and any shipped module may scope durable state, so their contracts always
+ * apply. Other capabilities are stamped only when the extension contributes
+ * at least one of them.
+ */
+function deriveCapabilityVersions(
+  contributions: CompiledExtensionContributions,
+): Record<string, number> {
+  const versions: Record<string, number> = {
+    config: EXTENSION_CAPABILITY_VERSIONS.config,
+    state: EXTENSION_CAPABILITY_VERSIONS.state,
+  };
+  const stamp = (kind: ExtensionCapabilityKind, present: boolean): void => {
+    if (present) {
+      versions[kind] = EXTENSION_CAPABILITY_VERSIONS[kind];
+    }
+  };
+  stamp("tool", contributions.tools.length > 0);
+  stamp("dynamicTool", contributions.dynamicTools.length > 0);
+  stamp("hook", contributions.hooks.length > 0);
+  stamp("connection", contributions.connections.length > 0);
+  stamp("skill", contributions.skills.length > 0);
+  stamp("dynamicSkill", contributions.dynamicSkills.length > 0);
+  stamp("instructions", contributions.instructionFragments.length > 0);
+  stamp("dynamicInstructions", contributions.dynamicInstructions.length > 0);
+  return versions;
 }
 
 /** One `export { <name> } from "<specifier>"` line an entrypoint barrel emits. */

@@ -53,6 +53,36 @@ describe("extension build output", () => {
     expect(toolsIndex).toContain("Search the CRM"); // the tool source was inlined
   });
 
+  it("stamps the contribution manifest with capability versions", async () => {
+    const root = await createExtensionPackage();
+    const config = await tryReadExtensionBuildConfig(root);
+    const outDir = await buildExtensionPackage(root, config!);
+
+    const artifact = JSON.parse(await readFile(join(outDir, "_ext-manifest.json"), "utf8")) as {
+      kind: string;
+      version: number;
+      eveVersion: string;
+      packageName: string;
+      packageNamespace: string;
+      capabilityVersions: Record<string, number>;
+      contributions: { tools: { name: string; description: string; logicalPath: string }[] };
+    };
+
+    expect(artifact.kind).toBe("eve-extension-artifact");
+    expect(artifact.version).toBe(1);
+    expect(artifact.eveVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(artifact.packageName).toBe("@acme/crm");
+    expect(artifact.packageNamespace).toBe("acme-crm");
+    // `config` and `state` always stamp; `tool` stamps because one ships.
+    expect(artifact.capabilityVersions).toEqual({ config: 1, state: 1, tool: 1 });
+    expect(artifact.contributions.tools).toHaveLength(1);
+    expect(artifact.contributions.tools[0]).toMatchObject({
+      name: "crm_search",
+      description: "Search the CRM.",
+      logicalPath: "tools/crm_search.ts",
+    });
+  });
+
   it("emits declaration barrels resolving into the shipped source", async () => {
     const root = await createExtensionPackage();
     const config = await tryReadExtensionBuildConfig(root);

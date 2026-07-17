@@ -73,7 +73,7 @@ See [Extensions](/docs/extensions) for authoring and mount details.
 eve extension build
 ```
 
-Builds the current package as an extension: compiles the mount factory and tool re-exports into `dist/`, and fills the package `exports` map. Requires `package.json#eve.extension`.
+Builds the current package as an extension: compiles the mount factory and tool re-exports into `dist/`, writes a `dist/_ext-manifest.json` contribution manifest with compatibility stamps, and fills the package `exports` map. Requires `package.json#eve.extension`.
 
 ## `eve info`
 

@@ -455,7 +455,7 @@ const compiledSkillBaseFields = {
   logicalPath: z.string(),
 };
 
-const compiledSkillSourceSchema: z.ZodType<CompiledSkillDefinition> = z.discriminatedUnion(
+export const compiledSkillSourceSchema: z.ZodType<CompiledSkillDefinition> = z.discriminatedUnion(
   "sourceKind",
   [
     z
@@ -536,7 +536,7 @@ const compiledWorkspaceResourceRootSchema = z
   })
   .strict();
 
-const compiledConnectionDefinitionSchema = z
+export const compiledConnectionDefinitionSchema = z
   .object({
     connectionName: z.string(),
     description: z.string(),
@@ -572,7 +572,7 @@ const compiledConnectionDefinitionSchema = z
   })
   .strict();
 
-const compiledToolDefinitionSchema = z
+export const compiledToolDefinitionSchema = z
   .object({
     description: z.string(),
     exportName: z.string().optional(),
@@ -585,7 +585,7 @@ const compiledToolDefinitionSchema = z
   })
   .strict();
 
-const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefinition> = z
+export const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefinition> = z
   .object({
     eventNames: z.array(z.string()).readonly(),
     exportName: z.string().optional(),
@@ -597,7 +597,7 @@ const compiledDynamicToolDefinitionSchema: z.ZodType<CompiledDynamicToolDefiniti
   })
   .strict();
 
-const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefinition> = z
+export const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefinition> = z
   .object({
     eventNames: z.array(z.string()).readonly(),
     exportName: z.string().optional(),
@@ -609,7 +609,7 @@ const compiledDynamicSkillDefinitionSchema: z.ZodType<CompiledDynamicSkillDefini
   })
   .strict();
 
-const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInstructionsDefinition> =
+export const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInstructionsDefinition> =
   z
     .object({
       eventNames: z.array(z.string()).readonly(),
@@ -621,7 +621,7 @@ const compiledDynamicInstructionsDefinitionSchema: z.ZodType<CompiledDynamicInst
     })
     .strict();
 
-const compiledHookDefinitionSchema: z.ZodType<CompiledHookDefinition> = z
+export const compiledHookDefinitionSchema: z.ZodType<CompiledHookDefinition> = z
   .object({
     exportName: z.string().optional(),
     logicalPath: z.string(),

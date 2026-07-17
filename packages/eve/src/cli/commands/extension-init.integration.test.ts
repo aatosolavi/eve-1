@@ -108,7 +108,7 @@ describe("runExtensionInitCommand", () => {
       scripts?: Record<string, string>;
     };
     expect(packageJson.eve?.extension).toBe("./extension");
-    expect(packageJson.peerDependencies?.eve).toBe("^0.6.0");
+    expect(packageJson.peerDependencies?.eve).toBe(">=0.6.0 <1");
     expect(packageJson.devDependencies?.eve).toBe("^0.6.0");
     expect(packageJson.dependencies?.zod).toBe("4.0.0");
     expect(packageJson.dependencies?.ai).toBeUndefined();

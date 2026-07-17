@@ -9447,7 +9447,7 @@ packages:
   gadget-extension@file:e2e/fixtures/gadget-extension:
     resolution: {directory: e2e/fixtures/gadget-extension, type: directory}
     peerDependencies:
-      eve: '*'
+      eve: '>=0.24.6 <1'
 
   generator-function@2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
@@ -9528,7 +9528,7 @@ packages:
   gizmo-extension@file:e2e/fixtures/gizmo-extension:
     resolution: {directory: e2e/fixtures/gizmo-extension, type: directory}
     peerDependencies:
-      eve: '*'
+      eve: '>=0.24.6 <1'
 
   glob-parent@5.1.2:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}

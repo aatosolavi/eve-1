@@ -37,10 +37,22 @@ function renderTemplate(content: string, ctx: ExtensionTemplateContext): string 
   return content
     .replaceAll("__EVE_INIT_APP_NAME__", ctx.appName)
     .replaceAll("__EVE_INIT_PACKAGE_VERSION__", formatEveDependencySpecifier(ctx.eveVersion))
+    .replaceAll("__EVE_INIT_PEER_VERSION__", formatExtensionEvePeerSpecifier(ctx.eveVersion))
     .replaceAll("__EVE_INIT_ZOD_VERSION__", ctx.zodPackageVersion)
     .replaceAll("__EVE_INIT_TYPESCRIPT_VERSION__", ctx.typescriptPackageVersion)
     .replaceAll("__EVE_INIT_TYPES_NODE_VERSION__", ctx.nodeTypesVersion)
     .replaceAll("__EVE_INIT_NODE_ENGINE__", ctx.nodeEngine);
+}
+
+/**
+ * Gives beta extensions the installed eve version as their compatibility floor
+ * while allowing later pre-1.0 releases. Non-registry specifiers are preserved
+ * for local and tarball-based scaffolding.
+ */
+export function formatExtensionEvePeerSpecifier(versionOrSpecifier: string): string {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$/.test(versionOrSpecifier)
+    ? `>=${versionOrSpecifier} <1`
+    : versionOrSpecifier;
 }
 
 /**
@@ -73,7 +85,7 @@ function packageJsonTemplate(includeRootOnlyFields: boolean): string {
       typescript: "__EVE_INIT_TYPESCRIPT_VERSION__",
     },
     peerDependencies: {
-      eve: "__EVE_INIT_PACKAGE_VERSION__",
+      eve: "__EVE_INIT_PEER_VERSION__",
     },
   };
 
