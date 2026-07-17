@@ -1,18 +1,18 @@
-name: Registry submission
-description: Submit an eve template or example for inclusion in the registry.
-title: "[Registry]: "
+name: Template submission
+description: Submit an eve template or example for inclusion on the Templates page.
+title: "[Template]: "
 labels:
   - enhancement
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for contributing to the eve registry. Submissions must be public, include setup instructions, and use a supported version of eve.
+        Thanks for contributing an eve template. Submissions must be public, include setup instructions, and use a supported version of eve.
   - type: input
     id: name
     attributes:
       label: Name
-      description: The name that should appear in the registry.
+      description: The name that should appear on the Templates page.
       placeholder: Customer support agent
     validations:
       required: true

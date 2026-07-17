@@ -33,7 +33,7 @@ const integrations: RegistryIntegration[] = [
 ];
 const sources: RegistrySource[] = ["GitHub", "Vercel Templates"];
 
-interface RegistryGalleryProps {
+interface TemplateGalleryProps {
   entries: RegistryEntry[];
 }
 
@@ -92,7 +92,7 @@ const FilterOption = ({ label, value }: { label: string; value: string }) => (
   </Select.Item>
 );
 
-const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
+const TemplateCard = ({ entry }: { entry: RegistryEntry }) => (
   <article className="group relative flex min-h-44 flex-col rounded-lg border border-gray-alpha-400 bg-background-100 p-5 transition-colors hover:border-gray-alpha-500 hover:bg-gray-100/40">
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -100,7 +100,7 @@ const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
         <h2 className="mt-1 font-medium text-lg text-gray-1000 leading-snug">
           <Link
             className="after:absolute after:inset-0 no-underline"
-            href={`/registry/${entry.slug}`}
+            href={`/templates/${entry.slug}`}
           >
             {entry.title}
           </Link>
@@ -142,7 +142,7 @@ const RegistryCard = ({ entry }: { entry: RegistryEntry }) => (
   </article>
 );
 
-export const RegistryGallery = ({ entries }: RegistryGalleryProps) => {
+export const TemplateGallery = ({ entries }: TemplateGalleryProps) => {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<FilterValue<RegistryCategory>>(ALL);
   const [integration, setIntegration] = useState<FilterValue<RegistryIntegration>>(ALL);
@@ -182,10 +182,10 @@ export const RegistryGallery = ({ entries }: RegistryGalleryProps) => {
   };
 
   return (
-    <section aria-label="Registry entries" className="flex flex-col gap-5">
+    <section aria-label="Templates" className="flex flex-col gap-5">
       <div className="flex flex-col gap-3">
         <label className="relative">
-          <span className="sr-only">Search registry</span>
+          <span className="sr-only">Search templates</span>
           <SearchIcon
             aria-hidden="true"
             className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-gray-700"
@@ -241,12 +241,12 @@ export const RegistryGallery = ({ entries }: RegistryGalleryProps) => {
       {results.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {results.map((entry) => (
-            <RegistryCard entry={entry} key={entry.title} />
+            <TemplateCard entry={entry} key={entry.title} />
           ))}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-alpha-400 py-16 text-center">
-          <p className="font-medium text-gray-1000">No registry entries found</p>
+          <p className="font-medium text-gray-1000">No templates found</p>
           <p className="text-gray-800 text-sm">Try a different search or filter.</p>
           <button
             className="mt-3 font-medium text-gray-1000 text-sm underline underline-offset-4"
