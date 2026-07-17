@@ -41,6 +41,7 @@ import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { parseNdjsonStream } from "#execution/ndjson-stream.js";
+import { withTerminalFraming } from "#execution/terminal-framing.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import {
   sessionCancelHookToken,
@@ -155,9 +156,7 @@ export function createWorkflowRuntime(config: {
 
       let events: ReadableStream<HandleMessageStreamEvent> | undefined;
       const getEvents = () => {
-        events ??= parseNdjsonStream<HandleMessageStreamEvent>(() =>
-          getRun(run.runId).getReadable(),
-        );
+        events ??= readSessionEventStream(run.runId);
         return events;
       };
 
@@ -201,9 +200,7 @@ export function createWorkflowRuntime(config: {
       sessionId: string,
       options?: GetEventStreamOptions,
     ): Promise<ReadableStream<HandleMessageStreamEvent>> {
-      return parseNdjsonStream<HandleMessageStreamEvent>(() =>
-        getRun(sessionId).getReadable({ startIndex: options?.startIndex }),
-      );
+      return readSessionEventStream(sessionId, options);
     },
 
     async resolveSession(continuationToken: string): Promise<{ sessionId: string } | undefined> {
@@ -221,6 +218,26 @@ export function createWorkflowRuntime(config: {
       }
     },
   };
+}
+
+/**
+ * Reads a session's durable event log as parsed stream events, framed so a
+ * settled run's stream always ends in a turn-boundary event (see
+ * {@link withTerminalFraming}).
+ */
+function readSessionEventStream(
+  sessionId: string,
+  options?: GetEventStreamOptions,
+): ReadableStream<HandleMessageStreamEvent> {
+  return withTerminalFraming(
+    parseNdjsonStream<HandleMessageStreamEvent>(() =>
+      getRun(sessionId).getReadable({ startIndex: options?.startIndex }),
+    ),
+    {
+      getRunStatus: () => getRun(sessionId).status,
+      sessionId,
+    },
+  );
 }
 
 /** Requests cancellation through a session's stable workflow hook. */

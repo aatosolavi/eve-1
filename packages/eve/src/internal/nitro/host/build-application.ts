@@ -32,6 +32,7 @@ import { emitVercelAgentSummary } from "#internal/nitro/host/build-vercel-agent-
 import { tryReadExtensionBuildConfig } from "#internal/nitro/host/build-extension.js";
 import { copyHostMiddlewareFunctions } from "#internal/nitro/host/copy-host-middleware.js";
 import { prepareProductionApplicationHost } from "#internal/nitro/host/prepare-application-host.js";
+import { extendVercelServerFunctionMaxDuration } from "#internal/nitro/host/vercel-build-output-config.js";
 import { runVercelBuildPrewarm } from "#internal/nitro/host/vercel-build-prewarm.js";
 import type {
   ApplicationBuildOptions,
@@ -495,6 +496,9 @@ async function buildApplicationInWorkspace(
 
   try {
     await buildNitroOutput(nitro, profiler, "nitro.app");
+    await measureBuildPhase(profiler, "vercel.app-function.max-duration", () =>
+      extendVercelServerFunctionMaxDuration(workspace.publication.output.stagedDir),
+    );
     // Run sandbox prewarm before emitting the workflow functions so a
     // prewarm failure aborts the build before we spend time bundling
     // function output that we would never deploy.
