@@ -62,11 +62,31 @@ export function createGenerationPackageBoundaryPlugin(input: {
         packageRoot: input.packageRoot,
         source,
       });
-      if (externalModule === undefined) {
+      if (externalModule !== undefined) {
+        return { external: true, id: source };
+      }
+
+      // Ordinary package dependencies are inlined by the default resolver,
+      // which walks node_modules up from the importer's literal path. A
+      // relocated importer (a dev-generation snapshot reaches store-installed
+      // packages through a symlink) breaks that walk: with pnpm's store
+      // layout the dependency is a sibling of the package's real location
+      // only. Retry from the importer's realpath so the dependency resolves
+      // and inlines from where it actually lives.
+      const resolved = await this.resolve(source, importer, {
+        kind: options.kind,
+        skipSelf: true,
+      });
+      if (resolved !== null) {
         return undefined;
       }
 
-      return { external: true, id: source };
+      const retried = await resolveFromRealImporterPath.call(this, {
+        importer,
+        kind: options.kind,
+        source,
+      });
+      return retried === null ? undefined : { id: retried.id };
     },
   };
 }
@@ -154,6 +174,39 @@ export function createRuntimeLoaderPackageBoundaryPlugin(input: {
       return undefined;
     },
   };
+}
+
+async function resolveFromRealImporterPath(
+  this: RolldownResolveContext,
+  input: {
+    readonly importer: string | undefined;
+    readonly kind: string;
+    readonly source: string;
+  },
+): Promise<RolldownResolveResult | null> {
+  const importer = input.importer;
+  if (
+    importer === undefined ||
+    importer.startsWith("\0") ||
+    importer.startsWith(CACHED_CHANNEL_PREFIX)
+  ) {
+    return null;
+  }
+
+  let realImporter: string;
+  try {
+    realImporter = realpathSync(importer);
+  } catch {
+    return null;
+  }
+  if (realImporter === resolve(importer)) {
+    return null;
+  }
+
+  return await this.resolve(input.source, realImporter, {
+    kind: input.kind,
+    skipSelf: true,
+  });
 }
 
 async function resolveConfiguredExternalModule(

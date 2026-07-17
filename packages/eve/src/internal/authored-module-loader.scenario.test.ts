@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import { compileAgentManifest } from "#compiler/normalize-manifest.js";
 import { discoverAgent } from "#discover/discover-agent.js";
-import { loadAuthoredModuleNamespace } from "#internal/authored-module-loader.js";
+import {
+  bundleAuthoredModuleForGeneration,
+  loadAuthoredModuleNamespace,
+} from "#internal/authored-module-loader.js";
 import { useScenarioApp } from "#internal/testing/scenario-app.js";
 
 describe("loadAuthoredModuleNamespace", () => {
@@ -549,6 +552,67 @@ describe("loadAuthoredModuleNamespace", () => {
       expect(moduleNamespace.result).toBe("bundled-dependency");
     } finally {
       await rm(workspaceRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("inlines store-sibling dependencies of modules reached through literal symlink paths", async () => {
+    // pnpm's store layout: an installed package's dependencies are store
+    // siblings, only resolvable from the package's real location. The
+    // compiled module map imports extension modules by literal path through
+    // the app's node_modules symlink (a dev-generation snapshot preserves
+    // that symlink while relocating every importer path), so bare imports
+    // must resolve from the importer's realpath.
+    const app = await scenarioApp({
+      files: {
+        "agent/tools/use_echo.ts": [
+          'import { result } from "../../node_modules/gadget-extension/extension/tools/echo.ts";',
+          "",
+          "export const toolResult = result;",
+          "",
+        ].join("\n"),
+      },
+      name: "store-sibling-generation",
+    });
+    const storeRoot = await mkdtemp(join(tmpdir(), "eve-store-sibling-generation-"));
+
+    try {
+      const storeNodeModules = join(storeRoot, "node_modules");
+      const packageRoot = join(storeNodeModules, "gadget-extension");
+      await mkdir(join(packageRoot, "extension", "tools"), { recursive: true });
+      await mkdir(join(storeNodeModules, "store-sibling"), { recursive: true });
+      await writeFile(
+        join(packageRoot, "package.json"),
+        JSON.stringify({ name: "gadget-extension", type: "module" }, null, 2),
+      );
+      await writeFile(
+        join(packageRoot, "extension", "tools", "echo.ts"),
+        [
+          'import sibling from "store-sibling";',
+          "",
+          "export const result = sibling.value;",
+          "",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(storeNodeModules, "store-sibling", "package.json"),
+        JSON.stringify({ main: "index.cjs", name: "store-sibling" }, null, 2),
+      );
+      await writeFile(
+        join(storeNodeModules, "store-sibling", "index.cjs"),
+        "module.exports = { value: 'store-sibling-value' };\n",
+      );
+
+      await mkdir(join(app.appRoot, "node_modules"), { recursive: true });
+      await symlink(packageRoot, join(app.appRoot, "node_modules", "gadget-extension"), "junction");
+
+      const code = await bundleAuthoredModuleForGeneration(
+        join(app.appRoot, "agent", "tools", "use_echo.ts"),
+      );
+
+      expect(code).toContain("store-sibling-value");
+      expect(code).not.toMatch(/from\s*["']store-sibling["']/);
+    } finally {
+      await rm(storeRoot, { force: true, recursive: true });
     }
   });
 
