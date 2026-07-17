@@ -1,5 +1,5 @@
 {
-  "name": "registry-extension",
+  "name": "dist-extensions",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,12 +7,12 @@
     "build": "eve build",
     "dev": "eve dev",
     "start": "eve start",
-    "typecheck": "eve build && tsc",
     "test:e2e": "eve eval --strict"
   },
   "dependencies": {
     "eve": "workspace:*",
-    "gadget-extension": "file:./vendor/gadget-extension"
+    "gadget-extension": "file:../gadget-extension",
+    "gizmo-extension": "file:../gizmo-extension"
   },
   "devDependencies": {
     "@types/node": "catalog:",
