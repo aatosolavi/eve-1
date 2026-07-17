@@ -10,9 +10,9 @@ import { useScenarioApp } from "../../src/internal/testing/scenario-app.js";
 const scenarioApp = useScenarioApp();
 const compatibilityManifest = JSON.stringify({
   kind: "eve-extension",
-  formatVersion: 1,
-  builtWithEve: "0.0.0-test",
-  requires: { extension: 1, tool: 1, dynamicTool: 1, config: 1 },
+  formatVersion: 2,
+  builtWithEve: "0.25.0",
+  requires: ["extension", "tool", "dynamicTool", "config"],
 });
 
 /**

@@ -553,9 +553,9 @@ describe("compileAgent", () => {
         })}\n`,
         "node_modules/@acme/crm/extension/_manifest.json": JSON.stringify({
           kind: "eve-extension",
-          formatVersion: 1,
-          builtWithEve: "0.0.0-test",
-          requires: { extension: 1, tool: 1, instructions: 1 },
+          formatVersion: 2,
+          builtWithEve: "0.25.0",
+          requires: ["extension", "tool", "instructions"],
         }),
         "node_modules/@acme/crm/extension/index.mjs": "export default {};\n",
         "node_modules/@acme/crm/extension/instructions/policy.mjs":

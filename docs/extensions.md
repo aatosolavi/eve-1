@@ -110,7 +110,7 @@ Author the source with `moduleResolution: "bundler"` — eve compiles it, so rel
 
 The build uses the package `tsconfig.json` when it emits declarations. Its `include` must cover every JavaScript or TypeScript module in the extension source (and JavaScript modules require `allowJs`); the build fails before publishing if any distributed module would be missing its declaration.
 
-The manifest contains only its format, the diagnostic eve build version, and the versions of extension capabilities this package actually uses. It does not contain compiled tools, schemas, names, or executable definitions; the consuming eve still discovers and normalizes the agent-shaped dist tree.
+The manifest contains only its format, the exact eve version that built it, and the extension capabilities the package actually uses. Before loading extension code, the consumer checks that producer version against its own supported eve range for every required capability. It does not contain compiled tools, schemas, names, or executable definitions; the consuming eve still discovers and normalizes the agent-shaped dist tree.
 
 ### Workspace development
 
@@ -118,7 +118,7 @@ During local development, `eve dev` automatically rebuilds mounted workspace ext
 
 ### Dependencies
 
-`eve` is a required wildcard **peer** dependency: one eve lives in the consuming app and the extension's `eve/*` imports resolve to it. The extension's concrete eve version belongs in `devDependencies` for authoring types and build tooling. npm peer semver does not decide extension compatibility; eve validates the generated per-capability requirements. Do not mark the eve peer optional and do not add eve to regular `dependencies`.
+`eve` is a required wildcard **peer** dependency: one eve lives in the consuming app and the extension's `eve/*` imports resolve to it. The extension's concrete eve version belongs in `devDependencies` for authoring types and build tooling. npm peer semver does not decide extension compatibility; the consumer validates the manifest's build version against its supported range for every required capability. Do not mark the eve peer optional and do not add eve to regular `dependencies`.
 
 Everything else the extension imports at execution time (SDKs, `zod`, …) goes in `dependencies`; each extension resolves its own versions. Build-only and test-only packages go in `devDependencies`.
 

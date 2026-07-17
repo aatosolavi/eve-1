@@ -1,5 +1,11 @@
 export interface SemVer {
   major: number;
+  minor: number;
+  patch: number;
+}
+
+export interface SemVerOptions {
+  includePrerelease?: boolean;
 }
 
 export interface Comparator {
@@ -14,7 +20,10 @@ export interface SemVerApi {
   Range: new (range: string) => Range;
   intersects(rangeA: string, rangeB: string): boolean;
   minVersion(range: string): SemVer | null;
+  parse(version: string): SemVer | null;
+  satisfies(version: string, range: string, options?: SemVerOptions): boolean;
   subset(candidateRange: string, requiredRange: string): boolean;
+  valid(version: string): string | null;
   validRange(range: string): string | null;
 }
 

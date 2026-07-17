@@ -223,14 +223,14 @@ describe("extension build output", () => {
     );
     expect(manifest.kind).toBe("eve-extension");
     expect(manifest.builtWithEve).toMatch(/^\d+\.\d+\.\d+/);
-    expect(manifest.requires).toEqual({
-      extension: 1,
-      tool: 1,
-      dynamicTool: 1,
-      skill: 1,
-      config: 1,
-      state: 1,
-    });
+    expect(manifest.requires).toEqual([
+      "extension",
+      "tool",
+      "dynamicTool",
+      "skill",
+      "config",
+      "state",
+    ]);
     const dynamicToolDeclaration = await readFile(
       join(outDir, "extension", "tools", "crm_search.d.ts"),
       "utf8",

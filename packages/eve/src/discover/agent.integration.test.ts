@@ -32,9 +32,9 @@ import {
 
 const EXTENSION_COMPATIBILITY_MANIFEST = JSON.stringify({
   kind: "eve-extension",
-  formatVersion: 1,
-  builtWithEve: "0.0.0-test",
-  requires: { extension: 1, tool: 1 },
+  formatVersion: 2,
+  builtWithEve: "0.25.0",
+  requires: ["extension", "tool"],
 });
 
 /**
@@ -982,7 +982,7 @@ describe("discoverAgent (memory)", () => {
     expect(collision?.message).toContain("extensions/crm/");
   });
 
-  it("rejects a mounted extension that requires an unsupported capability version", async () => {
+  it("rejects a mounted extension built outside a required capability's supported range", async () => {
     const project = buildMemoryAgentProject({
       appFiles: {
         "node_modules/@acme/crm/package.json": JSON.stringify({
@@ -992,9 +992,9 @@ describe("discoverAgent (memory)", () => {
         }),
         "node_modules/@acme/crm/extension/_manifest.json": JSON.stringify({
           kind: "eve-extension",
-          formatVersion: 1,
+          formatVersion: 2,
           builtWithEve: "9.0.0",
-          requires: { extension: 1, tool: 2 },
+          requires: ["extension", "tool"],
         }),
         "node_modules/@acme/crm/extension/extension.ts": "export default {};\n",
         "node_modules/@acme/crm/extension/tools/search.ts": "export default {};\n",
@@ -1012,11 +1012,13 @@ describe("discoverAgent (memory)", () => {
     });
 
     const incompatible = result.diagnostics.find(
-      (diagnostic) => diagnostic.code === DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE,
+      (diagnostic) =>
+        diagnostic.code === DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE &&
+        diagnostic.message.includes("requires tool"),
     );
     expect(incompatible).toBeDefined();
-    expect(incompatible?.message).toContain("tool contract v2");
-    expect(incompatible?.message).toContain("versions: v1");
+    expect(incompatible?.message).toContain("built with eve 9.0.0");
+    expect(incompatible?.message).toContain("extensions built with eve >=0.25.0");
     expect(result.manifest.resolvedExtensions).toEqual([]);
   });
 

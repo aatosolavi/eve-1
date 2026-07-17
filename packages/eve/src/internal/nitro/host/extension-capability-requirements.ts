@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import {
-  EXTENSION_CAPABILITY_VERSIONS,
+  EXTENSION_CAPABILITIES,
   type ExtensionCapability,
   type ExtensionCapabilityRequirements,
 } from "#compiler/extension-compatibility.js";
@@ -63,9 +63,5 @@ export async function deriveExtensionCapabilityRequirements(input: {
   }
   if (usesState) required.add("state");
 
-  return Object.fromEntries(
-    (Object.keys(EXTENSION_CAPABILITY_VERSIONS) as ExtensionCapability[])
-      .filter((capability) => required.has(capability))
-      .map((capability) => [capability, EXTENSION_CAPABILITY_VERSIONS[capability]]),
-  );
+  return EXTENSION_CAPABILITIES.filter((capability) => required.has(capability));
 }

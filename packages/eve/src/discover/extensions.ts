@@ -210,7 +210,10 @@ export async function locateExtensionMount(input: {
       diagnostics: unsupportedCapabilities.map((unsupported) =>
         createDiscoverErrorDiagnostic({
           code: DISCOVER_EXTENSION_CAPABILITY_INCOMPATIBLE,
-          message: `Extension "${location.packageName}" requires ${unsupported.capability} contract v${unsupported.requiredVersion}, but this eve supports ${unsupported.capability} contract ${formatSupportedVersions(unsupported.supportedVersions)}. Upgrade eve or install an extension release that requires a supported ${unsupported.capability} contract.`,
+          message:
+            unsupported.supportedRange === undefined
+              ? `Extension "${location.packageName}" requires unknown capability "${unsupported.capability}". Upgrade eve or install a compatible extension release.`
+              : `Extension "${location.packageName}" was built with eve ${unsupported.builtWithEve} and requires ${unsupported.capability}, but this eve supports ${unsupported.capability} from extensions built with eve ${unsupported.supportedRange}. Upgrade eve or install a compatible extension release.`,
           sourcePath: compatibilityPath,
         }),
       ),
@@ -338,12 +341,6 @@ export async function locateExtensionMountPackage(input: {
     },
     diagnostics: [],
   };
-}
-
-function formatSupportedVersions(versions: readonly number[]): string {
-  return versions.length === 0
-    ? "versions: none"
-    : `versions: ${versions.map((v) => `v${v}`).join(", ")}`;
 }
 
 async function resolvePackageRoot(input: {
