@@ -97,22 +97,28 @@ All of these run in CI, so running them locally before pushing saves a round tri
 The extension capabilities in
 [`extension-compatibility.ts`](./packages/eve/src/compiler/extension-compatibility.ts)
 have immutable API reports keyed by epoch. If an extension-facing type or
-signature changes, bump the affected entry in `EXTENSION_CAPABILITY_VERSIONS`
-and run:
+signature changes, CI fails with the affected capability. Classify whether the
+new consumer retains the previous epoch while bumping it automatically:
 
 ```bash
-pnpm update:extension-contracts
+pnpm update:extension-contracts --bump hook --retain
+# or
+pnpm update:extension-contracts --bump hook --drop "why the old contract cannot run"
 ```
 
-This adds the report for the new epoch; do not edit or delete an existing
-report. Add the previous epoch to
-`ADDITIONAL_SUPPORTED_CAPABILITY_VERSIONS` only when the current consumer still
-supports it, and add the required retained-authoring fixture under
-`packages/eve/extension-contracts/compatibility/`. The invariant guard verifies
-that every public authoring export is assigned to a capability report and every
-advertised older epoch retains both its report and a compiling fixture. API
-reports and fixtures cover structural compatibility; behavior changes still
-need focused compatibility tests.
+`--retain` updates the consumer support table and scaffolds the required fixture
+under `packages/eve/extension-contracts/compatibility/`. Replace the scaffold
+with a representative example of the retained authoring contract, then rerun
+`pnpm update:extension-contracts` to generate the new epoch report. `--drop`
+requires a reason and records the previous epoch as intentionally unsupported.
+
+Every historical epoch must be classified exactly once as supported or dropped.
+Supported historical epochs require compiling fixtures. Each epoch also retains
+a readable `vN.api.md` declaration report and compact `vN.json` metadata; do not
+edit or delete either file after merge. The invariant guard verifies the support
+history, fixtures, report integrity, and assignment of every public authoring
+export to a capability. Reports and fixtures cover structural compatibility;
+behavior changes still need focused compatibility tests.
 
 ## Documentation
 

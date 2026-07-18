@@ -204,7 +204,8 @@ export async function checkCapabilityReports(configuration, update) {
 
       const generatedReport = await readFile(join(item.reportFolder, "current.api.md"), "utf8");
       const contractSource = await readFile(join(ENTRYPOINT_ROOT, `${item.capability}.ts`), "utf8");
-      const snapshotPath = join(REPORT_ROOT, item.capability, `v${item.version}.json`);
+      const reportPath = join(REPORT_ROOT, item.capability, `v${item.version}.api.md`);
+      const metadataPath = join(REPORT_ROOT, item.capability, `v${item.version}.json`);
       const snapshot = formatSnapshot(
         JSON.stringify({
           kind: "eve-extension-capability-contract",
@@ -213,24 +214,44 @@ export async function checkCapabilityReports(configuration, update) {
           sha256: createHash("sha256").update(generatedReport).digest("hex"),
           exports: [...collectExportNames(contractSource)].sort(),
         }),
-        snapshotPath,
+        metadataPath,
       );
-      let existing;
+      let existingReport;
+      let existingMetadata;
       try {
-        existing = await readFile(snapshotPath, "utf8");
+        existingReport = await readFile(reportPath, "utf8");
+      } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
+      }
+      try {
+        existingMetadata = await readFile(metadataPath, "utf8");
       } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
           throw error;
         }
       }
 
-      if (update && existing === undefined) {
-        await mkdir(dirname(snapshotPath), { recursive: true });
-        await writeFile(snapshotPath, snapshot, "utf8");
-      } else if (existing !== snapshot) {
+      if (update && existingReport === undefined && existingMetadata === undefined) {
+        await mkdir(dirname(reportPath), { recursive: true });
+        await writeFile(reportPath, generatedReport, "utf8");
+        await writeFile(metadataPath, snapshot, "utf8");
+      } else if (update && existingReport !== generatedReport && existingMetadata === snapshot) {
+        await writeFile(reportPath, generatedReport, "utf8");
+      } else if (existingReport !== generatedReport) {
         issues.push({
-          file: toPosix(relative(REPO_ROOT, snapshotPath)),
-          message: `The ${item.capability} API no longer matches epoch ${item.version}. Bump EXTENSION_CAPABILITY_VERSIONS.${item.capability}, retain the old report, then run \`pnpm update:extension-contracts\` to add the new epoch report.`,
+          capability: item.capability,
+          kind: "contract-mismatch",
+          file: toPosix(relative(REPO_ROOT, reportPath)),
+          message: `The ${item.capability} API no longer matches epoch ${item.version}. Run \`pnpm update:extension-contracts --bump ${item.capability} --retain\` or pass \`--drop "reason"\` to classify the previous epoch and add the new report.`,
+        });
+      } else if (existingMetadata !== snapshot) {
+        issues.push({
+          capability: item.capability,
+          kind: "metadata-mismatch",
+          file: toPosix(relative(REPO_ROOT, metadataPath)),
+          message: `The ${item.capability} epoch ${item.version} report metadata does not match its committed API report.`,
         });
       }
     }
@@ -265,10 +286,12 @@ export async function reportInventoryIssues(configuration) {
   }
 
   for (const [capability, currentVersion] of Object.entries(configuration.current)) {
-    const expectedReportNames = Array.from(
-      { length: currentVersion },
-      (_, index) => `v${index + 1}.json`,
-    ).sort();
+    const expectedReportNames = Array.from({ length: currentVersion }, (_, index) => [
+      `v${index + 1}.api.md`,
+      `v${index + 1}.json`,
+    ])
+      .flat()
+      .sort();
     const actualReportNames = (
       await readdir(join(REPORT_ROOT, capability), { withFileTypes: true })
     )
@@ -282,18 +305,20 @@ export async function reportInventoryIssues(configuration) {
       });
     }
     for (let version = 1; version <= currentVersion; version++) {
-      const reportPath = join(REPORT_ROOT, capability, `v${version}.json`);
-      try {
-        await readFile(reportPath);
-      } catch (error) {
-        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-          issues.push({
-            file: toPosix(relative(REPO_ROOT, reportPath)),
-            message: `Capability ${capability} is at epoch ${currentVersion}, so immutable report v${version}.json must be retained. Restore the report or bump epochs sequentially and generate the missing report.`,
-          });
-          continue;
+      for (const extension of ["api.md", "json"]) {
+        const reportPath = join(REPORT_ROOT, capability, `v${version}.${extension}`);
+        try {
+          await readFile(reportPath);
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+            issues.push({
+              file: toPosix(relative(REPO_ROOT, reportPath)),
+              message: `Capability ${capability} is at epoch ${currentVersion}, so immutable report v${version}.${extension} must be retained. Restore the report or bump epochs sequentially and generate the missing report.`,
+            });
+            continue;
+          }
+          throw error;
         }
-        throw error;
       }
     }
   }

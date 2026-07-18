@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -10,7 +11,9 @@ import {
   COMPATIBILITY_SOURCE,
   REPORT_ROOT,
   REPO_ROOT,
+  bumpCapabilityConfiguration,
   parseCapabilityConfiguration,
+  retainedCompatibilityFixture,
   toPosix,
   validateCapabilityConfiguration,
 } from "./extension-contracts/configuration.mjs";
@@ -68,6 +71,57 @@ function immutableContractHistoryIssues() {
   return issues;
 }
 
+function formatted(source, path) {
+  const require = createRequire(import.meta.url);
+  const formatterPackage = require.resolve("oxfmt/package.json");
+  const formatter = join(dirname(formatterPackage), "bin/oxfmt");
+  return execFileSync(process.execPath, [formatter, "--stdin-filepath", path], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    input: source,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+function updateRequest(args) {
+  const bumpIndex = args.indexOf("--bump");
+  const capability = bumpIndex === -1 ? undefined : args[bumpIndex + 1];
+  const retain = args.includes("--retain");
+  const dropIndex = args.indexOf("--drop");
+  const reason = dropIndex === -1 ? undefined : args[dropIndex + 1];
+  if (bumpIndex !== -1 && (!capability || capability.startsWith("--"))) {
+    throw new Error("--bump requires a capability name.");
+  }
+  if (capability === undefined && (retain || dropIndex !== -1)) {
+    throw new Error("--retain and --drop require --bump <capability>.");
+  }
+  if (capability !== undefined && retain === (dropIndex !== -1)) {
+    throw new Error(
+      'A capability bump requires exactly one compatibility decision: --retain or --drop "reason".',
+    );
+  }
+  if (dropIndex !== -1 && (!reason || reason.startsWith("--"))) {
+    throw new Error("--drop requires a non-empty reason.");
+  }
+  return capability === undefined
+    ? undefined
+    : { capability, decision: retain ? { retain: true } : { retain: false, reason } };
+}
+
+async function scaffoldRetainedFixture(capability, version) {
+  const path = join(COMPATIBILITY_FIXTURE_ROOT, capability, `v${version}.ts`);
+  try {
+    await readFile(path);
+    return;
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, formatted(retainedCompatibilityFixture(capability, version), path), "utf8");
+}
+
 export async function checkExtensionCapabilityContracts({ update = false } = {}) {
   const source = await readFile(COMPATIBILITY_SOURCE, "utf8");
   const configuration = parseCapabilityConfiguration(source);
@@ -81,8 +135,61 @@ export async function checkExtensionCapabilityContracts({ update = false } = {})
 }
 
 async function main() {
-  const update = process.argv.includes("--update");
+  const args = process.argv.slice(2);
+  const update = args.includes("--update");
+  const request = updateRequest(args);
+  if (request !== undefined && !update) {
+    throw new Error("--bump requires --update.");
+  }
+
+  if (request !== undefined) {
+    const source = await readFile(COMPATIBILITY_SOURCE, "utf8");
+    const configuration = parseCapabilityConfiguration(source);
+    const initialIssues = [
+      ...(await validateCapabilityConfiguration(configuration)),
+      ...immutableContractHistoryIssues(),
+      ...(await reportInventoryIssues(configuration)),
+    ];
+    const reportIssues = await checkCapabilityReports(configuration, false);
+    const selectedMismatch = reportIssues.find(
+      (issue) => issue.kind === "contract-mismatch" && issue.capability === request.capability,
+    );
+    initialIssues.push(
+      ...reportIssues.filter(
+        (issue) => issue.kind !== "contract-mismatch" || issue.capability !== request.capability,
+      ),
+    );
+    if (selectedMismatch === undefined) {
+      initialIssues.push({
+        file: toPosix(relative(REPO_ROOT, COMPATIBILITY_SOURCE)),
+        message: `Capability "${request.capability}" has no detected API change to bump.`,
+      });
+    }
+    if (initialIssues.length > 0) return initialIssues;
+
+    const bumped = bumpCapabilityConfiguration(source, request.capability, request.decision);
+    await writeFile(COMPATIBILITY_SOURCE, formatted(bumped.source, COMPATIBILITY_SOURCE), "utf8");
+    if (request.decision.retain) {
+      await scaffoldRetainedFixture(request.capability, bumped.previousVersion);
+    }
+  }
+
   const issues = await checkExtensionCapabilityContracts({ update });
+  return issues;
+}
+
+async function run() {
+  let issues;
+  try {
+    issues = await main();
+  } catch (error) {
+    issues = [
+      {
+        file: toPosix(relative(REPO_ROOT, COMPATIBILITY_SOURCE)),
+        message: error instanceof Error ? error.message : String(error),
+      },
+    ];
+  }
   if (issues.length > 0) {
     process.stderr.write(
       `[eve:extension-contracts] FAIL: ${issues.length} capability contract issue${issues.length === 1 ? "" : "s"}.\n\n`,
@@ -94,12 +201,12 @@ async function main() {
     return;
   }
   process.stdout.write(
-    update
+    process.argv.includes("--update")
       ? "[eve:extension-contracts] updated current capability reports.\n"
       : "[eve:extension-contracts] ok — capability epochs and support reports match.\n",
   );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main();
+  await run();
 }
