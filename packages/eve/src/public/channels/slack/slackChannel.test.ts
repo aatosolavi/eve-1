@@ -1469,6 +1469,141 @@ describe("slackChannel() inbound direct message pipeline", () => {
   });
 });
 
+describe("slackChannel() onEvent pipeline", () => {
+  const ORIGINAL_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+
+  beforeEach(() => {
+    process.env.SLACK_SIGNING_SECRET = SIGNING_SECRET;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, ts: "1700000001.000001" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_SIGNING_SECRET === undefined) {
+      delete process.env.SLACK_SIGNING_SECRET;
+    } else {
+      process.env.SLACK_SIGNING_SECRET = ORIGINAL_SIGNING_SECRET;
+    }
+  });
+
+  function buildReactionBody(overrides?: { eventId?: string }): string {
+    mentionCounter += 1;
+    return JSON.stringify({
+      type: "event_callback",
+      team_id: "T01",
+      event_id: overrides?.eventId ?? `Ev${mentionCounter}`,
+      event_time: 1700000000,
+      event: {
+        type: "reaction_added",
+        user: "U01",
+        reaction: "thumbsup",
+        item: { type: "message", channel: "C01", ts: "1700000000.000001" },
+      },
+    });
+  }
+
+  it("invokes onEvent for event types with no dedicated pipeline", async () => {
+    const onEvent = vi.fn();
+    const channel = slackChannel({ credentials: { botToken: "xoxb-test" }, onEvent });
+
+    const { response, send } = await firePost(
+      channel,
+      buildSignedRequest({ body: buildReactionBody() }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    const [ctx, event] = onEvent.mock.calls[0]!;
+    expect(event).toMatchObject({
+      type: "reaction_added",
+      teamId: "T01",
+      eventTime: 1700000000,
+      channelId: "C01",
+      threadTs: "1700000000.000001",
+      event: { reaction: "thumbsup" },
+    });
+    expect(ctx.slack.channelId).toBe("C01");
+  });
+
+  it("invokes onEvent for app_mention events without affecting dispatch", async () => {
+    const onEvent = vi.fn();
+    const onAppMention = vi.fn().mockReturnValue({ auth: null });
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test" },
+      onAppMention,
+      onEvent,
+    });
+
+    const { body } = buildMentionBody();
+    const { send } = await firePost(channel, buildSignedRequest({ body }));
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls[0]![1]).toMatchObject({ type: "app_mention" });
+    expect(onAppMention).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onEvent for bot-authored DMs that onDirectMessage filters out", async () => {
+    const onEvent = vi.fn();
+    const onDirectMessage = vi.fn();
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test" },
+      onDirectMessage,
+      onEvent,
+    });
+
+    const { body } = buildDirectMessageBody({ botId: "B01" });
+    const { send } = await firePost(channel, buildSignedRequest({ body }));
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls[0]![1]).toMatchObject({ type: "message" });
+    expect(onDirectMessage).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("dedupes redeliveries of an already-handled event_id", async () => {
+    const onEvent = vi.fn();
+    const channel = slackChannel({ credentials: { botToken: "xoxb-test" }, onEvent });
+
+    const body = buildReactionBody({ eventId: "EvDup" });
+    await firePost(channel, buildSignedRequest({ body }));
+    const { response } = await firePost(channel, buildSignedRequest({ body }));
+
+    expect(response.status).toBe(200);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 200 OK and logs when onEvent throws", async () => {
+    const onEvent = vi.fn().mockRejectedValue(new Error("bad observer"));
+    const channel = slackChannel({ credentials: { botToken: "xoxb-test" }, onEvent });
+
+    const { response } = await firePost(channel, buildSignedRequest({ body: buildReactionBody() }));
+
+    expect(response.status).toBe(200);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores unsupported events when onEvent is not configured", async () => {
+    const channel = slackChannel({ credentials: { botToken: "xoxb-test" } });
+
+    const { response, send, waitUntil } = await firePost(
+      channel,
+      buildSignedRequest({ body: buildReactionBody() }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+});
+
 describe("slackChannel() HITL interaction pipeline", () => {
   const ORIGINAL_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
   const ORIGINAL_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;

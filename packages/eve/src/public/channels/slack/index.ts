@@ -35,6 +35,7 @@ export {
 export type {
   SlackAttachment,
   SlackAuthor,
+  SlackEvent,
   SlackInboundContext,
   SlackMessage,
 } from "#public/channels/slack/inbound.js";

@@ -53,6 +53,7 @@ Inbound hooks decide whether to dispatch a turn and with what `auth`. Return `{ 
 - `onAppMention(ctx, message)` handles `app_mention` events. The default derives workspace-scoped auth and posts a `Thinking…` indicator.
 - `onDirectMessage(ctx, message)` handles `message.im` events (needs `im:history` scope). Bot-authored messages and edits are filtered out first.
 - `onInteraction(action, ctx)` handles `block_actions` callbacks not consumed by HITL.
+- `onEvent(ctx, event)` observes every Events API callback, including types with no dedicated hook (`reaction_added`, `channel_created`, …). Subscribe the Slack app to each event type you want to see. Mentions and DMs reach it too, alongside their dedicated hooks; it never dispatches a turn — use `ctx.slack.request(...)` (or `ctx.thread` when the event carries a channel) for side effects.
 
 eve attaches the triggering Slack user id to the same model message as the message text. This keeps speaker attribution intact when several people use one thread without making profile lookup requests.
 

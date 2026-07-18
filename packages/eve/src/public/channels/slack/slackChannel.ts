@@ -27,8 +27,10 @@ import {
   defaultOnDirectMessage,
 } from "#public/channels/slack/defaults.js";
 import {
+  type SlackEvent,
   type SlackInboundContext,
   type SlackMessage,
+  slackEventFromWebhookPayload,
   slackMessageFromWebhookPayload,
 } from "#public/channels/slack/inbound.js";
 import {
@@ -440,6 +442,27 @@ export interface SlackChannelConfig {
    */
   onInteraction?(action: SlackInteractionAction, ctx: SlackContext): void | Promise<void>;
 
+  /**
+   * Invoked for every Slack Events API callback the webhook receives,
+   * including event types the channel has no dedicated pipeline for
+   * (`reaction_added`, `channel_created`, `team_join`, ...). Subscribe
+   * the bot's Slack app to each event type you want to observe.
+   *
+   * `app_mention` and IM `message` events reach this hook too, in
+   * addition to their `onAppMention` / `onDirectMessage` pipelines —
+   * observing here never affects dispatch. Interactivity payloads
+   * (`block_actions`, view submissions) are not events; those route to
+   * `onInteraction` and the HITL pipeline instead.
+   *
+   * Runs on the inbound webhook side via `waitUntil()` after event-id
+   * dedup, so the channel returns `200 OK` to Slack immediately. Errors
+   * are caught and logged. The `SlackContext` is rebuilt best-effort
+   * from the event's channel and thread; for events that carry no
+   * channel, thread operations are unusable — use the raw
+   * `ctx.slack.request(...)` escape hatch instead.
+   */
+  onEvent?(ctx: SlackContext, event: SlackEvent): void | Promise<void>;
+
   readonly events?: SlackChannelEvents;
 }
 
@@ -562,6 +585,7 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
             waitUntil,
             onAppMention,
             onDirectMessage,
+            onEvent: config.onEvent,
             uploadPolicy,
             threadContext: config.threadContext,
             handledEvents,
@@ -654,7 +678,8 @@ function shouldDropSlackHttpTimeoutRetry(headers: Headers): boolean {
 
 /**
  * Handles an inbound non-interactivity Slack POST: parses the JSON
- * envelope, answers the URL-verification challenge, routes
+ * envelope, answers the URL-verification challenge, forwards every
+ * Events API callback to `onEvent` (when configured), routes
  * `app_mention` events through `onAppMention` and `message`
  * events with `channel_type: "im"` through `onDirectMessage`, and
  * dispatches matching events via {@link dispatchInboundMessage} under
@@ -668,6 +693,7 @@ async function handleEventPost(input: {
   readonly waitUntil: (task: Promise<unknown>) => void;
   readonly onAppMention: NonNullable<SlackChannelConfig["onAppMention"]>;
   readonly onDirectMessage: NonNullable<SlackChannelConfig["onDirectMessage"]>;
+  readonly onEvent: SlackChannelConfig["onEvent"];
   readonly uploadPolicy: UploadPolicy;
   readonly threadContext: LoadThreadContextMessagesOptions | undefined;
   readonly credentials: SlackChannelCredentials | undefined;
@@ -688,26 +714,32 @@ async function handleEventPost(input: {
     });
   }
 
-  if (payload.kind === "unsupported") return new Response("ok");
+  const inboundPayload =
+    payload.kind === "app_mention" || payload.kind === "direct_message" ? payload : null;
+  const slackEvent = input.onEvent === undefined ? null : slackEventFromWebhookPayload(payload);
+  if (inboundPayload === null && slackEvent === null) return new Response("ok");
 
-  if (payload.kind !== "app_mention" && payload.kind !== "direct_message") {
-    return new Response("ok");
-  }
-
-  if (payload.eventId) {
-    if (input.handledEvents.has(payload.eventId)) {
+  const eventId = inboundPayload === null ? slackEvent?.eventId : inboundPayload.eventId;
+  if (eventId) {
+    if (input.handledEvents.has(eventId)) {
       log.warn("received a duplicate event", {
-        event_id: payload.eventId,
-        event_time: payload.eventTime,
+        event_id: eventId,
+        event_time: inboundPayload === null ? slackEvent?.eventTime : inboundPayload.eventTime,
         retry_num: payload.retry?.num ?? "(null)",
         retry_reason: payload.retry?.reason ?? "(null)",
       });
       return new Response("ok");
     }
-    markEventHandled(payload.eventId, input.handledEvents);
+    markEventHandled(eventId, input.handledEvents);
   }
 
-  const message = slackMessageFromWebhookPayload(payload);
+  if (slackEvent !== null && input.onEvent !== undefined) {
+    input.waitUntil(invokeOnEvent(input.onEvent, slackEvent, input.credentials));
+  }
+
+  if (inboundPayload === null) return new Response("ok");
+
+  const message = slackMessageFromWebhookPayload(inboundPayload);
   if (!message) return new Response("ok");
 
   if (payload.kind === "app_mention") {
@@ -741,6 +773,30 @@ async function handleEventPost(input: {
   }
 
   return new Response("ok");
+}
+
+/**
+ * Runs the `onEvent` observer for one Events API callback inside the
+ * webhook's `waitUntil` task. Errors are caught and logged so a
+ * misbehaving handler never crashes the webhook ACK or the dedicated
+ * mention / DM pipelines.
+ */
+async function invokeOnEvent(
+  handler: NonNullable<SlackChannelConfig["onEvent"]>,
+  event: SlackEvent,
+  credentials: SlackChannelCredentials | undefined,
+): Promise<void> {
+  const { thread, slack } = buildSlackBinding({
+    botToken: credentials?.botToken,
+    channelId: event.channelId ?? "",
+    threadTs: event.threadTs ?? "",
+    teamId: event.teamId,
+  });
+  try {
+    await handler({ thread, slack }, event);
+  } catch (error) {
+    logError(log, "onEvent handler failed", error, { eventType: event.type });
+  }
 }
 
 /**

@@ -17,6 +17,7 @@ import type {
   SlackAppMentionPayload,
   SlackDirectMessagePayload,
   SlackFile,
+  SlackWebhookPayload,
 } from "#compiled/@chat-adapter/slack/webhook.js";
 
 import { slackMrkdwnToGfm } from "#public/channels/slack/mrkdwn.js";
@@ -169,6 +170,92 @@ export function parseDirectMessageEvent(envelope: SlackEventCallback): SlackMess
   if (typeof message.bot_id === "string" && message.bot_id.length > 0) return null;
 
   return buildSlackMessage(message, envelope.team_id);
+}
+
+/**
+ * Channel-owned representation of one inbound Slack Events API callback,
+ * passed to `slackChannel({ onEvent })` for every `event_callback` the
+ * webhook receives — including event types the channel has no dedicated
+ * pipeline for (`reaction_added`, `channel_created`, ...).
+ */
+export interface SlackEvent {
+  /** Inner Slack event type, e.g. `"reaction_added"`. */
+  readonly type: string;
+  /** The inner `event` object from the Events API envelope, verbatim. */
+  readonly event: Record<string, unknown>;
+  /** Slack team id, when the envelope carried one. */
+  readonly teamId: string | undefined;
+  /** Envelope `event_id`, used for redelivery dedup. */
+  readonly eventId: string | undefined;
+  /** Envelope `event_time` (epoch seconds). */
+  readonly eventTime: number | undefined;
+  /**
+   * Slack channel id, derived best-effort from `event.channel` or
+   * `event.item.channel`. `undefined` for events with no channel (e.g.
+   * `team_join`).
+   */
+  readonly channelId: string | undefined;
+  /** Thread root ts (`event.thread_ts`, falling back to `event.ts`). */
+  readonly threadTs: string | undefined;
+}
+
+/**
+ * Normalizes a parsed webhook payload into a {@link SlackEvent}.
+ *
+ * `app_mention` and `direct_message` payloads carry the inner event as
+ * `raw`; `unsupported` payloads carry the whole envelope, so the inner
+ * event and its envelope fields are extracted here. Returns `null` for
+ * payloads that are not Events API callbacks (URL verification,
+ * interactivity kinds, malformed envelopes).
+ */
+export function slackEventFromWebhookPayload(payload: SlackWebhookPayload): SlackEvent | null {
+  if (payload.kind === "app_mention" || payload.kind === "direct_message") {
+    return {
+      type: payload.eventType,
+      event: payload.raw,
+      teamId: payload.teamId,
+      eventId: payload.eventId,
+      eventTime: payload.eventTime,
+      channelId: payload.channelId || undefined,
+      threadTs: payload.threadTs || undefined,
+    };
+  }
+
+  if (payload.kind !== "unsupported") return null;
+  const envelope = payload.raw;
+  if (!isRecord(envelope) || envelope.type !== "event_callback") return null;
+  const event = envelope.event;
+  if (!isRecord(event) || typeof event.type !== "string") return null;
+
+  return {
+    type: event.type,
+    event,
+    teamId: asString(envelope.team_id),
+    eventId: asString(envelope.event_id),
+    eventTime: typeof envelope.event_time === "number" ? envelope.event_time : undefined,
+    channelId: deriveEventChannelId(event),
+    threadTs: deriveEventThreadTs(event),
+  };
+}
+
+function deriveEventChannelId(event: Record<string, unknown>): string | undefined {
+  const channel = asString(event.channel);
+  if (channel !== undefined) return channel;
+  return isRecord(event.item) ? asString(event.item.channel) : undefined;
+}
+
+function deriveEventThreadTs(event: Record<string, unknown>): string | undefined {
+  const ts = asString(event.thread_ts) ?? asString(event.ts);
+  if (ts !== undefined) return ts;
+  return isRecord(event.item) ? asString(event.item.ts) : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function slackMessageFromWebhookPayload(
