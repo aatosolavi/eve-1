@@ -32,7 +32,7 @@
     "version-packages": "changeset version",
     "release": "pnpm build && node ./scripts/assert-changeset-publish-packages.mjs && changeset publish",
     "test:tui": "pnpm --filter eve run test:tui",
-    "update:extension-contracts": "node ./scripts/extension-capability-contracts.mjs --update"
+    "update:extension-contracts": "node ./scripts/extension-capability-contracts.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

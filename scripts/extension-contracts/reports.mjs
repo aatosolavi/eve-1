@@ -242,9 +242,11 @@ export async function checkCapabilityReports(configuration, update) {
       } else if (existingReport !== generatedReport) {
         issues.push({
           capability: item.capability,
+          currentReport: generatedReport,
           kind: "contract-mismatch",
+          previousReport: existingReport,
           file: toPosix(relative(REPO_ROOT, reportPath)),
-          message: `The ${item.capability} API no longer matches epoch ${item.version}. Run \`pnpm update:extension-contracts --bump ${item.capability} --retain\` or pass \`--drop "reason"\` to classify the previous epoch and add the new report.`,
+          message: `The ${item.capability} API no longer matches epoch ${item.version}. Run \`pnpm update:extension-contracts --update ${item.capability}\` to classify the change and add the new report.`,
         });
       } else if (existingMetadata !== snapshot) {
         issues.push({

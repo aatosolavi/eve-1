@@ -101,16 +101,18 @@ signature changes, CI fails with the affected capability. Classify whether the
 new consumer retains the previous epoch while bumping it automatically:
 
 ```bash
-pnpm update:extension-contracts --bump hook --retain
-# or
-pnpm update:extension-contracts --bump hook --drop "why the old contract cannot run"
+pnpm update:extension-contracts --update hook
 ```
 
-`--retain` updates the consumer support table and scaffolds the required fixture
-under `packages/eve/extension-contracts/compatibility/`. Replace the scaffold
-with a representative example of the retained authoring contract, then rerun
-`pnpm update:extension-contracts` to generate the new epoch report. `--drop`
-requires a reason and records the previous epoch as intentionally unsupported.
+The command bumps changes it can prove structurally backward compatible,
+retains the previous epoch, and scaffolds the required fixture under
+`packages/eve/extension-contracts/compatibility/`. Replace the scaffold with a
+representative example of the retained authoring contract, then rerun
+`pnpm update:extension-contracts` to generate the new epoch report. If the
+change cannot be classified automatically, pass `--retain` after verifying
+runtime compatibility. To stop accepting the previous epoch, pass
+`--drop "why the old contract cannot run"`; this bumps the capability and
+records the reason.
 
 Every historical epoch must be classified exactly once as supported or dropped.
 Supported historical epochs require compiling fixtures. Each epoch also retains

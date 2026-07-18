@@ -17,6 +17,7 @@ import {
   toPosix,
   validateCapabilityConfiguration,
 } from "./extension-contracts/configuration.mjs";
+import { classifyStructuralBackwardCompatibility } from "./extension-contracts/compatibility.mjs";
 import { checkCapabilityReports, reportInventoryIssues } from "./extension-contracts/reports.mjs";
 
 function gitOutput(args) {
@@ -84,28 +85,30 @@ function formatted(source, path) {
 }
 
 function updateRequest(args) {
-  const bumpIndex = args.indexOf("--bump");
-  const capability = bumpIndex === -1 ? undefined : args[bumpIndex + 1];
+  const updateIndex = args.indexOf("--update");
+  const capability = updateIndex === -1 ? undefined : args[updateIndex + 1];
   const retain = args.includes("--retain");
   const dropIndex = args.indexOf("--drop");
   const reason = dropIndex === -1 ? undefined : args[dropIndex + 1];
-  if (bumpIndex !== -1 && (!capability || capability.startsWith("--"))) {
-    throw new Error("--bump requires a capability name.");
+  if (updateIndex !== -1 && (!capability || capability.startsWith("--"))) {
+    throw new Error("--update requires a capability name.");
   }
   if (capability === undefined && (retain || dropIndex !== -1)) {
-    throw new Error("--retain and --drop require --bump <capability>.");
+    throw new Error("--retain and --drop require --update <capability>.");
   }
-  if (capability !== undefined && retain === (dropIndex !== -1)) {
-    throw new Error(
-      'A capability bump requires exactly one compatibility decision: --retain or --drop "reason".',
-    );
+  if (retain && dropIndex !== -1) {
+    throw new Error("--retain and --drop cannot be used together.");
   }
   if (dropIndex !== -1 && (!reason || reason.startsWith("--"))) {
     throw new Error("--drop requires a non-empty reason.");
   }
   return capability === undefined
     ? undefined
-    : { capability, decision: retain ? { retain: true } : { retain: false, reason } };
+    : {
+        capability,
+        decision:
+          dropIndex !== -1 ? { retain: false, reason } : retain ? { retain: true } : undefined,
+      };
 }
 
 async function scaffoldRetainedFixture(capability, version) {
@@ -136,11 +139,7 @@ export async function checkExtensionCapabilityContracts({ update = false } = {})
 
 async function main() {
   const args = process.argv.slice(2);
-  const update = args.includes("--update");
   const request = updateRequest(args);
-  if (request !== undefined && !update) {
-    throw new Error("--bump requires --update.");
-  }
 
   if (request !== undefined) {
     const source = await readFile(COMPATIBILITY_SOURCE, "utf8");
@@ -167,14 +166,44 @@ async function main() {
     }
     if (initialIssues.length > 0) return initialIssues;
 
-    const bumped = bumpCapabilityConfiguration(source, request.capability, request.decision);
+    let decision = request.decision;
+    if (decision === undefined) {
+      if (selectedMismatch.previousReport === undefined) {
+        return [
+          {
+            file: selectedMismatch.file,
+            message: `Capability "${request.capability}" has no previous report to classify. Run \`pnpm update:extension-contracts\` to generate its current report without bumping the epoch.`,
+          },
+        ];
+      }
+      const classification = classifyStructuralBackwardCompatibility(
+        selectedMismatch.previousReport,
+        selectedMismatch.currentReport,
+      );
+      if (!classification.compatible) {
+        return [
+          {
+            file: selectedMismatch.file,
+            message: `Could not prove the ${request.capability} change is backward compatible. ${classification.reasons.slice(0, 3).join(" ")} Rerun with \`--retain\` after verifying runtime compatibility, or \`--drop "reason"\` to stop accepting the previous epoch.`,
+          },
+        ];
+      }
+      decision = { retain: true };
+    }
+
+    const bumped = bumpCapabilityConfiguration(source, request.capability, decision);
     await writeFile(COMPATIBILITY_SOURCE, formatted(bumped.source, COMPATIBILITY_SOURCE), "utf8");
-    if (request.decision.retain) {
+    if (decision.retain) {
       await scaffoldRetainedFixture(request.capability, bumped.previousVersion);
     }
+    process.stdout.write(
+      decision.retain
+        ? `[eve:extension-contracts] ${request.capability} is structurally backward compatible; retaining epoch ${bumped.previousVersion} and bumping to ${bumped.version}.\n`
+        : `[eve:extension-contracts] dropping ${request.capability} epoch ${bumped.previousVersion} and bumping to ${bumped.version}.\n`,
+    );
   }
 
-  const issues = await checkExtensionCapabilityContracts({ update });
+  const issues = await checkExtensionCapabilityContracts({ update: true });
   return issues;
 }
 
@@ -200,11 +229,7 @@ async function run() {
     process.exitCode = 1;
     return;
   }
-  process.stdout.write(
-    process.argv.includes("--update")
-      ? "[eve:extension-contracts] updated current capability reports.\n"
-      : "[eve:extension-contracts] ok — capability epochs and support reports match.\n",
-  );
+  process.stdout.write("[eve:extension-contracts] updated current capability reports.\n");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
