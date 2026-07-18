@@ -1,0 +1,7 @@
+{
+  "kind": "eve-extension-capability-contract",
+  "capability": "instructions",
+  "epoch": 1,
+  "sha256": "b06908b67602089e4ae02445714dd3ad2470f8c980f6d1c914bdf34255012f7c",
+  "exports": ["InstructionsDefinition", "defineInstructions"]
+}

@@ -1,0 +1,17 @@
+{
+  "kind": "eve-extension-capability-contract",
+  "capability": "hook",
+  "epoch": 1,
+  "sha256": "6f7d58028575c00b6a0f1cb58c246d1fc18afabcfb44afa0a60d9835252fb963",
+  "exports": [
+    "HookContext",
+    "HookDefinition",
+    "HookEvent",
+    "HookEventKey",
+    "HookEventMap",
+    "HookEventType",
+    "StreamEventHook",
+    "StreamEventHooks",
+    "defineHook"
+  ]
+}

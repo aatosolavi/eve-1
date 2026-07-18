@@ -1,0 +1,7 @@
+{
+  "kind": "eve-extension-capability-contract",
+  "capability": "config",
+  "epoch": 1,
+  "sha256": "c84ab9ea57c74285dc3aa5de36e194b678d2055cd30310e864d56443465b0d39",
+  "exports": ["ExtensionHandle", "defineExtension"]
+}

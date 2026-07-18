@@ -1,0 +1,33 @@
+{
+  "kind": "eve-extension-capability-contract",
+  "capability": "connection",
+  "epoch": 1,
+  "sha256": "f0057f3cbbb8d35107f4dca929745442068aae95d55e6df76d27b4fb576483e7",
+  "exports": [
+    "AuthorizationCallback",
+    "AuthorizationDefinition",
+    "ConnectionAuthDefinition",
+    "ConnectionAuthProvider",
+    "ConnectionAuthResolver",
+    "ConnectionAuthorizationChallenge",
+    "ConnectionAuthorizationFailedError",
+    "ConnectionAuthorizationFailedErrorOptions",
+    "ConnectionAuthorizationRequiredError",
+    "ConnectionAuthorizationRequiredErrorOptions",
+    "ConnectionPrincipal",
+    "HeadersDefinition",
+    "InteractiveAuthorizationDefinition",
+    "JsonValue",
+    "McpClientConnectionDefinition",
+    "NonInteractiveAuthorizationDefinition",
+    "OpenAPIConnectionDefinition",
+    "OpenAPISpecSource",
+    "TokenResult",
+    "ToolFilterDefinition",
+    "defineInteractiveAuthorization",
+    "defineMcpClientConnection",
+    "defineOpenAPIConnection",
+    "isConnectionAuthorizationFailedError",
+    "isConnectionAuthorizationRequiredError"
+  ]
+}

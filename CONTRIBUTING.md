@@ -92,6 +92,28 @@ pnpm docs:check    # docs frontmatter and nav validation
 
 All of these run in CI, so running them locally before pushing saves a round trip.
 
+### Extension capability contracts
+
+The extension capabilities in
+[`extension-compatibility.ts`](./packages/eve/src/compiler/extension-compatibility.ts)
+have immutable API reports keyed by epoch. If an extension-facing type or
+signature changes, bump the affected entry in `EXTENSION_CAPABILITY_VERSIONS`
+and run:
+
+```bash
+pnpm update:extension-contracts
+```
+
+This adds the report for the new epoch; do not edit or delete an existing
+report. Add the previous epoch to
+`ADDITIONAL_SUPPORTED_CAPABILITY_VERSIONS` only when the current consumer still
+supports it, and add the required retained-authoring fixture under
+`packages/eve/extension-contracts/compatibility/`. The invariant guard verifies
+that every public authoring export is assigned to a capability report and every
+advertised older epoch retains both its report and a compiling fixture. API
+reports and fixtures cover structural compatibility; behavior changes still
+need focused compatibility tests.
+
 ## Documentation
 
 User-facing docs live in [`docs/`](./docs) and are published with the `eve` npm package and rendered by the docs site in [`apps/docs`](./apps/docs). If your change alters public behavior, update the relevant doc in the same PR and run `pnpm docs:check`.
