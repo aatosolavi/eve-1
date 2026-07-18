@@ -42,6 +42,8 @@ export function advanceSession(input: {
     };
   }
 
+  // If connection with the underlying stream is broken, the boundary event may not exist.
+  // In these cases, allow for reconnection.
   if (boundaryEvent === undefined) {
     return {
       continuationToken: input.continuationToken ?? input.session.continuationToken,

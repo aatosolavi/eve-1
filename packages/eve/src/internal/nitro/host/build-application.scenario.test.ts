@@ -471,6 +471,14 @@ describe("buildApplication", () => {
     ).rejects.toThrow();
     expect(sharedFunctionStats.isDirectory()).toBe(true);
     expect(sharedFunctionStats.isSymbolicLink()).toBe(false);
+    const sharedFunctionConfig = JSON.parse(
+      await readFile(
+        join(appRoot, ".vercel", "output", "functions", "eve", "__server.func", ".vc-config.json"),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    expect(sharedFunctionConfig.maxDuration).toBe("max");
+    expect(sharedFunctionConfig.runtime).toBe("nodejs24.x");
     expect(nestedFunctionStats.isSymbolicLink()).toBe(true);
     await expect(
       realpath(join(appRoot, ".vercel", "output", "functions", "eve", "v1", "health.func")),
@@ -777,6 +785,13 @@ describe("buildApplication", () => {
 
     expect(rootFunctionStats.isSymbolicLink()).toBe(true);
     expect(sharedFunctionStats.isDirectory()).toBe(true);
+    const sharedFunctionConfig = JSON.parse(
+      await readFile(
+        join(appRoot, ".vercel", "output", "functions", "__server.func", ".vc-config.json"),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    expect(sharedFunctionConfig.maxDuration).toBe("max");
     await expect(
       readFile(
         join(appRoot, ".vercel", "output", "functions", "index.func", "_runtime.mjs"),
