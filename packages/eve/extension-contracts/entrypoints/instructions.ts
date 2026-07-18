@@ -1,4 +1,1 @@
-export {
-  type InstructionsDefinition,
-  defineInstructions,
-} from "../../src/public/instructions/index.ts";
+export { defineInstructions } from "../../src/public/instructions/index.ts";

@@ -87,11 +87,11 @@
  *             engines `eval()` a `---js` frontmatter fence, so every call must
  *             route through `parseFrontmatter`, which is safe by default. A
  *             direct import lets untrusted input reach an evaluating engine.
- *   rule 36 — Extension capability epochs have immutable, readable API
- *             reports and explicit support history. The current report must
- *             match the authoring surface, every historical epoch must be
- *             supported or dropped, every retained epoch needs a compiling
- *             fixture, and every public export must belong to a capability.
+ *   rule 36 — Extension capability epochs have immutable hashed API metadata
+ *             and explicit support history. The current hash must match the
+ *             authoring roots, every historical epoch must be supported or
+ *             dropped, every retained epoch needs a compiling fixture, and
+ *             every public authoring value must belong to a capability.
  *
  * Baselines for rules with pre-existing violations live in
  * `guard-invariants-baseline.json`. Counts and allowlists in that file

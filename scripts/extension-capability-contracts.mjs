@@ -18,7 +18,11 @@ import {
   validateCapabilityConfiguration,
 } from "./extension-contracts/configuration.mjs";
 import { classifyStructuralBackwardCompatibility } from "./extension-contracts/compatibility.mjs";
-import { checkCapabilityReports, reportInventoryIssues } from "./extension-contracts/reports.mjs";
+import {
+  checkCapabilityReports,
+  generateHistoricalCapabilityReport,
+  reportInventoryIssues,
+} from "./extension-contracts/reports.mjs";
 
 function gitOutput(args) {
   try {
@@ -66,7 +70,7 @@ function immutableContractHistoryIssues() {
     if (paths.every((path) => path.endsWith("README.md"))) continue;
     issues.push({
       file: paths.at(-1) ?? protectedPaths[0],
-      message: `Published capability reports and retained compatibility fixtures are immutable (git status ${status}). Bump the capability epoch and add new files instead of changing or deleting existing contract history.`,
+      message: `Published capability metadata and retained compatibility fixtures are immutable (git status ${status}). Bump the capability epoch and add new files instead of changing or deleting existing contract history.`,
     });
   }
   return issues;
@@ -168,16 +172,12 @@ async function main() {
 
     let decision = request.decision;
     if (decision === undefined) {
-      if (selectedMismatch.previousReport === undefined) {
-        return [
-          {
-            file: selectedMismatch.file,
-            message: `Capability "${request.capability}" has no previous report to classify. Run \`pnpm update:extension-contracts\` to generate its current report without bumping the epoch.`,
-          },
-        ];
-      }
+      const previousReport = await generateHistoricalCapabilityReport(
+        request.capability,
+        configuration.current[request.capability],
+      );
       const classification = classifyStructuralBackwardCompatibility(
-        selectedMismatch.previousReport,
+        previousReport,
         selectedMismatch.currentReport,
       );
       if (!classification.compatible) {
@@ -229,7 +229,7 @@ async function run() {
     process.exitCode = 1;
     return;
   }
-  process.stdout.write("[eve:extension-contracts] updated current capability reports.\n");
+  process.stdout.write("[eve:extension-contracts] updated current capability metadata.\n");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

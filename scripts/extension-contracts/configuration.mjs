@@ -16,7 +16,7 @@ export const COMPATIBILITY_FIXTURE_ROOT = join(CONTRACT_ROOT, "compatibility");
 export const REPORT_ROOT = join(CONTRACT_ROOT, "reports");
 export const COMPATIBILITY_FIXTURE_PLACEHOLDER = "REPLACE_WITH_RETAINED_AUTHORING_EXAMPLE";
 
-const PUBLIC_SURFACES = [
+export const PUBLIC_SURFACES = [
   { path: "src/public/extension/index.ts", capabilities: ["extension", "config"] },
   { path: "src/public/tools/index.ts", capabilities: ["tool", "dynamicTool"] },
   { path: "src/public/connections/index.ts", capabilities: ["connection"] },
@@ -205,22 +205,48 @@ export {};
 `;
 }
 
-export function collectExportNames(source) {
+export function collectExportNames(source, { valuesOnly = false } = {}) {
   const names = new Set();
-  for (const match of source.matchAll(
-    /export\s+(?:type\s+)?\{([\s\S]*?)\}(?:\s+from\s+["'][^"']+["'])?\s*;/g,
-  )) {
-    for (const rawSpecifier of match[1].split(",")) {
-      const specifier = rawSpecifier.trim().replace(/^type\s+/, "");
-      if (specifier === "") continue;
-      const alias = specifier.split(/\s+as\s+/);
-      names.add(alias.at(-1).trim());
+  const sourceFile = ts.createSourceFile(
+    "extension-capability-entrypoint.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportDeclaration(statement) && statement.exportClause) {
+      if (!ts.isNamedExports(statement.exportClause)) continue;
+      for (const specifier of statement.exportClause.elements) {
+        if (valuesOnly && (statement.isTypeOnly || specifier.isTypeOnly)) continue;
+        names.add(specifier.name.text);
+      }
+      continue;
     }
-  }
-  for (const match of source.matchAll(
-    /export\s+(?:declare\s+)?(?:abstract\s+)?(?:const|class|function|interface|type)\s+([A-Za-z][A-Za-z0-9]*)/g,
-  )) {
-    names.add(match[1]);
+    const isExported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!isExported) continue;
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      if (statement.name) names.add(statement.name.text);
+      continue;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+      }
+      continue;
+    }
+    if (ts.isEnumDeclaration(statement)) {
+      names.add(statement.name.text);
+      continue;
+    }
+    if (
+      !valuesOnly &&
+      (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement))
+    ) {
+      names.add(statement.name.text);
+    }
   }
   return names;
 }
@@ -323,11 +349,13 @@ export async function validateCapabilityConfiguration(configuration) {
 
   for (const surface of PUBLIC_SURFACES) {
     const publicSource = await readFile(join(EVE_ROOT, surface.path), "utf8");
-    const publicNames = collectExportNames(publicSource);
+    const publicNames = collectExportNames(publicSource, { valuesOnly: true });
     const contractNames = new Set();
     for (const capability of surface.capabilities) {
       const contractSource = await readFile(join(ENTRYPOINT_ROOT, `${capability}.ts`), "utf8");
-      for (const name of collectExportNames(contractSource)) contractNames.add(name);
+      for (const name of collectExportNames(contractSource, { valuesOnly: true })) {
+        contractNames.add(name);
+      }
     }
     const missing = [...publicNames].filter((name) => !contractNames.has(name)).sort();
     const extra = [...contractNames].filter((name) => !publicNames.has(name)).sort();
@@ -340,7 +368,7 @@ export async function validateCapabilityConfiguration(configuration) {
         .join("; ");
       issues.push({
         file: toPosix(relative(REPO_ROOT, join(EVE_ROOT, surface.path))),
-        message: `Capability contract coverage is incomplete (${details}). Assign every public export to one of: ${surface.capabilities.join(", ")}.`,
+        message: `Capability contract roots are incomplete (${details}). Assign every public authoring value to one of: ${surface.capabilities.join(", ")}.`,
       });
     }
   }

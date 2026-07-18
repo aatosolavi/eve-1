@@ -16,6 +16,31 @@ function parsedReport(report, name) {
   return ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
+/** Names every declaration API Extractor traced from one capability root. */
+export function collectReportDeclarationNames(report) {
+  const sourceFile = parsedReport(report, "capability-report.d.ts");
+  const names = new Set();
+  for (const statement of sourceFile.statements) {
+    if (
+      (ts.isClassDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isFunctionDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isTypeAliasDeclaration(statement)) &&
+      statement.name
+    ) {
+      names.add(statement.name.text);
+      continue;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+      }
+    }
+  }
+  return names;
+}
+
 function interfaceName(statement) {
   return statement.name.text;
 }
