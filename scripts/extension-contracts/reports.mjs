@@ -163,7 +163,7 @@ function extractorConfig({ capabilities, capability, declarationRoot, tempRoot }
 
 export async function checkCapabilityReports(configuration, update) {
   const issues = [];
-  const cacheRoot = join(REPO_ROOT, ".extension-contracts-cache");
+  const cacheRoot = join(EVE_ROOT, ".extension-contracts-cache");
   await mkdir(cacheRoot, { recursive: true });
   const tempRoot = await mkdtemp(join(cacheRoot, "extension-contracts-"));
   try {
