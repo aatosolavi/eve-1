@@ -443,16 +443,16 @@ export interface SlackChannelConfig {
   onInteraction?(action: SlackInteractionAction, ctx: SlackContext): void | Promise<void>;
 
   /**
-   * Invoked for every Slack Events API callback the webhook receives,
-   * including event types the channel has no dedicated pipeline for
-   * (`reaction_added`, `channel_created`, `team_join`, ...). Subscribe
-   * the bot's Slack app to each event type you want to observe.
+   * Invoked for Slack Events API callbacks the channel has no dedicated
+   * handler for (`reaction_added`, `channel_created`, `team_join`, ...).
+   * Subscribe the bot's Slack app to each event type you want to
+   * observe.
    *
-   * `app_mention` and IM `message` events reach this hook too, in
-   * addition to their `onAppMention` / `onDirectMessage` pipelines —
-   * observing here never affects dispatch. Interactivity payloads
-   * (`block_actions`, view submissions) are not events; those route to
-   * `onInteraction` and the HITL pipeline instead.
+   * Events with a dedicated hook never reach this one: `app_mention`
+   * and IM `message` events route to `onAppMention` / `onDirectMessage`,
+   * and interactivity payloads (`block_actions`, view submissions)
+   * route to `onInteraction` and the HITL pipeline. `onEvent` observes
+   * only; it cannot dispatch a turn.
    *
    * Runs on the inbound webhook side via `waitUntil()` after event-id
    * dedup, so the channel returns `200 OK` to Slack immediately. Errors

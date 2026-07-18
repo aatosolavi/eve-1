@@ -1532,7 +1532,7 @@ describe("slackChannel() onEvent pipeline", () => {
     expect(ctx.slack.channelId).toBe("C01");
   });
 
-  it("invokes onEvent for app_mention events without affecting dispatch", async () => {
+  it("does not invoke onEvent for app_mention events (onAppMention owns those)", async () => {
     const onEvent = vi.fn();
     const onAppMention = vi.fn().mockReturnValue({ auth: null });
     const channel = slackChannel({
@@ -1544,13 +1544,28 @@ describe("slackChannel() onEvent pipeline", () => {
     const { body } = buildMentionBody();
     const { send } = await firePost(channel, buildSignedRequest({ body }));
 
-    expect(onEvent).toHaveBeenCalledTimes(1);
-    expect(onEvent.mock.calls[0]![1]).toMatchObject({ type: "app_mention" });
+    expect(onEvent).not.toHaveBeenCalled();
     expect(onAppMention).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onEvent for bot-authored DMs that onDirectMessage filters out", async () => {
+  it("does not invoke onEvent for IM message events (onDirectMessage owns those)", async () => {
+    const onEvent = vi.fn();
+    const onDirectMessage = vi.fn().mockReturnValue({ auth: null });
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test" },
+      onDirectMessage,
+      onEvent,
+    });
+
+    const { body } = buildDirectMessageBody();
+    await firePost(channel, buildSignedRequest({ body }));
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onDirectMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onEvent for non-IM channel message events", async () => {
     const onEvent = vi.fn();
     const onDirectMessage = vi.fn();
     const channel = slackChannel({
@@ -1559,11 +1574,11 @@ describe("slackChannel() onEvent pipeline", () => {
       onEvent,
     });
 
-    const { body } = buildDirectMessageBody({ botId: "B01" });
+    const { body } = buildDirectMessageBody({ channel: "C01", channelType: "channel" });
     const { send } = await firePost(channel, buildSignedRequest({ body }));
 
     expect(onEvent).toHaveBeenCalledTimes(1);
-    expect(onEvent.mock.calls[0]![1]).toMatchObject({ type: "message" });
+    expect(onEvent.mock.calls[0]![1]).toMatchObject({ type: "message", channelId: "C01" });
     expect(onDirectMessage).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });

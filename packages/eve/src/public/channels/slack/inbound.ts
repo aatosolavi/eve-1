@@ -174,9 +174,10 @@ export function parseDirectMessageEvent(envelope: SlackEventCallback): SlackMess
 
 /**
  * Channel-owned representation of one inbound Slack Events API callback,
- * passed to `slackChannel({ onEvent })` for every `event_callback` the
- * webhook receives — including event types the channel has no dedicated
- * pipeline for (`reaction_added`, `channel_created`, ...).
+ * passed to `slackChannel({ onEvent })` for event types the channel has
+ * no dedicated handler for (`reaction_added`, `channel_created`, ...).
+ * `app_mention` and IM `message` events are excluded — those route to
+ * `onAppMention` / `onDirectMessage` instead.
  */
 export interface SlackEvent {
   /** Inner Slack event type, e.g. `"reaction_added"`. */
@@ -202,25 +203,14 @@ export interface SlackEvent {
 /**
  * Normalizes a parsed webhook payload into a {@link SlackEvent}.
  *
- * `app_mention` and `direct_message` payloads carry the inner event as
- * `raw`; `unsupported` payloads carry the whole envelope, so the inner
- * event and its envelope fields are extracted here. Returns `null` for
- * payloads that are not Events API callbacks (URL verification,
- * interactivity kinds, malformed envelopes).
+ * Only `unsupported` payloads wrapping an `event_callback` envelope
+ * qualify: event types with a dedicated pipeline (`app_mention`, IM
+ * `message`) are deliberately excluded so `onEvent` never doubles up
+ * with `onAppMention` / `onDirectMessage`. Returns `null` for all other
+ * payloads (URL verification, interactivity kinds, malformed
+ * envelopes).
  */
 export function slackEventFromWebhookPayload(payload: SlackWebhookPayload): SlackEvent | null {
-  if (payload.kind === "app_mention" || payload.kind === "direct_message") {
-    return {
-      type: payload.eventType,
-      event: payload.raw,
-      teamId: payload.teamId,
-      eventId: payload.eventId,
-      eventTime: payload.eventTime,
-      channelId: payload.channelId || undefined,
-      threadTs: payload.threadTs || undefined,
-    };
-  }
-
   if (payload.kind !== "unsupported") return null;
   const envelope = payload.raw;
   if (!isRecord(envelope) || envelope.type !== "event_callback") return null;

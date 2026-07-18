@@ -53,7 +53,30 @@ Inbound hooks decide whether to dispatch a turn and with what `auth`. Return `{ 
 - `onAppMention(ctx, message)` handles `app_mention` events. The default derives workspace-scoped auth and posts a `Thinking…` indicator.
 - `onDirectMessage(ctx, message)` handles `message.im` events (needs `im:history` scope). Bot-authored messages and edits are filtered out first.
 - `onInteraction(action, ctx)` handles `block_actions` callbacks not consumed by HITL.
-- `onEvent(ctx, event)` observes every Events API callback, including types with no dedicated hook (`reaction_added`, `channel_created`, …). Subscribe the Slack app to each event type you want to see. Mentions and DMs reach it too, alongside their dedicated hooks; it never dispatches a turn — use `ctx.slack.request(...)` (or `ctx.thread` when the event carries a channel) for side effects.
+- `onEvent(ctx, event)` observes custom Events API callbacks — types with no dedicated hook (`reaction_added`, `channel_created`, …). Events a top-level handler already covers never reach it: mentions and DMs route to `onAppMention` / `onDirectMessage`, interactivity to `onInteraction`. Subscribe the Slack app to each event type you want to see; `onEvent` never dispatches a turn.
+
+`onEvent` is the escape hatch for everything Slack can send that eve has no first-class pipeline for. `event.type` is the inner event type and `event.event` the raw event object; use `ctx.thread` when the event carries a channel, or `ctx.slack.request(...)` for arbitrary Web API calls:
+
+```ts
+import { slackChannel } from "eve/channels/slack";
+
+export default slackChannel({
+  onEvent(ctx, event) {
+    if (event.type === "reaction_added" && event.event.reaction === "white_check_mark") {
+      // ctx.thread is bound to the reacted message's channel and thread
+      return ctx.thread.post("Marking this as resolved.");
+    }
+    if (event.type === "team_join") {
+      // No channel on this event — fall back to the raw API
+      const user = event.event.user as { id: string };
+      return ctx.slack.request("chat.postMessage", {
+        channel: "#welcome",
+        text: `Say hi to <@${user.id}>!`,
+      });
+    }
+  },
+});
+```
 
 eve attaches the triggering Slack user id to the same model message as the message text. This keeps speaker attribution intact when several people use one thread without making profile lookup requests.
 
