@@ -132,6 +132,9 @@ const EXCLUDED_DIRECTORIES = new Set([join("internal", "testing")]);
  *   - Optional peer dependency (`just-bash`) — the opt-in local sandbox
  *     engine; resolved lazily against the consumer's install and never
  *     bundled with eve.
+ *   - Optional loop runtime (`@temporalio/*`) — CommonJS SDK loaded only
+ *     behind the `--loop temporal` dynamic import; bundling it inlines
+ *     CJS modules into eve's ESM dist tree where `require` is undefined.
  *
  * `#compiled/*` is also external (handled separately) so the vendored
  * dependency tree under `dist/src/compiled/**` resolves at runtime via
@@ -141,6 +144,11 @@ const EXTERNAL_PACKAGES = new Set([
   "@nuxt/kit",
   "@opentelemetry/api",
   "@sveltejs/kit",
+  "@temporalio/activity",
+  "@temporalio/client",
+  "@temporalio/testing",
+  "@temporalio/worker",
+  "@temporalio/workflow",
   "ai",
   "braintrust",
   "just-bash",
