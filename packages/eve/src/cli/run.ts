@@ -1,5 +1,5 @@
 import { Command, CommanderError, InvalidArgumentError } from "#compiled/commander/index.js";
-import { registerBuildCommand, type BuildHost } from "#cli/commands/build.js";
+import { registerBuildCommand } from "#cli/commands/build.js";
 import { devBootPhase, type DevBootProgressReporter } from "#internal/dev-boot-progress.js";
 import { resolveApplicationRoot } from "#internal/application/paths.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
@@ -7,23 +7,23 @@ import { isCodingAgentLaunch } from "#cli/agent-detection.js";
 import { eveCliBanner } from "#cli/banner.js";
 import { registerProjectCommands } from "#cli/commands/register-project-commands.js";
 import { resolveDevUiMode, resolveTuiDisplayOptions } from "#cli/dev/ui-options.js";
-import {
-  parseDevelopmentHeaderOption,
-  resolveDevelopmentUrlTarget,
-  type DevelopmentRequestHeaders,
-} from "#cli/dev/url-target.js";
+import { parseDevelopmentHeaderOption, resolveDevelopmentUrlTarget } from "#cli/dev/url-target.js";
 import type { RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
+import type {
+  CliLogger,
+  CliRuntimeDependencies,
+  CliRuntimeOverrides,
+  DevelopmentCliOptions,
+  EvalCliOptions,
+  ProductionCliOptions,
+} from "#cli/run-types.js";
 import { LOG_DISPLAY_MODES, parseLogDisplayMode } from "#cli/dev/tui/log-display-mode.js";
 import { resolveTuiTitle, type DevelopmentTuiTarget } from "#cli/dev/tui/target.js";
 import { parseDevelopmentServerUrl } from "#cli/dev/url.js";
 import { startCliLiveRow } from "#cli/ui/live-row.js";
 import { createCliTheme, renderCliTaggedLine } from "#cli/ui/output.js";
 import { createLogger } from "#internal/logging.js";
-import type {
-  DevelopmentServer,
-  DevelopmentServerOptions,
-  ProductionServerHandle,
-} from "#internal/nitro/host/types.js";
+import type { DevelopmentServer, ProductionServerHandle } from "#internal/nitro/host/types.js";
 import type {
   AssistantResponseStatsMode,
   LogDisplayMode,
@@ -32,70 +32,6 @@ import type {
 import type { WorkflowWebUiHandle } from "#cli/dev/workflow-web-ui.js";
 
 export { resolveDevUiMode, resolveTuiDisplayOptions };
-
-interface CliLogger {
-  error(message: string): void;
-  log(message: string): void;
-}
-
-interface DevelopmentCliOptions {
-  assistantResponseStats?: AssistantResponseStatsMode;
-  connectionAuth?: TerminalPartDisplayMode;
-  contextSize?: number;
-  header?: DevelopmentRequestHeaders;
-  host?: string;
-  input?: string;
-  logs?: LogDisplayMode;
-  name?: string;
-  port?: number;
-  reasoning?: TerminalPartDisplayMode;
-  subagents?: TerminalPartDisplayMode;
-  tools?: TerminalPartDisplayMode;
-  ui?: boolean;
-  url?: string;
-  workflowUi?: boolean;
-  workflowUiPort?: number;
-}
-
-interface ProductionCliOptions {
-  host?: string;
-  port?: number;
-}
-
-interface CliRuntimeDependencies {
-  isCodingAgentLaunch(): Promise<boolean>;
-  isActiveDevelopmentServerForApp(input: {
-    readonly appRoot: string;
-    readonly serverUrl: string;
-  }): Promise<boolean>;
-  buildHost: BuildHost;
-  printApplicationInfo(
-    logger: CliLogger,
-    appRoot: string,
-    options?: { json?: boolean },
-  ): Promise<void>;
-  runDevelopmentTui(input: RunDevelopmentTuiInput): Promise<void>;
-  runEvalCommand(
-    evalIds: readonly string[],
-    options: EvalCliOptions,
-    logger: CliLogger,
-  ): Promise<void>;
-  startHost(appRoot: string, options?: DevelopmentServerOptions): DevelopmentServer;
-  startProductionHost(
-    appRoot: string,
-    options?: {
-      host?: string;
-      port?: number;
-    },
-  ): Promise<ProductionServerHandle>;
-  startWorkflowWebUi(input: {
-    readonly appRoot: string;
-    readonly agentServerUrl: string;
-    readonly port: number;
-  }): Promise<WorkflowWebUiHandle>;
-}
-
-type CliRuntimeOverrides = Partial<CliRuntimeDependencies>;
 
 const devBootLog = createLogger("dev.boot");
 
@@ -120,19 +56,6 @@ function createDevBootProgressReporter(
       }
     }
   };
-}
-
-interface EvalCliOptions {
-  json?: boolean;
-  junit?: string;
-  list?: boolean;
-  maxConcurrency?: string;
-  skipReport?: boolean;
-  strict?: boolean;
-  tag?: string[];
-  timeout?: string;
-  url?: string;
-  verbose?: boolean;
 }
 
 async function loadPrintApplicationInfo(): Promise<CliRuntimeDependencies["printApplicationInfo"]> {
