@@ -1,11 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
-import type { PrototypeService } from "./service-contract.js";
-import {
-  type EffectLedger,
-  EffectProtocolError,
-  executeScriptedEffect,
-} from "./service-effects.js";
+import type { PrototypeService } from "./contract.js";
+import { type EffectLedger, EffectProtocolError, executeScriptedEffect } from "./effects.js";
 import type {
   EffectCall,
   EventLogId,
@@ -14,8 +10,8 @@ import type {
   StreamEvent,
   TerminalOutcome,
   WireValue,
-} from "./types.js";
-import { parseJsonWireValue, stringifyWireValue } from "./wire.js";
+} from "../core/types.js";
+import { parseJsonWireValue, stringifyWireValue } from "../wire.js";
 
 export class SqlitePrototypeService implements PrototypeService, EffectLedger {
   readonly #database: DatabaseSync;

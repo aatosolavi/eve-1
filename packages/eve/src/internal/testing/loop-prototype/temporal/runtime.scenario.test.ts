@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { defineLoopPrototypeConformance } from "../conformance.js";
-import { childId, executionId, sessionId } from "../ids.js";
-import type { EventRecord, WireValue } from "../types.js";
+import { childId, executionId, sessionId } from "../core/ids.js";
+import type { EventRecord, WireValue } from "../core/types.js";
 import {
   TEMPORAL_CHILD_ACKNOWLEDGED_SIGNAL,
   TEMPORAL_CHILD_UPDATE_SIGNAL,

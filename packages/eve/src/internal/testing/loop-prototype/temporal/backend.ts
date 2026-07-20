@@ -18,8 +18,15 @@ import {
   createGenerateEffect,
   readExecuteToolResult,
   readGenerateResult,
-} from "../effect-definitions.js";
-import { childId, eventId, eventLogId, executionId, operationId, requestChildId } from "../ids.js";
+} from "../core/effect-definitions.js";
+import {
+  childId,
+  eventId,
+  eventLogId,
+  executionId,
+  operationId,
+  requestChildId,
+} from "../core/ids.js";
 import type {
   ApprovalRequest,
   ChildHandle,
@@ -40,7 +47,7 @@ import type {
   ToolRequest,
   TurnHandle,
   TurnProgramInput,
-} from "../types.js";
+} from "../core/types.js";
 import {
   TEMPORAL_SESSION_WORKFLOW,
   TEMPORAL_TURN_WORKFLOW,
@@ -122,7 +129,7 @@ class TemporalStream implements Stream {
     this.#logId = logId;
   }
 
-  async append(event: StreamEvent): Promise<void> {
+  async write(event: StreamEvent): Promise<void> {
     await this.#beforeAppend();
     await this.#activities.appendEvent(this.#logId, event);
   }
@@ -196,7 +203,7 @@ export class TemporalLoopBackend implements LoopBackend {
       this.#checkpoint.state.nextTurnOrdinal,
       "finalize",
     );
-    await this.stream.append({
+    await this.stream.write({
       id: eventId(terminalOperation, 0),
       operationId: terminalOperation,
       payload: { outcome: outcome.kind, type: "session.terminal" },

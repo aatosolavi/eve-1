@@ -4,7 +4,7 @@ import type {
   SessionId,
   TerminalOutcome,
   WireValue,
-} from "./types.js";
+} from "../core/types.js";
 
 export interface PrototypeService extends PrototypeEventStore {
   attemptCount(operationId: string): number;

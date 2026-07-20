@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { EffectExhaustedError, EffectProtocolError } from "./effect-definitions.js";
 import { executionId, sessionId } from "./ids.js";
-import { runSession, runTurn } from "./programs.js";
+import { runSession, runTurn } from "./index.js";
 import { emptyHistory } from "./transcript.js";
 import type {
   ApprovalRequest,
@@ -62,7 +62,7 @@ class ProgramBackend implements LoopBackend {
   readonly executionId = executionId("program:execution");
   readonly events: StreamEvent[] = [];
   readonly stream: Stream = {
-    append: (event) => {
+    write: (event) => {
       this.events.push(event);
       return Promise.resolve();
     },

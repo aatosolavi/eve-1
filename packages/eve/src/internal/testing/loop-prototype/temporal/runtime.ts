@@ -10,8 +10,12 @@ import { ApplicationFailure, Context } from "@temporalio/activity";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 
-import { eventLogId, executionId } from "../ids.js";
-import { DeclaredEffectFailure, EffectProtocolError, SqlitePrototypeService } from "../service.js";
+import { eventLogId, executionId } from "../core/ids.js";
+import {
+  DeclaredEffectFailure,
+  EffectProtocolError,
+  SqlitePrototypeService,
+} from "../service/index.js";
 import type {
   Delivery,
   EffectCall,
@@ -24,7 +28,7 @@ import type {
   SessionId,
   PrototypeStartInput,
   TerminalOutcome,
-} from "../types.js";
+} from "../core/types.js";
 import {
   TEMPORAL_CHILD_ACKNOWLEDGED_SIGNAL,
   TEMPORAL_SESSION_WORKFLOW,

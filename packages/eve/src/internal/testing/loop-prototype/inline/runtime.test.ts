@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { defineLoopPrototypeConformance } from "../conformance.js";
-import { eventLogId, sessionId } from "../ids.js";
-import type { EventRecord, PrototypeRun, WireValue } from "../types.js";
+import { eventLogId, sessionId } from "../core/ids.js";
+import type { EventRecord, PrototypeRun, WireValue } from "../core/types.js";
 import {
   createInlinePrototypeRuntime,
   InlinePrototypeRuntime,

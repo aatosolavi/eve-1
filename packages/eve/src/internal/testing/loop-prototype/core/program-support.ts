@@ -1,13 +1,13 @@
 import { eventId } from "./ids.js";
-import type { LoopBackend, OperationId, WireValue } from "./types.js";
+import type { OperationId, TurnDependencies, WireValue } from "./types.js";
 
-export async function appendEvent(
-  backend: LoopBackend,
+export async function writeEvent(
+  dependencies: TurnDependencies,
   operation: OperationId,
   payload: WireValue,
   eventOrdinal = 0,
 ): Promise<void> {
-  await backend.stream.append({
+  await dependencies.stream.write({
     id: eventId(operation, eventOrdinal),
     operationId: operation,
     payload,

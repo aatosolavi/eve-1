@@ -9,10 +9,17 @@ import {
   createGenerateEffect,
   readExecuteToolResult,
   readGenerateResult,
-} from "../effect-definitions.js";
-import { childId, eventId, eventLogId, executionId, operationId, requestChildId } from "../ids.js";
-import { runSession, runTurn } from "../programs.js";
-import { DeclaredEffectFailure, MemoryPrototypeService } from "../service.js";
+} from "../core/effect-definitions.js";
+import {
+  childId,
+  eventId,
+  eventLogId,
+  executionId,
+  operationId,
+  requestChildId,
+} from "../core/ids.js";
+import { runSession, runTurn } from "../core/index.js";
+import { DeclaredEffectFailure, MemoryPrototypeService } from "../service/index.js";
 import type {
   ApprovalRequest,
   ChildHandle,
@@ -40,7 +47,7 @@ import type {
   ToolRequest,
   TurnHandle,
   TurnProgramInput,
-} from "../types.js";
+} from "../core/types.js";
 import { AsyncQueue, InlineRunStoppedError } from "./async-queue.js";
 
 export { InlineRunStoppedError } from "./async-queue.js";
@@ -117,7 +124,7 @@ class InlineStream implements Stream {
     this.#service = service;
   }
 
-  async append(event: StreamEvent): Promise<void> {
+  async write(event: StreamEvent): Promise<void> {
     await this.#scope.run(async () => {
       await this.#service.append(this.#logId, event);
     });
@@ -184,7 +191,7 @@ class InlineLoopBackend implements LoopBackend {
       this.#checkpoint.state.nextTurnOrdinal,
       "finalize",
     );
-    await this.stream.append({
+    await this.stream.write({
       id: eventId(terminalOperation, 0),
       operationId: terminalOperation,
       payload: { outcome: outcome.kind, type: "session.terminal" },

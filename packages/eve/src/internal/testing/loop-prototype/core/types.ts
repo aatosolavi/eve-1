@@ -168,10 +168,10 @@ export interface GeneratedTurn {
 }
 
 export interface GenerateInput {
-  readonly generationOrdinal: number;
   readonly history: BalancedHistory;
   readonly scenario: Scenario;
   readonly sessionId: SessionId;
+  readonly stepOrdinal: number;
   readonly turnOrdinal: number;
 }
 
@@ -251,21 +251,51 @@ export interface TurnHandle {
 }
 
 export interface Stream {
-  append(event: StreamEvent): Promise<void>;
+  write(event: StreamEvent): Promise<void>;
 }
 
-export interface LoopBackend {
-  readonly executionId: ExecutionId;
+export interface TurnDependencies {
   readonly stream: Stream;
 
-  checkpoint(state: SessionState): Promise<void>;
   executeTool(request: ApprovalRequest | ToolRequest): Promise<RequestResult>;
-  finish(outcome: TerminalOutcome): Promise<void>;
   generate(input: GenerateInput): Promise<GeneratedTurn>;
-  receive(): Promise<Delivery>;
   spawnChild(input: DelegatedSessionInput): ChildHandle;
+}
+
+export interface LoopBackend extends TurnDependencies {
+  readonly executionId: ExecutionId;
+
+  checkpoint(state: SessionState): Promise<void>;
+  finish(outcome: TerminalOutcome): Promise<void>;
+  receive(): Promise<Delivery>;
   spawnTurn(input: TurnProgramInput): TurnHandle;
 }
+
+export interface StepInput {
+  readonly state: SessionState;
+  readonly stepOrdinal: number;
+}
+
+export type StepResult =
+  | { readonly done: false; readonly state: SessionState }
+  | {
+      readonly done: true;
+      readonly kind: "reply";
+      readonly output: WireValue;
+      readonly state: SessionState;
+    }
+  | {
+      readonly done: true;
+      readonly kind: "waiting-approval";
+      readonly requestId: string;
+      readonly state: SessionState;
+    }
+  | {
+      readonly done: true;
+      readonly kind: "terminal";
+      readonly state: SessionState;
+      readonly terminal: TerminalOutcome;
+    };
 
 export interface PrototypeEventStore {
   append(logId: EventLogId, event: StreamEvent): Promise<EventRecord>;

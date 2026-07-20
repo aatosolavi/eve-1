@@ -20,13 +20,9 @@ export const effectDefinitions = {
 } as const;
 
 export function generateOperationId(
-  input: Pick<GenerateInput, "generationOrdinal" | "sessionId" | "turnOrdinal">,
+  input: Pick<GenerateInput, "sessionId" | "stepOrdinal" | "turnOrdinal">,
 ): EffectCall["id"] {
-  return operationId(
-    input.sessionId,
-    input.turnOrdinal,
-    `generate:${String(input.generationOrdinal)}`,
-  );
+  return operationId(input.sessionId, input.turnOrdinal, `generate:${String(input.stepOrdinal)}`);
 }
 
 export function executeToolOperationId(request: ApprovalRequest | ToolRequest): EffectCall["id"] {

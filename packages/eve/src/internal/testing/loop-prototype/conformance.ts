@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { generateOperationId } from "./effect-definitions.js";
-import { childSessionId, eventLogId, sessionId } from "./ids.js";
+import { generateOperationId } from "./core/effect-definitions.js";
+import { childSessionId, eventLogId, sessionId } from "./core/ids.js";
 import type {
   EventRecord,
   MessageDelivery,
@@ -9,7 +9,7 @@ import type {
   PrototypeRuntime,
   PrototypeStartInput,
   WireValue,
-} from "./types.js";
+} from "./core/types.js";
 
 export function defineLoopPrototypeConformance(
   name: string,
@@ -159,7 +159,7 @@ export function defineLoopPrototypeConformance(
         taskInput(runtime, "retry", { kind: "retry-once" }, "eventual"),
       );
       const generateId = generateOperationId({
-        generationOrdinal: 0,
+        stepOrdinal: 0,
         sessionId: run.sessionId,
         turnOrdinal: 0,
       });

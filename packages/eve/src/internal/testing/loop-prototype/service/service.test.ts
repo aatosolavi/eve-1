@@ -5,14 +5,10 @@ import {
   createGenerateEffect,
   effectDefinitions,
   EffectProtocolError,
-} from "./effect-definitions.js";
-import { eventId, eventLogId, operationId, sessionId } from "./ids.js";
-import {
-  MemoryPrototypeService,
-  type PrototypeService,
-  SqlitePrototypeService,
-} from "./service.js";
-import { appendUser, emptyHistory } from "./transcript.js";
+} from "../core/effect-definitions.js";
+import { eventId, eventLogId, operationId, sessionId } from "../core/ids.js";
+import { MemoryPrototypeService, type PrototypeService, SqlitePrototypeService } from "./index.js";
+import { appendUser, emptyHistory } from "../core/transcript.js";
 
 const serviceFactories = [
   { create: () => new MemoryPrototypeService(), name: "memory" },
@@ -54,7 +50,7 @@ describe("prototype service", () => {
       const service = create();
       const id = sessionId("session-1");
       const call = createGenerateEffect({
-        generationOrdinal: 0,
+        stepOrdinal: 0,
         history: appendUser(emptyHistory(), "eventual"),
         scenario: { kind: "retry-once" },
         sessionId: id,
@@ -82,7 +78,7 @@ describe("prototype service", () => {
     it(`rejects conflicting committed result bytes in ${name}`, async () => {
       const service = create();
       const call = createGenerateEffect({
-        generationOrdinal: 0,
+        stepOrdinal: 0,
         history: appendUser(emptyHistory(), "hello"),
         scenario: { kind: "echo" },
         sessionId: sessionId("session-1"),

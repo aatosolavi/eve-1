@@ -1,6 +1,6 @@
 ---
 issue: https://github.com/vercel/eve/issues/512
-last_updated: "2026-07-10"
+last_updated: "2026-07-20"
 status: proposed
 ---
 
@@ -11,6 +11,9 @@ status: proposed
 Adopt two eve-owned domain programs, `runSession` and `runTurn`, over one
 internal `LoopBackend` execution port. The port has typed generation and tool
 methods, handle-returning turn and session spawns, and an owned event stream.
+`runTurn` drives named loop phases — initiate, advance, settle — and delegates
+each step's intra-turn work to `next(dependencies, input)`, where
+`TurnDependencies` is the port slice a step is allowed to use.
 
 Three executable adapters validate this boundary: inline JavaScript, Workflow
 DevKit, and Temporal. All run the same programs and nine-test conformance
@@ -52,30 +55,41 @@ explicit commit rule, not another layer that keeps the two cursors implicit.
 ## Ownership
 
 ```text
-PrototypeRuntime                 test-facing run controller
-  -> adapter                     engine mechanics
-     -> runSession               session domain transitions
+PrototypeRuntime                       test-facing run controller
+  -> adapter                           engine mechanics
+     -> runSession                     session domain transitions
         -> spawnTurn().wait()
-           -> runTurn            turn domain transitions
-              -> parent Stream   borrowed handle
-              -> spawnChild()    fresh child Stream
-     -> checkpoint protocol      revisions, lease, relay, acknowledgement
+           -> runTurn                  turn loop mechanics: initiate, advance, settle
+              -> next(dependencies)    one step: generate + resolve requests
+                 -> parent Stream      borrowed handle
+                 -> spawnChild()       fresh child Stream
+     -> checkpoint protocol            revisions, lease, relay, acknowledgement
 ```
 
 - `runSession` owns session lifetime, public input, turn dispatch, buffering,
   and the public terminal result.
-- `runTurn` owns generation, eve-executed tools, approvals, subagents, balanced
-  history, and the logical result of one turn.
+- `runTurn` owns turn loop mechanics: folding the delivery into state, advancing
+  steps, checkpointing, and mapping the final step onto the logical result of
+  one turn.
+- `next` owns one step of intra-turn work — generation, eve-executed tools,
+  approvals, subagents, balanced history — expressed only against injected
+  `TurnDependencies`.
 - `LoopBackend` exposes only the execution operations those programs require.
-  It contains no `step`, `Activity`, `Hook`, or `Signal` vocabulary.
+  It contains no `Activity`, `Hook`, `Signal`, or engine-step vocabulary; the
+  domain word "step" below names one loop iteration, never an engine primitive.
 - An adapter owns engine-specific child startup, suspension, checkpoint relay,
   acknowledgement, retry, stream binding, lifecycle persistence, and
   serialization.
 - The prototype service supplies scripted effects and the canonical event
   store. It is test infrastructure, not part of the proposed public API.
 
+The prototype's directories mirror this ownership: `core/` holds the programs,
+the step function, and the contract; `service/` holds the scripted effects and
+event store; each adapter owns its directory; checkpoint protocol, wire codec,
+and the conformance suite sit between them at the root.
+
 The executable contract is the source of truth in
-[`types.ts`](../packages/eve/src/internal/testing/loop-prototype/types.ts).
+[`types.ts`](../packages/eve/src/internal/testing/loop-prototype/core/types.ts).
 The port surface is reproduced verbatim below; `SessionState` and the
 input/outcome payload types are not copied because abbreviated duplicates
 would drift.
@@ -84,31 +98,39 @@ would drift.
 
 ### The port at a glance
 
-The two programs are plain async functions over one closed port:
+The two programs are plain async functions over one closed port, and the
+intra-turn step function is a plain async function over the port's
+turn-facing slice:
 
 ```ts
 runSession(backend: LoopBackend, input: SessionProgramInput): Promise<TerminalOutcome>;
 runTurn(backend: LoopBackend, input: TurnProgramInput): Promise<TurnOutcome>;
+next(dependencies: TurnDependencies, input: StepInput): Promise<StepResult>;
 ```
 
-Everything the loop can do is enumerable on `LoopBackend`:
+Everything the loop can do is enumerable on `LoopBackend`, split into the
+capabilities a step receives and the operations only the loop drivers see:
 
 ```ts
-interface LoopBackend {
-  readonly executionId: ExecutionId;
+interface TurnDependencies {
   readonly stream: Stream;
 
-  checkpoint(state: SessionState): Promise<void>;
   executeTool(request: ApprovalRequest | ToolRequest): Promise<RequestResult>;
-  finish(outcome: TerminalOutcome): Promise<void>;
   generate(input: GenerateInput): Promise<GeneratedTurn>;
-  receive(): Promise<Delivery>;
   spawnChild(input: DelegatedSessionInput): ChildHandle;
+}
+
+interface LoopBackend extends TurnDependencies {
+  readonly executionId: ExecutionId;
+
+  checkpoint(state: SessionState): Promise<void>;
+  finish(outcome: TerminalOutcome): Promise<void>;
+  receive(): Promise<Delivery>;
   spawnTurn(input: TurnProgramInput): TurnHandle;
 }
 
 interface Stream {
-  append(event: StreamEvent): Promise<void>;
+  write(event: StreamEvent): Promise<void>;
 }
 
 interface TurnHandle {
@@ -125,6 +147,53 @@ interface ChildHandle {
 Operation identity, retry policy, checkpoint relay, acknowledgement, lease
 validation, event-log identity, sequence assignment, and backend run identity
 all live below this line, inside adapters and the shared support modules.
+
+### Named loop semantics
+
+A turn is a loop with three named phases, driven by `runTurn`
+([`turn-program.ts`](../packages/eve/src/internal/testing/loop-prototype/core/turn-program.ts)):
+
+1. **Initiate.** Fold the delivery into state: append the user message, or
+   resolve the pending approval it answers.
+2. **Advance.** Call `next(dependencies, input)` once per **step**. A step is
+   one generation plus the resolution of its immediate requests. The step
+   result reuses the JavaScript iterator protocol's shape: `done: false`
+   continues the loop, `done: true` carries the completion.
+3. **Settle.** Commit the phase transition through `checkpoint` and map the
+   completed step onto `TurnOutcome`.
+
+`next` ([`turn-step.ts`](../packages/eve/src/internal/testing/loop-prototype/core/turn-step.ts))
+owns the intra-turn mechanisms and sees only `TurnDependencies`: `generate`,
+`executeTool`, `spawnChild`, and the `Stream`. The loop-mechanics operations —
+`checkpoint`, `receive`, `finish`, `spawnTurn` — are statically invisible to a
+step, so the mechanics/work split is enforced by the type system rather than
+by convention. In production, `dependencies.generate` is the seam where typed
+AI SDK generation (`streamText`, `streamObject`) lands; the prototype scripts
+it as one `generate` method because the conformance suite does not stream.
+
+The step body is written in the shape of a minimal harness loop
+([pi](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/): generate,
+stop when the model returns no requests, otherwise execute the requests and
+feed results back). One step reads top to bottom: generate; a finish completes
+the turn; an approval parks it; otherwise every subagent spawns before the
+first tool executes, tools run one at a time in request order, and child
+results fold back in request order — spawning is explicit in the step body,
+never buried in request resolution, and a subagent listed after a tool does
+not wait for that tool to start running.
+
+The names come from the harnesses that already run this loop:
+
+| eve                         | AI SDK                                                                                                        | OpenAI Agents SDK                                                                                                     | LangGraph / Inngest                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| turn                        | one agent invocation                                                                                          | one `Runner.run`, "a single logical turn in a chat conversation"                                                      | one graph `invoke`                                                                |
+| step                        | [step](https://ai-sdk.dev/docs/agents/loop-control): the unit `stepCountIs` counts and `prepareStep` prepares | one loop iteration, bounded by `max_turns`                                                                            | LangGraph [super-step](https://docs.langchain.com/oss/python/langgraph/graph-api) |
+| `next(dependencies, input)` | — (module imports)                                                                                            | — (module imports)                                                                                                    | `node(state, config, runtime)`; Inngest handler `({ event, step })`               |
+| step decision               | [`stopWhen`](https://ai-sdk.dev/docs/agents/loop-control): continue after tool results until a stop condition | ["If the LLM returns a `final_output`, the loop ends"](https://openai.github.io/openai-agents-python/running_agents/) | node votes to halt                                                                |
+
+The per-step decision follows the same taxonomy those documents describe:
+continue after resolved tool results, park on a request that needs approval,
+stop on a final output — eve's `done: false`, `waiting-approval`, and
+`reply`/`terminal` by session mode.
 
 ### Checkpoint relay is below the port
 
@@ -157,8 +226,9 @@ next sequence while deduplicating by event ID.
 ### Effects are typed and retry-aware
 
 The loop-visible effects are `generate(input): Promise<GeneratedTurn>` and
-`executeTool(request): Promise<RequestResult>`. Their definitions in
-[`effect-definitions.ts`](../packages/eve/src/internal/testing/loop-prototype/effect-definitions.ts)
+`executeTool(request): Promise<RequestResult>`, both on `TurnDependencies` so
+they are reachable from a step. Their definitions in
+[`effect-definitions.ts`](../packages/eve/src/internal/testing/loop-prototype/core/effect-definitions.ts)
 declare the operation-ID rule and retry/idempotency policy once, and the
 conformance suite derives operation IDs from that same module. The adapters may
 translate those calls into a wire `EffectCall`, but the programs never
@@ -208,7 +278,8 @@ prototype does not claim a kill-and-restart recovery test.
 - Each new turn may resolve current code while the long-lived session remains
   pinned to a compatible contract.
 - A turn writes the session event log; a subagent owns an independent log.
-- Child IDs are observable before results, and results retain request order.
+- Child IDs are observable before results, every child spawns before the
+  first tool of its step executes, and results retain request order.
 - Human waits never commit an unresolved tool request into provider history.
 - Public input unrelated to a pending approval remains available to a later
   turn.

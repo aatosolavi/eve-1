@@ -2,12 +2,12 @@ import {
   EffectProtocolError,
   readExecuteToolResult,
   readGenerateResult,
-} from "./effect-definitions.js";
-import { lastUserMessage, resultsAfterLastUser } from "./transcript.js";
-import { parseJsonWireValue } from "./wire.js";
-import type { EffectCall, GeneratedTurn, RequestResult, WireValue } from "./types.js";
+} from "../core/effect-definitions.js";
+import { lastUserMessage, resultsAfterLastUser } from "../core/transcript.js";
+import { parseJsonWireValue } from "../wire.js";
+import type { EffectCall, GeneratedTurn, RequestResult, WireValue } from "../core/types.js";
 
-export { EffectProtocolError } from "./effect-definitions.js";
+export { EffectProtocolError } from "../core/effect-definitions.js";
 
 export class DeclaredEffectFailure extends Error {
   constructor(message: string, options?: ErrorOptions) {

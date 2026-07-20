@@ -6,9 +6,9 @@ import {
   initialCheckpoint,
   TurnCheckpointProtocol,
 } from "./checkpoint-protocol.js";
-import { executionId, sessionId } from "./ids.js";
-import { emptyHistory } from "./transcript.js";
-import type { SessionCheckpoint, SessionState } from "./types.js";
+import { executionId, sessionId } from "./core/ids.js";
+import { emptyHistory } from "./core/transcript.js";
+import type { SessionCheckpoint, SessionState } from "./core/types.js";
 
 describe("turn checkpoint protocol", () => {
   it("requires terminal state to match an acknowledged checkpoint", async () => {

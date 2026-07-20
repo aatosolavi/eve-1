@@ -1,4 +1,4 @@
-import type { WireValue } from "./types.js";
+import type { WireValue } from "./core/types.js";
 
 export interface WireEnvelopeV1 {
   readonly codec: "eve-json";
