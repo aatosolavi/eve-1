@@ -2,10 +2,9 @@ import { z } from "#compiled/zod/index.js";
 
 import { loadContext } from "#context/container.js";
 import { DynamicSkillManifestKey, SandboxKey } from "#context/keys.js";
-import { getActiveRuntimeNode } from "#context/node.js";
 import { ConnectionRegistryKey } from "#context/providers/connection-key.js";
 import { loadSkillFromSandbox } from "#runtime/skills/sandbox-access.js";
-import type { ResolvedToolDefinition } from "#runtime/types.js";
+import type { ResolvedSkillDefinition, ResolvedToolDefinition } from "#runtime/types.js";
 
 /**
  * Typed input accepted by {@link executeLoadSkillTool}.
@@ -19,11 +18,13 @@ type LoadSkillInput = z.infer<typeof SKILL_INPUT_SCHEMA>;
  * Active dynamic skills take precedence and remain sandbox-backed because
  * their full package content is currently materialized there at runtime.
  */
-async function executeLoadSkillTool(args: LoadSkillInput): Promise<unknown> {
+async function executeLoadSkillTool(
+  args: LoadSkillInput,
+  authoredSkills: readonly ResolvedSkillDefinition[],
+): Promise<unknown> {
   const ctx = loadContext();
   const { skill } = args;
   const dynamicSkillNames = availableDynamicSkillNames(ctx);
-  const authoredSkills = getActiveRuntimeNode(ctx).agent.skills;
   const availableSkills = [
     ...new Set([...authoredSkills.map((entry) => entry.name), ...dynamicSkillNames]),
   ].sort();
@@ -83,7 +84,7 @@ export const SKILL_INPUT_SCHEMA = z.strictObject({
 });
 export const SKILL_OUTPUT_SCHEMA = z.string();
 
-export const SKILL_TOOL_DEFINITION: ResolvedToolDefinition = {
+const SKILL_TOOL_METADATA = {
   description: [
     "Load the full instructions for one available skill by name or id.",
     "Use this tool when the request clearly matches a listed skill description or when the user explicitly asks for that skill.",
@@ -91,11 +92,25 @@ export const SKILL_TOOL_DEFINITION: ResolvedToolDefinition = {
     "Loading adds the skill instructions to the current turn.",
     'Choose the "skill" value from the Available skills block.',
   ].join(" "),
-  execute: (input) => executeLoadSkillTool(input as LoadSkillInput),
   inputSchema: SKILL_INPUT_SCHEMA,
   logicalPath: "eve:framework/load-skill",
   name: "load_skill",
   outputSchema: SKILL_OUTPUT_SCHEMA,
   sourceId: "eve:load-skill-tool",
-  sourceKind: "module",
+  sourceKind: "module" as const,
 };
+
+/**
+ * Creates a node-specific `load_skill` definition with authored skills bound
+ * into its executor.
+ */
+export function createSkillToolDefinition(
+  authoredSkills: readonly ResolvedSkillDefinition[],
+): ResolvedToolDefinition {
+  return {
+    ...SKILL_TOOL_METADATA,
+    execute: (input) => executeLoadSkillTool(input as LoadSkillInput, authoredSkills),
+  };
+}
+
+export const SKILL_TOOL_DEFINITION = createSkillToolDefinition([]);

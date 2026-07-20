@@ -5,31 +5,17 @@ import { DynamicSkillManifestKey, SandboxKey } from "#context/keys.js";
 import { ConnectionRegistryKey } from "#context/providers/connection-key.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import type { ConnectionRegistry } from "#runtime/connections/types.js";
-import { SKILL_TOOL_DEFINITION } from "#runtime/framework-tools/skill.js";
+import {
+  createSkillToolDefinition,
+  SKILL_TOOL_DEFINITION,
+} from "#runtime/framework-tools/skill.js";
 import { createSandboxSkillHandle } from "#runtime/skills/sandbox-access.js";
-import { BundleKey, type CompiledBundle } from "#runtime/sessions/runtime-context-keys.js";
 import type { ResolvedSkillDefinition } from "#runtime/types.js";
 
-function createBundle(skills: readonly ResolvedSkillDefinition[]): CompiledBundle {
-  const agent = {
-    config: { name: "test-agent" },
-    skills,
-  } as CompiledBundle["resolvedAgent"];
-
-  return {
-    adapterRegistry: undefined as never,
-    compiledArtifactsSource: undefined as never,
-    graph: {
-      nodesByNodeId: new Map(),
-      root: { agent } as CompiledBundle["graph"]["root"],
-    },
-    hookRegistry: undefined as never,
-    moduleMap: undefined as never,
-    resolvedAgent: agent,
-    subagentRegistry: undefined as never,
-    toolRegistry: undefined as never,
-    turnAgent: undefined as never,
-  };
+function skillToolExecutor(skills: readonly ResolvedSkillDefinition[] = []) {
+  const execute = createSkillToolDefinition(skills).execute;
+  if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+  return execute;
 }
 
 describe("SKILL_TOOL_DEFINITION", () => {
@@ -49,30 +35,24 @@ describe("SKILL_TOOL_DEFINITION", () => {
 describe("load_skill executor", () => {
   it("loads an authored markdown skill when no sandbox context is available", async () => {
     const ctx = new ContextContainer();
-    ctx.set(
-      BundleKey,
-      createBundle([
-        {
-          description: "Research a topic systematically",
-          logicalPath: "skills/research.md",
-          markdown: "# Research\n\nFollow the evidence.\n",
-          name: "research",
-          sourceId: "skills/research.md",
-          sourceKind: "markdown",
-        },
-        {
-          description: "Write a concise summary",
-          logicalPath: "skills/summarize.md",
-          markdown: "# Summarize\n",
-          name: "summarize",
-          sourceId: "skills/summarize.md",
-          sourceKind: "markdown",
-        },
-      ]),
-    );
-
-    const execute = SKILL_TOOL_DEFINITION.execute;
-    if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+    const execute = skillToolExecutor([
+      {
+        description: "Research a topic systematically",
+        logicalPath: "skills/research.md",
+        markdown: "# Research\n\nFollow the evidence.\n",
+        name: "research",
+        sourceId: "skills/research.md",
+        sourceKind: "markdown",
+      },
+      {
+        description: "Write a concise summary",
+        logicalPath: "skills/summarize.md",
+        markdown: "# Summarize\n",
+        name: "summarize",
+        sourceId: "skills/summarize.md",
+        sourceKind: "markdown",
+      },
+    ]);
 
     await expect(
       contextStorage.run(ctx, () =>
@@ -93,30 +73,24 @@ describe("load_skill executor", () => {
       get,
     };
     const ctx = new ContextContainer();
-    ctx.set(
-      BundleKey,
-      createBundle([
-        {
-          assetsPath: "/authored/skills/incident-response/assets",
-          description: "Run the full incident response procedure",
-          logicalPath: "skills/incident-response/SKILL.md",
-          markdown:
-            "# Incident response\n\nConsult `references/services/api/owners.md` when needed.\n",
-          name: "incident-response",
-          referencesPath: "/authored/skills/incident-response/references",
-          rootPath: "/authored/skills/incident-response",
-          scriptsPath: "/authored/skills/incident-response/scripts",
-          skillFilePath: "/authored/skills/incident-response/SKILL.md",
-          skillId: "incident-response",
-          sourceId: "skills/incident-response/SKILL.md",
-          sourceKind: "skill-package",
-        },
-      ]),
-    );
     ctx.set(SandboxKey, access);
-
-    const execute = SKILL_TOOL_DEFINITION.execute;
-    if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+    const execute = skillToolExecutor([
+      {
+        assetsPath: "/authored/skills/incident-response/assets",
+        description: "Run the full incident response procedure",
+        logicalPath: "skills/incident-response/SKILL.md",
+        markdown:
+          "# Incident response\n\nConsult `references/services/api/owners.md` when needed.\n",
+        name: "incident-response",
+        referencesPath: "/authored/skills/incident-response/references",
+        rootPath: "/authored/skills/incident-response",
+        scriptsPath: "/authored/skills/incident-response/scripts",
+        skillFilePath: "/authored/skills/incident-response/SKILL.md",
+        skillId: "incident-response",
+        sourceId: "skills/incident-response/SKILL.md",
+        sourceKind: "skill-package",
+      },
+    ]);
 
     await expect(
       contextStorage.run(ctx, () =>
@@ -141,26 +115,20 @@ describe("load_skill executor", () => {
       },
     });
     const ctx = new ContextContainer();
-    ctx.set(
-      BundleKey,
-      createBundle([
-        {
-          description: "Apply the static policy",
-          logicalPath: "skills/policy.md",
-          markdown: "# Static policy\n",
-          name: "policy",
-          sourceId: "skills/policy.md",
-          sourceKind: "markdown",
-        },
-      ]),
-    );
     ctx.set(SandboxKey, sandbox.access);
     ctx.set(DynamicSkillManifestKey, {
       policy: [{ description: "Apply the dynamic policy", name: "policy" }],
     });
-
-    const execute = SKILL_TOOL_DEFINITION.execute;
-    if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+    const execute = skillToolExecutor([
+      {
+        description: "Apply the static policy",
+        logicalPath: "skills/policy.md",
+        markdown: "# Static policy\n",
+        name: "policy",
+        sourceId: "skills/policy.md",
+        sourceKind: "markdown",
+      },
+    ]);
 
     await expect(
       contextStorage.run(ctx, () =>
@@ -171,7 +139,6 @@ describe("load_skill executor", () => {
 
   it("surfaces dynamic skill names when the requested id is missing", async () => {
     const ctx = new ContextContainer();
-    ctx.set(BundleKey, createBundle([]));
     ctx.set(SandboxKey, mockSandbox().access);
     ctx.set(DynamicSkillManifestKey, {
       custom: [
@@ -179,9 +146,7 @@ describe("load_skill executor", () => {
         { description: "Bark", name: "custom__bark" },
       ],
     });
-
-    const execute = SKILL_TOOL_DEFINITION.execute;
-    if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+    const execute = skillToolExecutor();
 
     await expect(
       contextStorage.run(ctx, () =>
@@ -201,12 +166,9 @@ describe("load_skill executor", () => {
       getConnections: () => [],
     } satisfies ConnectionRegistry;
     const ctx = new ContextContainer();
-    ctx.set(BundleKey, createBundle([]));
     ctx.set(SandboxKey, mockSandbox().access);
     ctx.set(ConnectionRegistryKey, registry);
-
-    const execute = SKILL_TOOL_DEFINITION.execute;
-    if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
+    const execute = skillToolExecutor();
 
     await expect(
       contextStorage.run(ctx, () =>
