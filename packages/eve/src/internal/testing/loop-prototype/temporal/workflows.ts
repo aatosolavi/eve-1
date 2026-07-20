@@ -1,7 +1,7 @@
 import { workflowInfo } from "@temporalio/workflow";
 
-import { runSession, runTurn } from "../programs.js";
-import type { TerminalOutcome, TurnOutcome } from "../types.js";
+import { runSession, runTurn } from "../core/index.js";
+import type { TerminalOutcome, TurnOutcome } from "../core/types.js";
 import { TemporalLoopBackend } from "./backend.js";
 import type { TemporalSessionWorkflowInput, TemporalTurnWorkflowInput } from "./contracts.js";
 

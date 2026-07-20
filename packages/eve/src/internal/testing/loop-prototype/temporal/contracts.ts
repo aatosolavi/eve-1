@@ -13,7 +13,7 @@ import type {
   TerminalOutcome,
   TurnOutcome,
   TurnProgramInput,
-} from "../types.js";
+} from "../core/types.js";
 
 export const TEMPORAL_SESSION_WORKFLOW = "temporalSessionWorkflow";
 export const TEMPORAL_TURN_WORKFLOW = "temporalTurnWorkflow";

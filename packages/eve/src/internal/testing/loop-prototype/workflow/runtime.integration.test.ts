@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { getRun, getWorld } from "#internal/workflow/runtime.js";
 
 import { defineLoopPrototypeConformance } from "../conformance.js";
-import { eventLogId, sessionId } from "../ids.js";
-import type { EventRecord, WireValue } from "../types.js";
+import { eventLogId, sessionId } from "../core/ids.js";
+import type { EventRecord, WireValue } from "../core/types.js";
 import { createWorkflowPrototypeRuntime, type WorkflowEventEnvelope } from "./runtime.js";
 
 defineLoopPrototypeConformance("workflow", createWorkflowPrototypeRuntime, {

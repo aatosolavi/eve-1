@@ -1,5 +1,5 @@
 import { stringifyCanonical } from "./wire.js";
-import type { ExecutionId, SessionCheckpoint, SessionState } from "./types.js";
+import type { ExecutionId, SessionCheckpoint, SessionState } from "./core/types.js";
 
 export function initialCheckpoint(owner: ExecutionId, state: SessionState): SessionCheckpoint {
   return { leaseOwner: owner, revision: 0, state, version: 1 };

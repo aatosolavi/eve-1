@@ -1,9 +1,5 @@
-import type { PrototypeService } from "./service-contract.js";
-import {
-  type EffectLedger,
-  EffectProtocolError,
-  executeScriptedEffect,
-} from "./service-effects.js";
+import type { PrototypeService } from "./contract.js";
+import { type EffectLedger, EffectProtocolError, executeScriptedEffect } from "./effects.js";
 import type {
   EffectCall,
   EventLogId,
@@ -12,7 +8,7 @@ import type {
   StreamEvent,
   TerminalOutcome,
   WireValue,
-} from "./types.js";
+} from "../core/types.js";
 
 export class MemoryPrototypeService implements PrototypeService, EffectLedger {
   readonly #attempts = new Map<string, number>();

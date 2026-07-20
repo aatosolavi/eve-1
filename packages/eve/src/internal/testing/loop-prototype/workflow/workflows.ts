@@ -20,10 +20,21 @@ import {
   createGenerateEffect,
   readExecuteToolResult,
   readGenerateResult,
-} from "../effect-definitions.js";
-import { childId, eventId, eventLogId, executionId, operationId, requestChildId } from "../ids.js";
-import { runSession, runTurn } from "../programs.js";
-import { DeclaredEffectFailure, EffectProtocolError, SqlitePrototypeService } from "../service.js";
+} from "../core/effect-definitions.js";
+import {
+  childId,
+  eventId,
+  eventLogId,
+  executionId,
+  operationId,
+  requestChildId,
+} from "../core/ids.js";
+import { runSession, runTurn } from "../core/index.js";
+import {
+  DeclaredEffectFailure,
+  EffectProtocolError,
+  SqlitePrototypeService,
+} from "../service/index.js";
 import type {
   ApprovalRequest,
   ChildHandle,
@@ -51,7 +62,7 @@ import type {
   TurnHandle,
   TurnOutcome,
   TurnProgramInput,
-} from "../types.js";
+} from "../core/types.js";
 
 export interface WorkflowEventEnvelope {
   readonly event: EventRecord;
@@ -196,7 +207,7 @@ class WorkflowStream implements Stream {
     this.#writable = writable;
   }
 
-  async append(event: StreamEvent): Promise<void> {
+  async write(event: StreamEvent): Promise<void> {
     await this.#beforeAppend();
     await appendEventStep(this.#databasePath, this.#writable, this.#logId, event);
   }
@@ -297,7 +308,7 @@ class WorkflowLoopBackend implements LoopBackend {
       this.#checkpoint.state.nextTurnOrdinal,
       "finalize",
     );
-    await this.stream.append({
+    await this.stream.write({
       id: eventId(terminalOperation, 0),
       operationId: terminalOperation,
       payload: { outcome: outcome.kind, type: "session.terminal" },

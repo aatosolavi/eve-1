@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { resumeHook, start, type Run } from "#internal/workflow/runtime.js";
 
-import { eventLogId, executionId } from "../ids.js";
-import { SqlitePrototypeService } from "../service.js";
+import { eventLogId, executionId } from "../core/ids.js";
+import { SqlitePrototypeService } from "../service/index.js";
 import type {
   Delivery,
   EventLogId,
@@ -16,7 +16,7 @@ import type {
   SessionId,
   PrototypeStartInput,
   TerminalOutcome,
-} from "../types.js";
+} from "../core/types.js";
 import { workflowProgramInput, workflowSession } from "./workflows.js";
 
 export type { WorkflowEventEnvelope } from "./workflows.js";
