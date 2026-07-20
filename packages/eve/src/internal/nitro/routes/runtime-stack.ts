@@ -95,12 +95,15 @@ async function getLocalTemporalBenchmarkRuntime(
   const sourceKey = getRuntimeCompiledArtifactsCacheKey(compiledArtifactsSource);
   const existing = readTemporalRuntimeCache();
   if (existing !== null) {
-    if (existing.sourceKey !== sourceKey) {
-      throw new Error(
-        `Local Temporal benchmark runtime already uses compiled artifact source "${existing.sourceKey}"; received "${sourceKey}".`,
-      );
+    if (existing.sourceKey === sourceKey) {
+      return await existing.runtime;
     }
-    return await existing.runtime;
+    // A new compiled-artifact snapshot (a dev-server recompile) retired the
+    // cached runtime. Its Worker polls a runtime-unique task queue, so the
+    // replacement cannot receive work routed to the retired instance; the
+    // retired one shuts down in the background.
+    Reflect.deleteProperty(globalThis, TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY);
+    void closeRetiredTemporalRuntime(existing.runtime);
   }
 
   const runtime = createLocalTemporalRuntime(compiledArtifactsSource);
@@ -112,6 +115,18 @@ async function getLocalTemporalBenchmarkRuntime(
     }
   });
   return await runtime;
+}
+
+async function closeRetiredTemporalRuntime(runtime: Promise<Runtime>): Promise<void> {
+  try {
+    const retired: unknown = await runtime;
+    if (isRecord(retired) && typeof retired["close"] === "function") {
+      await (retired as { close(): Promise<void> }).close();
+    }
+  } catch {
+    // The retired runtime failed to start or to shut down; the replacement
+    // runtime does not depend on either outcome.
+  }
 }
 
 async function createLocalTemporalRuntime(

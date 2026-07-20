@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Runtime } from "#channel/types.js";
 import { resolveNitroChannelRuntimeBundle } from "#internal/nitro/routes/runtime-stack.js";
-import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
+import {
+  createBundledRuntimeCompiledArtifactsSource,
+  createDiskRuntimeCompiledArtifactsSource,
+} from "#runtime/compiled-artifacts-source.js";
 
 const mocks = vi.hoisted(() => ({
   createInlineBenchmarkRuntime: vi.fn(),
@@ -125,6 +128,34 @@ describe("resolveNitroChannelRuntimeBundle", () => {
     expect(mocks.createLocalTemporalBenchmarkRuntime).toHaveBeenCalledTimes(1);
     expect(mocks.createLocalTemporalBenchmarkRuntime).toHaveBeenCalledWith({
       compiledArtifactsSource: SOURCE,
+    });
+  });
+
+  it("replaces the local Temporal runtime when the compiled artifact source changes", async () => {
+    prepare();
+    vi.stubEnv("EVE_LOOP_BENCHMARK_RUNTIME", "temporal");
+
+    const close = vi.fn(async () => {});
+    const retired = { ...createRuntimeStub(), close };
+    const original = createDiskRuntimeCompiledArtifactsSource("/tmp/original-app");
+    mocks.resolveNitroCompiledArtifactsSource.mockReturnValue(original);
+    mocks.createLocalTemporalBenchmarkRuntime.mockResolvedValueOnce(retired);
+    const first = await resolveNitroChannelRuntimeBundle({});
+    expect(first.runtime).toBe(retired);
+
+    const replacement = createRuntimeStub();
+    mocks.createLocalTemporalBenchmarkRuntime.mockResolvedValueOnce(replacement);
+    const recompiled = createDiskRuntimeCompiledArtifactsSource("/tmp/recompiled-app");
+    mocks.resolveNitroCompiledArtifactsSource.mockReturnValue(recompiled);
+
+    const second = await resolveNitroChannelRuntimeBundle({});
+
+    expect(second.runtime).toBe(replacement);
+    expect(mocks.createLocalTemporalBenchmarkRuntime).toHaveBeenLastCalledWith({
+      compiledArtifactsSource: recompiled,
+    });
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalledTimes(1);
     });
   });
 
