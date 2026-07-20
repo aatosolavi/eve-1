@@ -54,6 +54,7 @@ export async function compileSkillSource(
         license: definition.license,
         logicalPath: source.logicalPath,
         markdown: definition.markdown,
+        markdownFiles: selectMarkdownFiles(definition.files),
         metadata:
           definition.metadata === undefined
             ? undefined
@@ -107,6 +108,7 @@ export async function compileSkillSource(
       license: definition.license,
       logicalPath: source.logicalPath,
       markdown: definition.markdown,
+      markdownFiles: selectMarkdownFiles(definition.files),
       metadata:
         definition.metadata === undefined
           ? undefined
@@ -120,8 +122,21 @@ export async function compileSkillSource(
   };
 }
 
+function selectMarkdownFiles(
+  files: Readonly<Record<string, string | Uint8Array>> | undefined,
+): Readonly<Record<string, string>> | undefined {
+  const markdownFiles = Object.fromEntries(
+    Object.entries(files ?? {}).filter(
+      (entry): entry is [string, string] =>
+        /\.md$/iu.test(entry[0]) && typeof entry[1] === "string",
+    ),
+  );
+  return Object.keys(markdownFiles).length > 0 ? markdownFiles : undefined;
+}
+
 function compileSkillPackageSource(
-  source: NamedSkillDefinition & SkillPackageSourceRef,
+  source: NamedSkillDefinition &
+    SkillPackageSourceRef & { readonly markdownFiles?: Readonly<Record<string, string>> },
 ): CompiledSkillDefinition {
   return {
     assetsPath: source.assetsPath,
@@ -129,6 +144,7 @@ function compileSkillPackageSource(
     license: source.license,
     logicalPath: source.logicalPath,
     markdown: source.markdown,
+    markdownFiles: source.markdownFiles,
     metadata:
       source.metadata === undefined
         ? undefined

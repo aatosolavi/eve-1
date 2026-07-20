@@ -38,7 +38,7 @@ export function formatAvailableSkillsSection(
     "If multiple skills match, activate the minimal set that covers the task. After activation, follow the returned instructions instead of improvising around them.",
     "If activation fails, say so briefly and continue with the best available alternative.",
     formatSkillLocationLine(options),
-    "When a loaded SKILL.md mentions sibling files such as `references/foo.md`, resolve them relative to the directory containing that specific SKILL.md.",
+    "When a loaded SKILL.md mentions a sibling Markdown file such as `references/foo.md`, read it with read_skill_file using the listed skill name and the relative path.",
     ...skills.map((skill) => formatAvailableSkillLine({ skill, skillRoot: options.skillRoot })),
   ];
 

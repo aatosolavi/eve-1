@@ -5,6 +5,10 @@ import { GLOB_TOOL_DEFINITION } from "#runtime/framework-tools/glob.js";
 import { GREP_TOOL_DEFINITION } from "#runtime/framework-tools/grep.js";
 import { READ_FILE_TOOL_DEFINITION } from "#runtime/framework-tools/read-file.js";
 import {
+  createReadSkillFileToolDefinition,
+  READ_SKILL_FILE_TOOL_DEFINITION,
+} from "#runtime/framework-tools/read-skill-file.js";
+import {
   createSkillToolDefinition,
   SKILL_TOOL_DEFINITION,
 } from "#runtime/framework-tools/skill.js";
@@ -27,6 +31,7 @@ const REGISTERED_FRAMEWORK_TOOLS: readonly ResolvedToolDefinition[] = [
   GLOB_TOOL_DEFINITION,
   GREP_TOOL_DEFINITION,
   READ_FILE_TOOL_DEFINITION,
+  READ_SKILL_FILE_TOOL_DEFINITION,
   WRITE_FILE_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   WEB_FETCH_TOOL_DEFINITION,
@@ -53,11 +58,15 @@ export function getFrameworkToolDefinitions(config?: {
   const authoredSkills = config?.authoredSkills;
   if (authoredSkills === undefined) return REGISTERED_FRAMEWORK_TOOLS;
 
-  return REGISTERED_FRAMEWORK_TOOLS.map((definition) =>
-    definition.name === SKILL_TOOL_DEFINITION.name
-      ? createSkillToolDefinition(authoredSkills)
-      : definition,
-  );
+  return REGISTERED_FRAMEWORK_TOOLS.map((definition) => {
+    if (definition.name === SKILL_TOOL_DEFINITION.name) {
+      return createSkillToolDefinition(authoredSkills);
+    }
+    if (definition.name === READ_SKILL_FILE_TOOL_DEFINITION.name) {
+      return createReadSkillFileToolDefinition(authoredSkills);
+    }
+    return definition;
+  });
 }
 
 /**

@@ -59,7 +59,10 @@ export type InstructionsSourceRef = MarkdownSourceRef<InstructionsDefinition> | 
 export type SkillSourceRef =
   | MarkdownSourceRef<SkillDefinition>
   | ModuleSourceRef
-  | (NamedSkillDefinition & SkillPackageSourceRef);
+  | (NamedSkillDefinition &
+      SkillPackageSourceRef & {
+        readonly markdownFiles?: Readonly<Record<string, string>>;
+      });
 
 /**
  * Tool source reference preserved by the discovery manifest.
@@ -272,6 +275,7 @@ export interface CreateSkillPackageSourceRefInput {
   license?: string;
   logicalPath: string;
   markdown: string;
+  markdownFiles?: Readonly<Record<string, string>>;
   metadata?: Readonly<Record<string, string>>;
   name: string;
   referencesPath?: string;
@@ -425,8 +429,10 @@ export function createLocalSubagentSourceRef(
  */
 export function createSkillPackageSourceRef(
   input: CreateSkillPackageSourceRefInput,
-): NamedSkillDefinition & SkillPackageSourceRef {
-  const skillSourceRef: NamedSkillDefinition & SkillPackageSourceRef = {
+): NamedSkillDefinition &
+  SkillPackageSourceRef & { markdownFiles?: Readonly<Record<string, string>> } {
+  const skillSourceRef: NamedSkillDefinition &
+    SkillPackageSourceRef & { markdownFiles?: Readonly<Record<string, string>> } = {
     assetsPath: input.assetsPath,
     description: input.description,
     license: input.license,
@@ -442,6 +448,10 @@ export function createSkillPackageSourceRef(
     sourceId: input.sourceId,
     sourceKind: "skill-package",
   };
+
+  if (input.markdownFiles !== undefined) {
+    skillSourceRef.markdownFiles = { ...input.markdownFiles };
+  }
 
   return skillSourceRef;
 }

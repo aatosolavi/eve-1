@@ -2,4 +2,4 @@
 "eve": patch
 ---
 
-Listing or loading static skills no longer requires opening a sandbox. Dynamic skills and access to supporting skill package files, such as references, assets, and scripts, remain sandbox-backed.
+Listing or loading static skills no longer requires opening a sandbox. The new `read_skill_file` tool progressively reads nested Markdown from static or dynamic skills; static files use compiled data, while dynamic skills and non-Markdown package files remain sandbox-backed.

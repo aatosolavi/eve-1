@@ -253,12 +253,14 @@ async function discoverPackagedSkill(input: {
   }
 
   const packagePaths = await discoverSkillPackagePaths(input.source, input.skillRootPath);
+  const markdownFiles = await discoverSkillMarkdownFiles(input.source, input.skillRootPath);
   const skillSourceRefInput: {
     assetsPath?: string;
     description: string;
     license?: string;
     logicalPath: string;
     markdown: string;
+    markdownFiles?: Readonly<Record<string, string>>;
     metadata?: Readonly<Record<string, string>>;
     name: string;
     referencesPath?: string;
@@ -277,6 +279,10 @@ async function discoverPackagedSkill(input: {
     skillId: input.skillId,
     sourceId: createPathDerivedSourceId(logicalPath),
   };
+
+  if (Object.keys(markdownFiles).length > 0) {
+    skillSourceRefInput.markdownFiles = markdownFiles;
+  }
 
   if (packagePaths.assetsPath !== undefined) {
     skillSourceRefInput.assetsPath = packagePaths.assetsPath;
@@ -382,6 +388,37 @@ async function discoverFlatModuleSkill(input: {
     }),
     skillId,
   };
+}
+
+async function discoverSkillMarkdownFiles(
+  source: ProjectSource,
+  skillRootPath: string,
+): Promise<Readonly<Record<string, string>>> {
+  const files: Record<string, string> = {};
+
+  async function visit(directoryPath: string, relativeDirectory: string): Promise<void> {
+    const entries = [...(await source.readDirectory(directoryPath))].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+
+    for (const entry of entries) {
+      const relativePath = normalizeLogicalPath(join(relativeDirectory, entry.name));
+      const sourcePath = join(directoryPath, entry.name);
+
+      if (entry.isDirectory()) {
+        await visit(sourcePath, relativePath);
+      } else if (
+        entry.isFile() &&
+        /\.md$/iu.test(entry.name) &&
+        relativePath.toLowerCase() !== "skill.md"
+      ) {
+        files[relativePath] = await source.readTextFile(sourcePath);
+      }
+    }
+  }
+
+  await visit(skillRootPath, ".");
+  return files;
 }
 
 async function discoverSkillPackagePaths(

@@ -64,6 +64,7 @@ export type ResolvedInstructionsDefinition = Readonly<
 export type ResolvedSkillDefinition = Readonly<
   NamedSkillDefinition &
     (Omit<MarkdownSourceRef<undefined>, "definition"> | ModuleSourceRef | SkillPackageSourceRef) & {
+      markdownFiles?: Readonly<Record<string, string>>;
       metadata?: Readonly<Record<string, string>>;
     }
 >;

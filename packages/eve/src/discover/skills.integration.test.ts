@@ -21,6 +21,8 @@ describe("discoverSkills (memory)", () => {
         "skills/get-weather/assets",
       ],
       agentFiles: {
+        "skills/get-weather/references/forecasting/deep-dive.md": "# Deep dive\n",
+        "skills/get-weather/references/overview.md": "# Overview\n",
         "skills/get-weather/skill.MD": [
           "---",
           "description: Use the weather tool before answering forecast questions.",
@@ -56,6 +58,10 @@ describe("discoverSkills (memory)", () => {
         license: "MIT",
         logicalPath: "skills/get-weather/skill.MD",
         markdown: "When the user asks about weather, call the weather tool before answering.",
+        markdownFiles: {
+          "references/forecasting/deep-dive.md": "# Deep dive\n",
+          "references/overview.md": "# Overview\n",
+        },
         metadata: {
           audience: "forecast",
         },

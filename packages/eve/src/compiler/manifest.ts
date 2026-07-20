@@ -140,8 +140,9 @@ export type CompiledInstructionsDefinition = InternalInstructionsDefinition &
 /**
  * Normalized authored skill preserved in the compiled manifest.
  */
-export type CompiledSkillDefinition = NamedSkillDefinition &
-  (Omit<MarkdownSourceRef<undefined>, "definition"> | ModuleSourceRef | SkillPackageSourceRef);
+export type CompiledSkillDefinition = NamedSkillDefinition & {
+  readonly markdownFiles?: Readonly<Record<string, string>>;
+} & (Omit<MarkdownSourceRef<undefined>, "definition"> | ModuleSourceRef | SkillPackageSourceRef);
 
 /**
  * Normalized authored schedule preserved in the compiled manifest.
@@ -450,6 +451,7 @@ const compiledSkillBaseFields = {
   description: z.string(),
   license: z.string().optional(),
   markdown: z.string(),
+  markdownFiles: z.record(z.string(), z.string()).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
   sourceId: z.string(),
   logicalPath: z.string(),

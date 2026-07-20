@@ -22,7 +22,7 @@ Compaction also preserves the framework's own tool state automatically. It reset
 
 ## Built-in tools
 
-Built-in tools require no imports. The exact set depends on the agent and session. `agent` is available only in the root session; `load_skill` and `connection_search` appear only when the agent declares the corresponding resources; `ask_question` requires a session that can request user input; and `web_search` requires a supported model provider. The harness advertises only the tools available to the current session.
+Built-in tools require no imports. The exact set depends on the agent and session. `agent` is available only in the root session; `load_skill`, `read_skill_file`, and `connection_search` appear only when the agent declares the corresponding resources; `ask_question` requires a session that can request user input; and `web_search` requires a supported model provider. The harness advertises only the tools available to the current session.
 
 The shell and file tools (`bash`, `read_file`, `write_file`, `glob`, `grep`) run in the app and proxy their work into the agent's [sandbox](../sandbox). The table shows where each tool's effect lands.
 
@@ -39,6 +39,7 @@ The shell and file tools (`bash`, `read_file`, `write_file`, `glob`, `grep`) run
 | `ask_question`      | Ask the user a clarifying question or a choice mid-turn and park until they answer. No `execute`; the model calls it with `{ prompt, options?, allowFreeform? }`. See [Human-in-the-loop](/docs/human-in-the-loop). | App runtime   |
 | `agent`             | From the root session, delegate a subtask to a fresh copy of the root agent.                                                                                                                                        | App runtime   |
 | `load_skill`        | Pull an on-demand [skill](../skills)'s instructions into the current turn. Present only when the agent declares skills.                                                                                             | App runtime   |
+| `read_skill_file`   | Progressively read nested Markdown from a loaded skill. Static files come from compiled data; dynamic files come from the runtime sandbox package.                                                                  | App runtime   |
 | `connection_search` | Discover tools across declared [connections](../connections); matched tools become directly callable. Present only when the agent declares connections.                                                             | App runtime   |
 
 Notes:

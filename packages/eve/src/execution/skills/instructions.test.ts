@@ -42,7 +42,7 @@ describe("formatAvailableSkillsSection", () => {
       "`/workspace/skills/<skill>/` as the fallback when `$HOME` is unavailable",
     );
     expect(result).toContain(
-      "resolve them relative to the directory containing that specific SKILL.md",
+      "read it with read_skill_file using the listed skill name and the relative path",
     );
     expect(result).toContain(
       "- test-skill: A test skill (path: $HOME/.agents/skills/test-skill/SKILL.md)",

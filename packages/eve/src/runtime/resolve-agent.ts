@@ -40,6 +40,12 @@ export interface ResolveAgentInput {
 export async function resolveAgent(input: ResolveAgentInput): Promise<ResolvedAgent> {
   const resolvedSkills = input.manifest.skills.map((skill) => ({
     ...skill,
+    markdownFiles:
+      skill.markdownFiles === undefined
+        ? undefined
+        : {
+            ...skill.markdownFiles,
+          },
     metadata:
       skill.metadata === undefined
         ? undefined

@@ -7,6 +7,7 @@ import { BASH_TOOL_DEFINITION } from "#runtime/framework-tools/bash.js";
 import { GLOB_TOOL_DEFINITION } from "#runtime/framework-tools/glob.js";
 import { GREP_TOOL_DEFINITION } from "#runtime/framework-tools/grep.js";
 import { READ_FILE_TOOL_DEFINITION } from "#runtime/framework-tools/read-file.js";
+import { READ_SKILL_FILE_TOOL_DEFINITION } from "#runtime/framework-tools/read-skill-file.js";
 import { SKILL_TOOL_DEFINITION } from "#runtime/framework-tools/skill.js";
 import { TODO_TOOL_DEFINITION } from "#runtime/framework-tools/todo.js";
 import { WEB_FETCH_TOOL_DEFINITION } from "#runtime/framework-tools/web-fetch.js";
@@ -68,6 +69,14 @@ export const todo: ToolDefinition = toPublicToolDefinition(TODO_TOOL_DEFINITION)
  * nothing to load.
  */
 export const loadSkill: ToolDefinition = toPublicToolDefinition(SKILL_TOOL_DEFINITION);
+
+/**
+ * Framework-provided skill Markdown reader (`read_skill_file`). Static files
+ * come from compiled data; dynamic files come from the runtime sandbox package.
+ */
+export const readSkillFile: ToolDefinition = toPublicToolDefinition(
+  READ_SKILL_FILE_TOOL_DEFINITION,
+);
 
 /**
  * Framework-provided web search tool. The provider manages the real
