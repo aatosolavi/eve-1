@@ -17,7 +17,7 @@ eve eval --junit .eve/junit.xml  # write JUnit XML
 eve eval --list                # print discovered evals without running
 eve eval --verbose             # stream per-eval t.log lines to stdout
 eve eval --json                # machine-readable output
-eve eval --skip-report         # skip config and eval-defined reporters (e.g. Braintrust)
+eve eval --skip-report         # skip config and eval-defined reporters (e.g. Braintrust or Datadog)
 ```
 
 Positional ids match exactly or by directory prefix: `eve eval weather` runs `evals/weather.eval.ts`, every eval under `evals/weather/`, and every entry of an array-exported `weather.eval.ts`.
@@ -56,5 +56,5 @@ eve eval --strict --url "$DEPLOY_URL" --junit .eve/junit.xml
 ## What to read next
 
 - [Targets](./targets): what `--url` interacts with
-- [Reporters](./reporters): Braintrust and JUnit output
+- [Reporters](./reporters): Braintrust, Datadog, and JUnit output
 - [CLI reference](../reference/cli): the rest of the `eve` CLI

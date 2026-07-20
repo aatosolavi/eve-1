@@ -126,7 +126,7 @@ const EXCLUDED_DIRECTORIES = new Set([join("internal", "testing")]);
  * into eve's dist tree. Three categories:
  *
  *   - Peer dependencies (`ai`, `next`, `react`, `@opentelemetry/api`,
- *     `braintrust`) — consumers provide the install.
+ *     `braintrust`, `dd-trace`) — consumers provide the install.
  *   - Runtime dependencies (`nitro`) — resolved at
  *     runtime against the eve installation.
  *   - Optional peer dependency (`just-bash`) — the opt-in local sandbox
@@ -143,6 +143,7 @@ const EXTERNAL_PACKAGES = new Set([
   "@sveltejs/kit",
   "ai",
   "braintrust",
+  "dd-trace",
   "just-bash",
   "microsandbox",
   "next",

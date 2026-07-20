@@ -89,7 +89,7 @@ A few non-`define*` helpers round out the set: `disableTool` and `experimental_w
 | `eve/models/openai`                                         | `experimental_chatgpt`                                                |
 | `eve/evals`                                                 | `defineEval`, `defineEvalConfig`, `mockModel`, eval types             |
 | `eve/evals/expect`                                          | `includes`, `equals`, `matches`, `similarity`                         |
-| `eve/evals/reporters`                                       | `Braintrust`, `JUnit`, `EvalReporter`                                 |
+| `eve/evals/reporters`                                       | `Braintrust`, `Datadog`, `JUnit`, `EvalReporter`                      |
 | `eve/evals/loaders`                                         | `loadJson`, `loadYaml`                                                |
 | `eve/react`, `eve/vue`, `eve/svelte`                        | `useEveAgent`                                                         |
 | `eve/next`, `eve/nuxt`, `eve/sveltekit`                     | framework bundler plugins                                             |

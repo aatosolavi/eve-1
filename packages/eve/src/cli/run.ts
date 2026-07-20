@@ -633,7 +633,7 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
     .option("--max-concurrency <n>", "Max concurrent eval executions")
     .option("--json", "Output results as JSON")
     .option("--junit <path>", "Write JUnit XML results to a file")
-    .option("--skip-report", "Skip eval-defined reporters (e.g. Braintrust)")
+    .option("--skip-report", "Skip eval-defined reporters (e.g. Braintrust or Datadog)")
     .option("--verbose", "Stream per-eval t.log lines to stdout")
     .action(async (evalIds: string[], options: EvalCliOptions) => {
       const runEvalCommand = runtime.runEvalCommand ?? (await loadRunEvalCommand());

@@ -5,6 +5,10 @@ packages:
   - packages/*
 
 allowBuilds:
+  "@datadog/native-appsec": false
+  "@datadog/native-iast-taint-tracking": false
+  "@datadog/native-metrics": false
+  "@datadog/pprof": false
   "@mongodb-js/zstd": true
   "@nestjs/core": true
   "@parcel/watcher": false

@@ -566,8 +566,8 @@ export interface EveEvalConfigInput {
    */
   readonly judge?: EveEvalJudgeConfig;
   /**
-   * Reporters that observe every eval in the run (e.g. a shared
-   * `Braintrust()` experiment). Suppressed by `eve eval --skip-report`.
+   * Reporters that observe every eval in the run. Suppressed by
+   * `eve eval --skip-report`.
    */
   readonly reporters?: readonly EvalReporter[];
   /**

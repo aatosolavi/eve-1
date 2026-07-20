@@ -1,13 +1,13 @@
 ---
 title: "Reporters"
-description: "Ship eval results to Braintrust experiments or JUnit XML. eve runs and scores everything itself."
+description: "Ship eval results to Braintrust, Datadog, or JUnit XML. eve runs and scores everything itself."
 ---
 
 eve runs and grades everything itself; reporters ship the results out. The CLI prints a console summary by default (one line per eval, with failed assertions and their messages), and reporters from `eve/evals/reporters` add destinations on top.
 
 You are responsible for ensuring any observability or eval provider is approved for the data exported to it.
 
-Reporters attach in two places. Declare them in `evals.config.ts` to observe **every** eval in the run, the usual choice for a shared destination like one Braintrust experiment, so you don't repeat the reporter in each file. Or list them on an individual eval's `reporters` to scope a destination to that eval (or to a group of evals that share one instance).
+Reporters attach in two places. Declare them in `evals.config.ts` to observe **every** eval in the run, the usual choice for a shared destination like one Braintrust experiment or Datadog LLM Observability app, so you don't repeat the reporter in each file. Or list them on an individual eval's `reporters` to scope a destination to that eval (or to a group of evals that share one instance).
 
 ## Braintrust
 
@@ -43,6 +43,33 @@ The reporter config takes an optional `projectName` and `experimentName`, plus a
 A reporter instance observes the evals that reference it. Share one instance across several evals (the config, a `shared.ts` export, or every entry of a dataset array) and their results land in a single experiment. Listing the same config reporter on an eval too does not double-report it.
 
 Braintrust needs its SDK installed in the app and credentials in the environment: install the `braintrust` package (`npm install braintrust`) and set `BRAINTRUST_API_KEY`. Pass `--skip-report` to run the eval without shipping results, which also suppresses config reporters and is useful locally when iterating.
+
+## Datadog
+
+`Datadog(...)` sends eval results to [Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/). Each eval is a workflow span, and every assertion is submitted as a score evaluation associated with that span:
+
+```ts title="evals/evals.config.ts"
+import { defineEvalConfig } from "eve/evals";
+import { Datadog } from "eve/evals/reporters";
+
+export default defineEvalConfig({
+  reporters: [Datadog({ mlApp: "weather-agent" })],
+});
+```
+
+Install the Datadog tracer and enable LLM Observability before running the eval. `mlApp` overrides `DD_LLMOBS_ML_APP`; omit it to use the environment default:
+
+```bash
+npm install dd-trace
+DD_API_KEY=<your-api-key> \
+DD_SITE=datadoghq.com \
+DD_LLMOBS_ENABLED=1 \
+DD_LLMOBS_ML_APP=weather-agent \
+NODE_OPTIONS="--import dd-trace/initialize.mjs" \
+eve eval
+```
+
+The span records the eval's description, output, metadata, derived action counts, and verdict. Each assertion carries its score, pass/fail assessment, threshold, severity, and failure message when present. Use `--skip-report` to run without sending data.
 
 ## JUnit
 
