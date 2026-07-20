@@ -173,6 +173,19 @@ describe("compiled vendor assets", () => {
     expect(runtimeRunDts).toContain("from '../_workflow-serde.js'");
   });
 
+  it("preserves the MCP SDK runtime exports used by eve", async () => {
+    const [server, transport, types] = await Promise.all([
+      import("#compiled/@modelcontextprotocol/sdk/server.js"),
+      import("#compiled/@modelcontextprotocol/sdk/web-standard-streamable-http.js"),
+      import("#compiled/@modelcontextprotocol/sdk/types.js"),
+    ]);
+
+    expect(server.Server).toBeTypeOf("function");
+    expect(transport.WebStandardStreamableHTTPServerTransport).toBeTypeOf("function");
+    expect(types.CallToolRequestSchema).toBeDefined();
+    expect(types.ListToolsRequestSchema).toBeDefined();
+  });
+
   it("vendors the Workflow world targets selected by generated Nitro plugins", async () => {
     const [localWorld, vercelWorld] = await Promise.all([
       readFile(join(COMPILED_VENDOR_ROOT, "@workflow/world-local/index.js"), "utf8"),
