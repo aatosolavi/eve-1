@@ -850,6 +850,81 @@ describe("slackChannel() default event handlers", () => {
     expect((body.status as string).length).toBeLessThanOrEqual(50);
     expect((body.status as string).endsWith("...")).toBe(true);
   });
+
+  it("posts successful todo writes from nested inline subagent events", async () => {
+    const adapter = withState(
+      getAdapter(slackChannel({ credentials: { botToken: "xoxb-test" } })),
+      THREAD_STATE,
+    );
+    const ctx = buildAdapterContext(adapter, stubAccessor());
+    const nestedEvent = (event: HandleMessageStreamEvent) =>
+      makeEvent("subagent.event", {
+        callId: "outer_call",
+        subagentName: "outer",
+        event: makeEvent("subagent.event", {
+          callId: "inner_call",
+          subagentName: "inner",
+          event,
+        }),
+      });
+
+    await callEvent(
+      adapter,
+      nestedEvent(
+        makeEvent("actions.requested", {
+          actions: [
+            {
+              callId: "todo_call",
+              input: {
+                todos: [
+                  {
+                    content: "Check the child result",
+                    priority: "high",
+                    status: "in_progress",
+                  },
+                ],
+              },
+              kind: "tool-call",
+              toolName: "todo",
+            },
+          ],
+          sequence: 0,
+          stepIndex: 0,
+          turnId: "child_turn",
+        }),
+      ),
+      ctx,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await callEvent(
+      adapter,
+      nestedEvent(
+        makeEvent("action.result", {
+          result: {
+            callId: "todo_call",
+            kind: "tool-result",
+            output: { todos: [] },
+            toolName: "todo",
+          },
+          sequence: 1,
+          status: "completed",
+          stepIndex: 0,
+          turnId: "child_turn",
+        }),
+      ),
+      ctx,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://slack.com/api/chat.postMessage");
+    expect(parseSlackRequestBody(init as RequestInit)).toMatchObject({
+      channel: "C01",
+      thread_ts: "1700000000.000001",
+      markdown_text: "*Progress*\n- [~] Check the child result",
+    });
+  });
 });
 
 describe("rebuildSlackContext", () => {

@@ -174,6 +174,14 @@ export interface SlackChannelState {
    */
   pendingToolCallMessage?: string | null;
   /**
+   * Pending todo-write renderings keyed by their nested action path.
+   * The default handlers record these on `actions.requested`, then remove them
+   * when the matching `action.result` arrives.
+   */
+  pendingTodoProgress?: Record<string, string>;
+  /** Slack message ts for the persistent todo checklist. */
+  todoProgressMessageTs?: string | null;
+  /**
    * Last reasoning-derived typing indicator sent by the default
    * `reasoning.appended` handler. Used to surface substantial progressive
    * extensions immediately while throttling smaller streamed deltas.
@@ -324,6 +332,7 @@ export type SlackInboundResultOrPromise = SlackMentionResultOrPromise;
 export interface SlackChannelEvents {
   readonly "turn.started"?: SlackEventHandler<"turn.started">;
   readonly "actions.requested"?: SlackEventHandler<"actions.requested">;
+  readonly "subagent.event"?: SlackEventHandler<"subagent.event">;
   readonly "action.result"?: SlackEventHandler<"action.result">;
   readonly "message.completed"?: SlackEventHandler<"message.completed">;
   readonly "message.appended"?: SlackEventHandler<"message.appended">;
@@ -523,6 +532,8 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
       teamId: null as string | null,
       triggeringUserId: null,
       pendingToolCallMessage: null,
+      pendingTodoProgress: {},
+      todoProgressMessageTs: null,
       lastReasoningTypingAtMs: null,
       lastReasoningTypingStatus: null,
       pendingAuthMessageTs: {},

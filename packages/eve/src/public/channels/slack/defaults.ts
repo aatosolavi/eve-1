@@ -1,4 +1,5 @@
 import type { SessionAuthContext } from "#channel/types.js";
+import type { HandleMessageStreamEvent } from "#protocol/message.js";
 
 import { createLogger, extractErrorId, formatErrorHint } from "#internal/logging.js";
 import { describeActionRequests } from "#public/channels/slack/action-status.js";
@@ -23,9 +24,12 @@ import {
 import type {
   SlackChannelEvents,
   SlackChannelInternalEvents,
+  SlackChannelState,
   SlackContext,
+  SlackEventContext,
   SlackMentionResult,
 } from "#public/channels/slack/slackChannel.js";
+import type { RuntimeActionRequest } from "#runtime/actions/types.js";
 import type { InputRequest } from "#runtime/input/types.js";
 
 const log = createLogger("slack.defaults");
@@ -96,6 +100,136 @@ function firstNonEmptyLine(text: string): string | undefined {
   return undefined;
 }
 
+const TODO_STATUS_MARKERS = {
+  pending: " ",
+  in_progress: "~",
+  completed: "x",
+  cancelled: "-",
+} as const;
+
+type TodoProgressStatus = keyof typeof TODO_STATUS_MARKERS;
+
+interface TodoProgressItem {
+  readonly content: string;
+  readonly status: TodoProgressStatus;
+}
+
+type ActionResultData = Extract<HandleMessageStreamEvent, { type: "action.result" }>["data"];
+
+function isTodoStatus(value: unknown): value is TodoProgressStatus {
+  return typeof value === "string" && Object.hasOwn(TODO_STATUS_MARKERS, value);
+}
+
+function isTodoTool(toolName: string): boolean {
+  return toolName.split(/[.:/]/u).at(-1) === "todo";
+}
+
+function renderTodoProgress(input: Readonly<Record<string, unknown>>): string | undefined {
+  const todos = input["todos"];
+  if (!Array.isArray(todos)) return undefined;
+
+  const items: TodoProgressItem[] = [];
+  for (const todo of todos) {
+    if (todo === null || typeof todo !== "object" || Array.isArray(todo)) return undefined;
+    const record = todo as Record<string, unknown>;
+    const content = record["content"];
+    const status = record["status"];
+    if (typeof content !== "string" || !isTodoStatus(status)) return undefined;
+    const firstLine = content.split(/\r?\n/u, 1)[0]?.trim() ?? "";
+    if (firstLine.length === 0) return undefined;
+    items.push({ content: firstLine, status });
+  }
+
+  const lines = items.map((item) => `- [${TODO_STATUS_MARKERS[item.status]}] ${item.content}`);
+  return truncateMessageText(
+    ["*Progress*", ...(lines.length > 0 ? lines : ["_No tasks._"])].join("\n"),
+  );
+}
+
+function todoProgressKey(path: readonly string[], callId: string): string {
+  return JSON.stringify([...path, callId]);
+}
+
+function rememberTodoWrites(
+  actions: readonly RuntimeActionRequest[],
+  state: SlackChannelState,
+  path: readonly string[],
+): void {
+  let pending = state.pendingTodoProgress;
+  for (const action of actions) {
+    if (action.kind !== "tool-call" || !isTodoTool(action.toolName)) continue;
+    const progress = renderTodoProgress(action.input);
+    if (progress === undefined) continue;
+    pending ??= {};
+    pending[todoProgressKey(path, action.callId)] = progress;
+  }
+  state.pendingTodoProgress = pending;
+}
+
+function clearPendingTodoProgress(state: SlackChannelState, key: string): void {
+  const pending = state.pendingTodoProgress;
+  if (pending === undefined || pending[key] === undefined) return;
+  const next = { ...pending };
+  delete next[key];
+  state.pendingTodoProgress = next;
+}
+
+async function persistTodoProgress(progress: string, channel: SlackEventContext): Promise<void> {
+  const messageTs = channel.state.todoProgressMessageTs;
+  if (messageTs) {
+    await channel.slack.request("chat.update", {
+      channel: channel.slack.channelId,
+      ts: messageTs,
+      text: progress,
+    });
+    return;
+  }
+
+  const sent = await channel.thread.post(progress);
+  if (sent.id) channel.state.todoProgressMessageTs = sent.id;
+}
+
+async function completeTodoWrite(
+  event: ActionResultData,
+  channel: SlackEventContext,
+  path: readonly string[],
+): Promise<void> {
+  const key = todoProgressKey(path, event.result.callId);
+  const progress = channel.state.pendingTodoProgress?.[key];
+  if (progress === undefined) return;
+
+  if (
+    event.status !== "completed" ||
+    event.result.kind !== "tool-result" ||
+    event.result.isError === true ||
+    !isTodoTool(event.result.toolName)
+  ) {
+    clearPendingTodoProgress(channel.state, key);
+    return;
+  }
+
+  await persistTodoProgress(progress, channel);
+  clearPendingTodoProgress(channel.state, key);
+}
+
+async function handleNestedTodoEvent(
+  event: HandleMessageStreamEvent,
+  channel: SlackEventContext,
+  path: readonly string[],
+): Promise<void> {
+  if (event.type === "actions.requested") {
+    rememberTodoWrites(event.data.actions, channel.state, path);
+    return;
+  }
+  if (event.type === "action.result") {
+    await completeTodoWrite(event.data, channel, path);
+    return;
+  }
+  if (event.type === "subagent.event") {
+    await handleNestedTodoEvent(event.data.event, channel, [...path, event.data.callId]);
+  }
+}
+
 /**
  * Default `input.requested` handler — renders each pending HITL
  * request as Slack `block_actions`. Buttons by default; radio for
@@ -148,6 +282,7 @@ function buildInputRequestPosts(
 export const defaultEvents: SlackChannelInternalEvents = {
   async "turn.started"(_event, channel, _ctx) {
     channel.state.pendingToolCallMessage = null;
+    channel.state.pendingTodoProgress = {};
     channel.state.lastReasoningTypingAtMs = null;
     channel.state.lastReasoningTypingStatus = null;
     await channel.thread.startTyping("Working...");
@@ -177,6 +312,8 @@ export const defaultEvents: SlackChannelInternalEvents = {
   },
 
   async "actions.requested"(event, channel, _ctx) {
+    rememberTodoWrites(event.actions, channel.state, []);
+
     const buffered = channel.state.pendingToolCallMessage;
     channel.state.pendingToolCallMessage = null;
     if (buffered) {
@@ -184,6 +321,14 @@ export const defaultEvents: SlackChannelInternalEvents = {
       return;
     }
     await channel.thread.startTyping(truncateTypingStatus(describeActionRequests(event.actions)));
+  },
+
+  async "action.result"(event, channel, _ctx) {
+    await completeTodoWrite(event, channel, []);
+  },
+
+  async "subagent.event"(event, channel, _ctx) {
+    await handleNestedTodoEvent(event.event, channel, [event.callId]);
   },
 
   async "message.completed"(event, channel, _ctx) {

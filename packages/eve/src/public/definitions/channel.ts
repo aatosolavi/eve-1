@@ -234,6 +234,7 @@ type ChannelSessionFailedHandler<TCtx> = (
 export interface ChannelEvents<TCtx = void> {
   readonly "turn.started"?: ChannelEventHandler<"turn.started", TCtx>;
   readonly "actions.requested"?: ChannelEventHandler<"actions.requested", TCtx>;
+  readonly "subagent.event"?: ChannelEventHandler<"subagent.event", TCtx>;
   readonly "action.result"?: ChannelEventHandler<"action.result", TCtx>;
   readonly "message.completed"?: ChannelEventHandler<"message.completed", TCtx>;
   readonly "message.appended"?: ChannelEventHandler<"message.appended", TCtx>;
@@ -337,6 +338,7 @@ export function defineChannel<
 const channelEventTypes: Record<keyof ChannelEvents, null> = {
   "turn.started": null,
   "actions.requested": null,
+  "subagent.event": null,
   "action.result": null,
   "message.completed": null,
   "message.appended": null,
