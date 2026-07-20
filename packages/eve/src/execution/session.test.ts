@@ -96,7 +96,7 @@ describe("createSession", () => {
     ]);
   });
 
-  it("renders symbolic static skill paths without resolving a sandbox root", () => {
+  it("renders canonical symbolic paths for static skills", () => {
     const session = createSession({
       continuationToken: "root-token",
       sessionId: "sess-root",

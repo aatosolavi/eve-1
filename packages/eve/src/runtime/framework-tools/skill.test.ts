@@ -6,6 +6,7 @@ import { ConnectionRegistryKey } from "#context/providers/connection-key.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import type { ConnectionRegistry } from "#runtime/connections/types.js";
 import { SKILL_TOOL_DEFINITION } from "#runtime/framework-tools/skill.js";
+import { createSandboxSkillHandle } from "#runtime/skills/sandbox-access.js";
 import { BundleKey, type CompiledBundle } from "#runtime/sessions/runtime-context-keys.js";
 import type { ResolvedSkillDefinition } from "#runtime/types.js";
 
@@ -28,15 +29,6 @@ function createBundle(skills: readonly ResolvedSkillDefinition[]): CompiledBundl
     subagentRegistry: undefined as never,
     toolRegistry: undefined as never,
     turnAgent: undefined as never,
-  };
-}
-
-function createSandboxAccessThatMustNotBeUsed() {
-  return {
-    captureState: vi.fn(async () => ({ initialized: false, session: null })),
-    get: vi.fn(async () => {
-      throw new Error("Static skill loading must not open a sandbox");
-    }),
   };
 }
 
@@ -89,8 +81,17 @@ describe("load_skill executor", () => {
     ).resolves.toBe("# Research\n\nFollow the evidence.\n");
   });
 
-  it("loads packaged skill instructions without materializing their nested files in a sandbox", async () => {
-    const sandbox = createSandboxAccessThatMustNotBeUsed();
+  it("opens the sandbox only when a loaded static skill's sibling file is read", async () => {
+    const sandbox = mockSandbox({
+      initialFiles: {
+        "/workspace/skills/incident-response/references/services/api/owners.md": "# API owners\n",
+      },
+    });
+    const get = vi.fn(async () => sandbox.session);
+    const access = {
+      captureState: vi.fn(async () => ({ initialized: false, session: null })),
+      get,
+    };
     const ctx = new ContextContainer();
     ctx.set(
       BundleKey,
@@ -112,7 +113,7 @@ describe("load_skill executor", () => {
         },
       ]),
     );
-    ctx.set(SandboxKey, sandbox);
+    ctx.set(SandboxKey, access);
 
     const execute = SKILL_TOOL_DEFINITION.execute;
     if (execute === undefined) throw new Error("load_skill tool is missing an execute function");
@@ -124,8 +125,13 @@ describe("load_skill executor", () => {
     ).resolves.toBe(
       "# Incident response\n\nConsult `references/services/api/owners.md` when needed.\n",
     );
-    expect(sandbox.get).not.toHaveBeenCalled();
-    expect(sandbox.captureState).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+
+    const skill = createSandboxSkillHandle(access, "incident-response");
+    await expect(skill.file("references/services/api/owners.md").text()).resolves.toBe(
+      "# API owners\n",
+    );
+    expect(get).toHaveBeenCalledOnce();
   });
 
   it("loads an active dynamic skill from the sandbox instead of a same-named authored skill", async () => {
