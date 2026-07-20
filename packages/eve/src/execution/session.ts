@@ -84,7 +84,7 @@ export function createSession(input: CreateSessionInput): HarnessSession {
         turnAgent.dynamicModel === undefined ? undefined : turnAgent.model,
       modelReference: turnAgent.model,
       reasoning: turnAgent.reasoning,
-      system: createSessionSystemPrompt(turnAgent),
+      system: createSessionSystemPrompt({ turnAgent }),
       tools,
     },
     compaction: createCompactionConfig({
@@ -133,7 +133,7 @@ export function refreshSessionFromTurnAgent(input: {
         input.turnAgent.dynamicModel === undefined ? undefined : input.turnAgent.model,
       modelReference: input.turnAgent.model,
       reasoning: input.turnAgent.reasoning,
-      system: createSessionSystemPrompt(input.turnAgent),
+      system: createSessionSystemPrompt({ turnAgent: input.turnAgent }),
       tools: createSessionToolDefinitions(input.turnAgent),
     },
     compaction: createCompactionConfig({
@@ -145,10 +145,12 @@ export function refreshSessionFromTurnAgent(input: {
   };
 }
 
-function createSessionSystemPrompt(turnAgent: RuntimeTurnAgent): string {
-  const skillSection = formatAvailableSkillsSection(turnAgent.availableSkills ?? []);
+function createSessionSystemPrompt(input: { readonly turnAgent: RuntimeTurnAgent }): string {
+  const skillSection = formatAvailableSkillsSection(input.turnAgent.availableSkills ?? []);
   const blocks =
-    skillSection === null ? turnAgent.instructions : [...turnAgent.instructions, skillSection];
+    skillSection === null
+      ? input.turnAgent.instructions
+      : [...input.turnAgent.instructions, skillSection];
   return blocks.join("\n\n");
 }
 

@@ -96,17 +96,15 @@ describe("load_skill executor", () => {
       BundleKey,
       createBundle([
         {
+          assetsPath: "/authored/skills/incident-response/assets",
           description: "Run the full incident response procedure",
-          files: {
-            "references/services/api/owners.md": "# API owners\n",
-            "references/services/web/owners.md": "# Web owners\n",
-            "scripts/diagnostics/collect.sh": "#!/bin/sh\n",
-          },
           logicalPath: "skills/incident-response/SKILL.md",
           markdown:
             "# Incident response\n\nConsult `references/services/api/owners.md` when needed.\n",
           name: "incident-response",
+          referencesPath: "/authored/skills/incident-response/references",
           rootPath: "/authored/skills/incident-response",
+          scriptsPath: "/authored/skills/incident-response/scripts",
           skillFilePath: "/authored/skills/incident-response/SKILL.md",
           skillId: "incident-response",
           sourceId: "skills/incident-response/SKILL.md",
