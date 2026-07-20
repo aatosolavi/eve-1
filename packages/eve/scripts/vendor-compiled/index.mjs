@@ -15,6 +15,7 @@ import chatAdapterSlack from "./@chat-adapter/slack.mjs";
 import chatAdapterStateMemory from "./@chat-adapter/state-memory.mjs";
 import chatAdapterTwilio from "./@chat-adapter/twilio.mjs";
 
+import modelContextProtocolSdk from "./@modelcontextprotocol/sdk.mjs";
 import opentelemetryApi from "./@opentelemetry/api.mjs";
 import standardSchemaSpec from "./@standard-schema/spec.mjs";
 import vercelDetectAgent from "./@vercel/detect-agent.mjs";
@@ -62,6 +63,7 @@ export const MODULES = [
   jsonSchema,
   marked,
   mcp,
+  modelContextProtocolSdk,
   openai,
   opentelemetryApi,
   otel,
