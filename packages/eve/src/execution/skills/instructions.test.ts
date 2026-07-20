@@ -37,8 +37,9 @@ describe("formatAvailableSkillsSection", () => {
     expect(result).toContain(
       "If multiple skills match, activate the minimal set that covers the task.",
     );
+    expect(result).toContain("load_skill returns a skill's instructions.");
     expect(result).toContain(
-      "Skill files are available after load_skill resolves the active sandbox skill location.",
+      "Sibling files require sandbox-backed file access only when the loaded instructions reference them.",
     );
     expect(result).toContain(
       "resolve them relative to the directory containing that specific SKILL.md",

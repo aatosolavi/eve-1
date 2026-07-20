@@ -45,7 +45,7 @@ export function formatAvailableSkillsSection(
 
 function formatSkillLocationLine(options: FormatAvailableSkillsSectionOptions): string {
   if (options.skillRoot === undefined) {
-    return "Skill files are available after load_skill resolves the active sandbox skill location.";
+    return "load_skill returns a skill's instructions. Sibling files require sandbox-backed file access only when the loaded instructions reference them.";
   }
 
   return `Skill files live under \`${options.skillRoot}/<skill>/\`.`;
