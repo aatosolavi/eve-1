@@ -253,6 +253,7 @@ describe("createExecutionNodeStep", () => {
       mode: "task",
       modelResolutionScope,
       node: rootNode,
+      writeEveAttributes: undefined,
     });
 
     const ctx = new ContextContainer();
@@ -315,6 +316,7 @@ describe("createExecutionNodeStep", () => {
         nodeId: undefined,
       },
       node: rootNode,
+      writeEveAttributes: undefined,
     });
 
     const ctx = new ContextContainer();

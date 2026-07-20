@@ -28,9 +28,12 @@ event. Those boundaries must occur in canonical order. The public production
 event stream does not always expose an independent local tool-result event. The
 exact final text is the observable proof of the tool output.
 
-The runner uses randomized complete blocks. Every block runs all three runtimes
-serially in a seeded random order and sends the same nonce to each runtime. The
-defaults are 3 warmup blocks and 30 measured blocks.
+Local and Sandbox runs define matched complete blocks. Every block sends the
+same nonce once to each runtime. They batch physical execution by runtime so
+inactive implementations do not consume the measured host's CPU or memory.
+Hosted runs measure one selected runtime. Their block indices identify repeated
+samples within that invocation, not paired samples across separate hosted runs.
+The defaults are 3 warmup blocks and 30 measured blocks.
 
 ## Local matrix
 
@@ -48,7 +51,8 @@ EVE_LOOP_BENCHMARK_MODEL_KIND=live \
   > loop-benchmark.local-live.jsonl
 ```
 
-The command builds the fixture once, then starts three child processes with:
+The command builds the fixture once, then starts one child process at a time
+with:
 
 ```sh
 eve start --host 127.0.0.1 --port 0
@@ -56,19 +60,36 @@ eve start --host 127.0.0.1 --port 0
 
 The fixture build deletes only its ignored `.eve` compile directory before
 compiling. This prevents a build created with one model kind from being reused
-after `EVE_LOOP_BENCHMARK_MODEL_KIND` changes. The build and all three servers
-inherit the same model-kind environment.
+after `EVE_LOOP_BENCHMARK_MODEL_KIND` changes. The build and every runtime
+process inherit the same model-kind environment.
 
-Each process receives a different `EVE_LOOP_BENCHMARK_RUNTIME` value. The
-runner reads the `server listening at <url>` line and stops all three processes
-when the matrix finishes, fails, or receives `SIGINT` or `SIGTERM`.
-Each process also writes raw server telemetry to its own temporary JSONL file
-and receives a separate `WORKFLOW_LOCAL_DATA_DIR`. The three durable engines
-share the one immutable build output but no mutable workflow state. The runner
-reads the record files after every client sample and deletes the owned temporary
-directories during server cleanup.
-Its first JSONL record identifies the `local-processes` topology, runtime URLs,
-Node.js version, operating system, and CPU architecture.
+The first block's seeded runtime order determines the batch order. For each
+runtime, the runner starts one process, runs all of that runtime's warmups and
+then all of its measured samples, and stops the process before starting the next
+runtime. Process startup and shutdown are outside the timed sample. A process
+receives its `EVE_LOOP_BENCHMARK_RUNTIME` value and stays warm for its entire
+batch.
+
+Each process writes raw server telemetry to its own temporary JSONL file and
+receives its own `WORKFLOW_LOCAL_DATA_DIR`. The durable engines share the one
+immutable build output but no mutable workflow state. The runner reads the
+record file after every client sample and deletes the owned temporary directory
+when that runtime stops. On `SIGINT` or `SIGTERM`, it stops the one active
+process. Graceful shutdown signals only eve so it can drain owned workers and
+services in order; the timeout fallback force-kills the detached process group.
+Child-process logs are captured for startup errors but otherwise stay quiet. Set
+`EVE_LOOP_BENCHMARK_VERBOSE=1` to stream them to stderr while debugging.
+
+The first JSONL record identifies the `local-runtime-batches` topology,
+`maxConcurrentRuntimeServers: 1`, the batch order, the process-reuse policy,
+Node.js version, operating system, and CPU architecture. Sample `sampleIndex`
+values record physical batch order. `orderInBlock` retains the canonical seeded
+block metadata used to match runtimes; it is not local wall-clock order.
+
+Runtime-batched paired differences compare matching block inputs, but their two
+samples occur in different runtime batches. They therefore do not control for
+short-term host drift. Changing the seed can change which runtime batch runs
+first.
 
 Override the block counts or seed after `--`:
 
@@ -79,9 +100,9 @@ pnpm --filter loop-backend-benchmark run --silent benchmark:local -- --warmups 0
 ## Vercel Sandbox matrix
 
 The Sandbox command runs all three implementations in one ephemeral Vercel
-Sandbox. It clones one exact commit, installs dependencies once, builds the
-fixture and its workspace dependencies once, and starts three detached
-`eve start` processes:
+Sandbox. It clones one exact commit, installs dependencies once, and builds the
+fixture and its workspace dependencies once. It then starts one detached eve
+process at a time:
 
 | Runtime         | Port | Raw server record path                   |
 | --------------- | ---: | ---------------------------------------- |
@@ -89,13 +110,15 @@ fixture and its workspace dependencies once, and starts three detached
 | Workflow DevKit | 8081 | `/tmp/eve-loop-benchmark-workflow.jsonl` |
 | Temporal        | 8082 | `/tmp/eve-loop-benchmark-temporal.jsonl` |
 
-Each Sandbox process also receives its own `WORKFLOW_LOCAL_DATA_DIR` under
-`/tmp`.
+Each process receives its own `WORKFLOW_LOCAL_DATA_DIR` under `/tmp`. The runner
+keeps that process warm for the runtime's complete batch, sends it `SIGTERM`,
+and waits for it to exit before starting the next runtime. At most one runtime
+process is active inside the Sandbox.
 
 The Sandbox uses the Node.js 24 runtime, 4 vCPUs, and a 45-minute timeout. The
-runner waits for every public `/eve/v1/health` endpoint before starting the
-matrix, so clone, install, build, process startup, and readiness time are not
-benchmark samples. The matrix itself remains serial.
+runner waits for the active runtime's public `/eve/v1/health` endpoint before
+starting its batch, so clone, install, build, process startup, readiness, and
+shutdown time are not benchmark samples.
 
 The selected commit must be a full 40-character SHA reachable from the Git
 source. The default source is the public
@@ -146,42 +169,62 @@ selected and forwarded as the model credential when `AI_GATEWAY_API_KEY` is
 absent.
 
 The first output line is a `setup` record. It identifies the model kind,
-`vercel-sandbox` topology, exact Git revision, Sandbox name and available
-resource metadata, and the three public origins. Setup records contain no
+`vercel-sandbox-runtime-batches` topology, exact Git revision, Sandbox name and
+available resource metadata, `maxConcurrentRuntimeServers: 1`, runtime batch
+order, and process- and Sandbox-reuse policies. Setup records contain no
 credentials or source-authentication fields. The runner stops the single
 Sandbox after success, setup failure, matrix failure, `SIGINT`, or `SIGTERM`.
 
-## Hosted matrix
+## Hosted runtime
 
-Pass three external HTTPS origins explicitly:
-
-```sh
-pnpm --filter loop-backend-benchmark run --silent benchmark:hosted -- \
-  --inline-url https://inline.example.com \
-  --workflow-url https://workflow.example.com \
-  --temporal-url https://temporal.example.com
-```
-
-The equivalent environment variables are:
+A hosted invocation measures one already-running runtime. By default, the
+command targets the Workflow deployment at
+`https://loop-backend-benchmark-preview.playground-vercel.tools`:
 
 ```sh
-EVE_LOOP_BENCHMARK_INLINE_URL=https://inline.example.com \
-EVE_LOOP_BENCHMARK_WORKFLOW_URL=https://workflow.example.com \
-EVE_LOOP_BENCHMARK_TEMPORAL_URL=https://temporal.example.com \
-pnpm --filter loop-backend-benchmark run --silent benchmark:hosted
+pnpm --filter loop-backend-benchmark run --silent benchmark:hosted \
+  > loop-benchmark.workflow.vercel.jsonl
 ```
 
-Hosted URLs must be HTTPS origins. Flags take precedence over environment
-variables, so the two forms can be mixed.
-Set `EVE_LOOP_BENCHMARK_MODEL_KIND` to the model kind used when the remote
-servers were built and started. The hosted runner records that value but cannot
-verify the remote configuration.
-Inline and Temporal require a long-lived topology with shared mutable state.
-Direct Vercel Functions are rejected for those runtimes and are not supported
-targets for this command.
-Generic hosted origins do not expose a record-file reader, so their sample
-records report server telemetry as `unavailable`. Use the Sandbox command when
-the benchmark must include both client and server layers on Vercel.
+Override that default with exactly one of `--inline-url`, `--workflow-url`, or
+`--temporal-url`. The equivalent environment variables are
+`EVE_LOOP_BENCHMARK_INLINE_URL`, `EVE_LOOP_BENCHMARK_WORKFLOW_URL`, and
+`EVE_LOOP_BENCHMARK_TEMPORAL_URL`. Supplying more than one origin is an error.
+URLs must be bare HTTPS origins without credentials, a path, query, or
+fragment.
+
+The command loads `.env.local` when present and requires `VERCEL_OIDC_TOKEN` for
+the fixture's hosted eve channel. It sends the token through the eve
+client's Vercel OIDC authentication and never writes it to JSONL.
+
+The selected URL option supplies the runtime identity recorded in the result.
+The runner cannot inspect the remote process to verify that identity. Build and
+start the deployment with the matching `EVE_LOOP_BENCHMARK_RUNTIME` value. Set
+`EVE_LOOP_BENCHMARK_MODEL_KIND` to the same value during the deployment build,
+the remote process startup, and the benchmark invocation. The hosted runner
+records the model kind but cannot change or verify the deployed model.
+
+For a provider-inclusive Workflow run, build and start the deployment with:
+
+```sh
+EVE_LOOP_BENCHMARK_RUNTIME=workflow
+EVE_LOOP_BENCHMARK_MODEL_KIND=live
+```
+
+The deployment also needs model-provider authentication. Direct Vercel
+Functions support the Workflow implementation. Inline and Temporal require a
+long-lived host with shared mutable state; use the Sandbox command to compare
+all three implementations on Vercel infrastructure.
+
+Hosted measurements use only the client's monotonic clock. They include the
+HTTP acknowledgment, streamed protocol boundaries, reducer work, and terminal
+`session.waiting` event. The command does not read a remote record file, so all
+server telemetry is `unavailable` by design.
+
+Each hosted invocation has a new run ID and runs at a different time. The HTML
+report can display separate hosted result files side by side, but it does not
+treat cross-file differences as matched-block or paired measurements. Hosted
+mode therefore does not accept `--seed`.
 
 ## JSONL output
 
@@ -196,17 +239,18 @@ mistaken for each other. The summary also includes:
 - p50, p90, and p95 for correctness-gated client metrics
 - a client-observed protocol layercake from POST acknowledgment through
   `session.waiting`
-- paired per-block differences for each runtime pair
+- paired per-block differences when one run contains both runtimes
 - raw server telemetry plus its collection status on every sample
 - warmup and measured server-telemetry status counts
 - per-runtime percentiles for correctness-gated summed neutral server intervals
 - paired server-interval differences from matching client-valid,
-  telemetry-complete blocks
+  telemetry-complete blocks when both runtimes ran
 
 Percentiles use the nearest-rank definition. A pair named
 `workflow-minus-inline` contains the Workflow client measurement minus the
-inline client measurement from the same block. The runner never subtracts
-server wall clocks or the event `serverAt` correlation field.
+inline client measurement from the same block. A single-runtime hosted run has
+no paired differences. The runner never subtracts server wall clocks or the
+event `serverAt` correlation field.
 
 Server interval durations are calculated only inside one record whose start
 and end use the same monotonic clock domain. Repeated intervals with the same
@@ -219,13 +263,38 @@ The layercake names only the event boundaries the client observed. For example,
 `sessionStartedToToolRequestEventReceivedMs` includes everything between
 receiving `session.started` and receiving `actions.requested`; it does not claim
 that the whole interval was model execution. All layercake durations use the
-same local monotonic client clock. The six phases add to
-`sessionWaitingEventReceivedMs`; reducer work remains separately visible in
-`reducerTotalMs` and `sessionWaitingReducedMs`.
+same local monotonic client clock. The six post-ack phases add to
+`sessionWaitingEventReceivedMs - postAckMs`; including `postAckMs`, seven
+segments span request start through `session.waiting`. Reducer work remains
+separately visible in `reducerTotalMs` and `sessionWaitingReducedMs`.
 
 Provisioning diagnostics, child-process logs, and errors go to standard error.
 Redirect standard output as shown above to retain a machine-readable result
 file.
+
+## HTML report
+
+Render one local or Vercel JSONL result as a self-contained HTML report:
+
+```sh
+pnpm --filter loop-backend-benchmark run --silent benchmark:report -- \
+  loop-benchmark.local.jsonl \
+  --output loop-benchmark.local.html
+```
+
+Pass multiple result files to compare runs without pooling their samples:
+
+```sh
+pnpm --filter loop-backend-benchmark run --silent benchmark:report -- \
+  loop-benchmark.local.jsonl loop-benchmark.vercel.jsonl \
+  --output loop-benchmark.html
+```
+
+The report shows client-observed end-to-end percentiles, the additive mean
+protocol layercake, correctness and telemetry exclusions, and available neutral
+server intervals. Local and Sandbox runs also show paired implementation deltas
+against inline. It keeps model kinds and execution targets visibly separate.
+Omit `--output` to write HTML to standard output.
 
 ## Checks
 

@@ -8,11 +8,11 @@ import { stripVTControlCharacters } from "node:util";
 
 import type { BenchmarkRuntimeKind } from "../driver/index.js";
 import { BENCHMARK_MODEL_KIND_ENV, type BenchmarkModelKind } from "../model-kind.js";
-import type { BenchmarkRuntimeUrls } from "./types.js";
 
 const SERVER_START_TIMEOUT_MS = 120_000;
-const TERMINATE_GRACE_MS = 5_000;
+const TERMINATE_GRACE_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 2_000;
+const VERBOSE_LOGS_ENV = "EVE_LOOP_BENCHMARK_VERBOSE";
 
 export interface LocalRuntimeServerProcess {
   readonly url: Promise<string>;
@@ -25,64 +25,105 @@ export type StartLocalRuntimeServer = (
   modelKind: BenchmarkModelKind,
 ) => LocalRuntimeServerProcess;
 
-export class LocalRuntimeServerGroup {
+/** A handle to one running local benchmark runtime and its owned record file. */
+export interface LocalRuntimeServerLease<
+  RuntimeKind extends BenchmarkRuntimeKind = BenchmarkRuntimeKind,
+> {
+  readonly runtimeKind: RuntimeKind;
+  readonly targetUrl: string;
+  readRecordFile(): Promise<string | undefined>;
+  stop(): Promise<void>;
+}
+
+interface ActiveLocalRuntime {
+  readonly leaseId: symbol;
+  readonly process: LocalRuntimeServerProcess;
+  readonly runtimeKind: BenchmarkRuntimeKind;
+  stopPromise: Promise<void> | null;
+}
+
+/** Owns at most one local benchmark runtime process at a time. */
+export class LocalRuntimeServerHost {
   readonly #startServer: StartLocalRuntimeServer;
-  readonly #serversByRuntime = new Map<BenchmarkRuntimeKind, LocalRuntimeServerProcess>();
-  #servers: readonly LocalRuntimeServerProcess[] = [];
-  #stopPromise: Promise<void> | null = null;
+  #active: ActiveLocalRuntime | null = null;
 
   constructor(startServer: StartLocalRuntimeServer = spawnLocalRuntimeServer) {
     this.#startServer = startServer;
   }
 
-  async start(modelKind: BenchmarkModelKind): Promise<BenchmarkRuntimeUrls> {
-    if (this.#servers.length !== 0) {
-      throw new Error("The local benchmark servers have already been started.");
+  async acquire<RuntimeKind extends BenchmarkRuntimeKind>(
+    runtimeKind: RuntimeKind,
+    modelKind: BenchmarkModelKind,
+  ): Promise<LocalRuntimeServerLease<RuntimeKind>> {
+    if (this.#active !== null) {
+      throw new Error(
+        `The local benchmark server host already has an active ${this.#active.runtimeKind} runtime.`,
+      );
     }
 
+    const process = this.#startServer(runtimeKind, modelKind);
+    const leaseId = Symbol(runtimeKind);
+    const active: ActiveLocalRuntime = {
+      leaseId,
+      process,
+      runtimeKind,
+      stopPromise: null,
+    };
+    this.#active = active;
+
+    let targetUrl: string;
     try {
-      const inline = this.#startAndTrack("inline", modelKind);
-      const workflow = this.#startAndTrack("workflow", modelKind);
-      const temporal = this.#startAndTrack("temporal", modelKind);
-      const [inlineUrl, workflowUrl, temporalUrl] = await Promise.all([
-        inline.url,
-        workflow.url,
-        temporal.url,
-      ]);
-      return {
-        inline: inlineUrl,
-        temporal: temporalUrl,
-        workflow: workflowUrl,
-      };
+      targetUrl = await process.url;
     } catch (error) {
-      await this.stop();
+      try {
+        await this.#stopLease(leaseId);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `The ${runtimeKind} local benchmark server failed to start and cleanup also failed.`,
+        );
+      }
       throw error;
     }
+
+    if (this.#active !== active || active.stopPromise !== null) {
+      await this.#stopLease(leaseId);
+      throw new Error(`The ${runtimeKind} local benchmark server stopped before it became ready.`);
+    }
+
+    return {
+      async readRecordFile() {
+        return await process.readRecordFile();
+      },
+      runtimeKind,
+      stop: async () => {
+        await this.#stopLease(leaseId);
+      },
+      targetUrl,
+    };
   }
 
   async stop(): Promise<void> {
-    this.#stopPromise ??= Promise.all(
-      this.#servers.map(async (server) => await server.stop()),
-    ).then(() => undefined);
-    await this.#stopPromise;
+    const leaseId = this.#active?.leaseId;
+    if (leaseId === undefined) return;
+    await this.#stopLease(leaseId);
   }
 
-  async readRecordFile(runtimeKind: BenchmarkRuntimeKind): Promise<string | undefined> {
-    const server = this.#serversByRuntime.get(runtimeKind);
-    if (server === undefined) {
-      throw new Error(`Cannot read ${runtimeKind} benchmark records before its server starts.`);
-    }
-    return await server.readRecordFile();
-  }
+  async #stopLease(leaseId: symbol): Promise<void> {
+    const active = this.#active;
+    if (active === null || active.leaseId !== leaseId) return;
 
-  #startAndTrack(
-    runtimeKind: BenchmarkRuntimeKind,
-    modelKind: BenchmarkModelKind,
-  ): LocalRuntimeServerProcess {
-    const server = this.#startServer(runtimeKind, modelKind);
-    this.#servers = [...this.#servers, server];
-    this.#serversByRuntime.set(runtimeKind, server);
-    return server;
+    const stopPromise =
+      active.stopPromise ??
+      Promise.resolve()
+        .then(async () => await active.process.stop())
+        .then(() => {
+          if (this.#active?.leaseId === leaseId) {
+            this.#active = null;
+          }
+        });
+    active.stopPromise = stopPromise;
+    await stopPromise;
   }
 }
 
@@ -97,6 +138,13 @@ export function parseServerListeningLine(line: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Streams child-process logs only when local benchmark diagnostics are explicitly enabled. */
+export function shouldStreamLocalRuntimeLogs(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return environment[VERBOSE_LOGS_ENV] === "1";
 }
 
 function spawnLocalRuntimeServer(
@@ -132,6 +180,7 @@ function spawnLocalRuntimeServer(
   let capturedStderr = "";
   let lineBuffer = "";
   let readySettled = false;
+  const streamLogs = shouldStreamLocalRuntimeLogs();
 
   const exited = new Promise<void>((resolveExit) => {
     child.once("exit", () => resolveExit());
@@ -176,7 +225,7 @@ function spawnLocalRuntimeServer(
 
     child.stdout.on("data", (chunk: string) => {
       capturedStdout = appendCaptured(capturedStdout, chunk);
-      process.stderr.write(`[${runtimeKind} stdout] ${chunk}`);
+      if (streamLogs) process.stderr.write(`[${runtimeKind} stdout] ${chunk}`);
       lineBuffer += chunk;
       const lines = lineBuffer.split(/\r?\n/);
       lineBuffer = lines.pop() ?? "";
@@ -190,7 +239,7 @@ function spawnLocalRuntimeServer(
     });
     child.stderr.on("data", (chunk: string) => {
       capturedStderr = appendCaptured(capturedStderr, chunk);
-      process.stderr.write(`[${runtimeKind} stderr] ${chunk}`);
+      if (streamLogs) process.stderr.write(`[${runtimeKind} stderr] ${chunk}`);
     });
     child.once("error", rejectReady);
     child.once("exit", handleEarlyExit);
@@ -207,7 +256,7 @@ function spawnLocalRuntimeServer(
       }
     },
     async stop() {
-      stopPromise ??= terminateProcess(child, exited).finally(async () => {
+      stopPromise ??= terminateProcess(child, exited, runtimeKind).then(async () => {
         await rm(ownedTempDirectory, { force: true, recursive: true });
       });
       await stopPromise;
@@ -223,34 +272,102 @@ function hasErrorCode(error: unknown, code: string): boolean {
 async function terminateProcess(
   child: ReturnType<typeof spawn>,
   exited: Promise<void>,
+  runtimeKind: BenchmarkRuntimeKind,
 ): Promise<void> {
   if (child.pid === undefined || hasExited(child)) {
     destroyProcessPipes(child);
     return;
   }
 
-  signalProcess(child, "SIGTERM");
-  await Promise.race([exited, sleep(TERMINATE_GRACE_MS)]);
-  if (!hasExited(child)) {
-    signalProcess(child, "SIGKILL");
-    await Promise.race([exited, sleep(FORCE_KILL_GRACE_MS)]);
+  try {
+    await terminateLocalRuntimeProcess({
+      exited,
+      hasExited: () => hasExited(child),
+      runtimeKind,
+      signal: (signal) => signalProcess(child, signal),
+    });
+    forceKillResidualLocalRuntimeProcessGroup(child.pid);
+  } finally {
+    destroyProcessPipes(child);
   }
+}
 
-  destroyProcessPipes(child);
+/** Terminates one local runtime and rejects unless its process exit is observed. */
+export async function terminateLocalRuntimeProcess(
+  input: {
+    readonly exited: Promise<void>;
+    readonly hasExited: () => boolean;
+    readonly runtimeKind: BenchmarkRuntimeKind;
+    readonly signal: (signal: NodeJS.Signals) => void;
+  },
+  waitForExit: (exited: Promise<void>, milliseconds: number) => Promise<void> = waitForProcessExit,
+): Promise<void> {
+  if (input.hasExited()) return;
+
+  input.signal("SIGTERM");
+  await waitForExit(input.exited, TERMINATE_GRACE_MS);
+  if (input.hasExited()) return;
+
+  input.signal("SIGKILL");
+  await waitForExit(input.exited, FORCE_KILL_GRACE_MS);
+  if (input.hasExited()) return;
+
+  throw new Error(
+    `The ${input.runtimeKind} local benchmark server did not exit within ${String(FORCE_KILL_GRACE_MS / 1_000)} seconds after SIGKILL.`,
+  );
+}
+
+async function waitForProcessExit(exited: Promise<void>, milliseconds: number): Promise<void> {
+  const controller = new AbortController();
+  const timeout = sleep(milliseconds, undefined, {
+    ref: false,
+    signal: controller.signal,
+  }).catch((error: unknown) => {
+    if (!controller.signal.aborted) throw error;
+  });
+
+  try {
+    await Promise.race([exited, timeout]);
+  } finally {
+    controller.abort();
+  }
 }
 
 function signalProcess(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
   if (child.pid === undefined) return;
+  const signalProcessGroup = shouldSignalLocalRuntimeProcessGroup(signal);
   try {
-    if (process.platform === "win32") {
-      child.kill(signal);
-    } else {
+    if (signalProcessGroup) {
       process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
     }
   } catch {
     try {
       child.kill(signal);
     } catch {}
+  }
+}
+
+/** Graceful shutdown targets eve; forced cleanup reaps its detached Unix process group. */
+export function shouldSignalLocalRuntimeProcessGroup(
+  signal: NodeJS.Signals,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform !== "win32" && signal === "SIGKILL";
+}
+
+/** Reaps descendants left in the owned detached group after the eve parent exits. */
+export function forceKillResidualLocalRuntimeProcessGroup(
+  processGroupId: number,
+  platform: NodeJS.Platform = process.platform,
+  kill: (pid: number, signal: NodeJS.Signals) => boolean = process.kill,
+): void {
+  if (platform === "win32") return;
+  try {
+    kill(-processGroupId, "SIGKILL");
+  } catch (error) {
+    if (!hasErrorCode(error, "ESRCH")) throw error;
   }
 }
 

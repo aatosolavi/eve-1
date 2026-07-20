@@ -75,7 +75,6 @@ import {
   type SessionTokenLimitViolation,
   type TokenUsageDelta,
 } from "#harness/turn-tag-state.js";
-import { setEveAttributes } from "#runtime/attributes/emit.js";
 import {
   advanceStep,
   emitFailedStep,
@@ -1044,16 +1043,11 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
 
     // --- Step-side observability tags ---------------------------------------
     //
-    // Tag the **turn workflow run** (the current `"use step"` is hosted by
-    // that workflow, so `experimental_setAttributes` writes to its
-    // attributes table) with the model id and per-turn cumulative token
-    // counts. Per-turn totals are accumulated on `session.state` because
-    // each tool-loop iteration is a fresh `"use step"` and the workflow
-    // runtime's last-write-wins per-key semantics mean only the running
-    // total — not the per-step delta — should reach the dashboard.
-    //
-    // Best-effort: `setEveAttributes` swallows runtime failures so a
-    // broken tag emit can never break the agent loop.
+    // Compute model and cumulative per-turn usage attributes. Workflow-backed
+    // runtimes inject a sink that writes them to the turn Workflow run; other
+    // engines omit the sink because this loop is not inside a Workflow step.
+    // Per-turn totals live on `session.state` so Workflow's last-write-wins
+    // attribute semantics expose the running total rather than a step delta.
     const nextTurnUsage = accumulateTurnUsage({
       previous: getTurnUsageState(session.state),
       turnId: emissionState.turnId,
@@ -1062,15 +1056,15 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     session = setTurnUsageState(session, nextTurnUsage);
     // `formatLanguageModelGatewayId` requires `model.provider` to be a string;
     // mock models in tests omit it, so guard the lookup so a missing field
-    // becomes `undefined` and is dropped by `setEveAttributes` instead of
-    // throwing into the tool loop.
+    // becomes `undefined` and is dropped by the Workflow attribute writer
+    // instead of throwing into the tool loop.
     let modelTag: string | undefined;
     try {
       modelTag = formatLanguageModelGatewayId(model);
     } catch {
       modelTag = undefined;
     }
-    await setEveAttributes({
+    await config.writeEveAttributes?.({
       "$eve.model": modelTag,
       "$eve.input_tokens": nextTurnUsage.inputTokens,
       "$eve.output_tokens": nextTurnUsage.outputTokens,

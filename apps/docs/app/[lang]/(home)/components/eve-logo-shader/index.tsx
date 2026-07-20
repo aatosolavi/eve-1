@@ -187,7 +187,11 @@ export function EveLogoShader() {
 
         const deltaSeconds = Math.max(0, (frameTime - previousFrameTime) / 1000);
         previousFrameTime = frameTime;
-        controlsRef.current.envYaw = safeLerp(controlsRef.current.envYaw, targetEnvYaw, deltaSeconds * ENV_YAW_LERP_SPEED);
+        controlsRef.current.envYaw = safeLerp(
+          controlsRef.current.envYaw,
+          targetEnvYaw,
+          deltaSeconds * ENV_YAW_LERP_SPEED,
+        );
 
         resizeCanvas(canvas);
         // The renderer pads the logical scene size by BLOOM_RADIUS on each side before allocating
@@ -198,7 +202,12 @@ export function EveLogoShader() {
         const logicalHeight = Math.max(1, canvas.height - BLOOM_RADIUS * 2);
 
         try {
-          renderer.render(context.getCurrentTexture().createView(), controlsRef.current, logicalWidth, logicalHeight);
+          renderer.render(
+            context.getCurrentTexture().createView(),
+            controlsRef.current,
+            logicalWidth,
+            logicalHeight,
+          );
         } catch {
           cancelled = true;
           setRevealed(false);
@@ -282,7 +291,10 @@ export function EveLogoShader() {
         visible={!revealed}
         className="hidden dark:block"
       />
-      <canvas ref={canvasRef} className="absolute inset-0 size-full opacity-0 transition-opacity duration-700 ease-linear" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 size-full opacity-0 transition-opacity duration-700 ease-linear"
+      />
       <div
         className={`pointer-events-none absolute inset-0 hidden bg-gradient-to-b from-transparent md:block ${theme === "light" ? "to-background-200" : "to-black"}`}
       />
@@ -328,7 +340,8 @@ async function loadGltfBuffer(uri: string, modelUrl: string) {
   }
   const url = new URL(uri, window.location.origin + modelUrl);
   const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Failed to load glTF buffer ${url.pathname}: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`Failed to load glTF buffer ${url.pathname}: ${response.status}`);
   return response.arrayBuffer();
 }
 

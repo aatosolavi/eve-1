@@ -1,4 +1,4 @@
-import type { LocalRuntimeServerGroup } from "./local-servers.js";
+import type { LocalRuntimeServerHost } from "./local-servers.js";
 
 export type BenchmarkSignal = "SIGINT" | "SIGTERM";
 
@@ -8,7 +8,7 @@ export interface BenchmarkSignalHost {
   once(signal: BenchmarkSignal, listener: () => void): void;
 }
 
-export interface StoppableBenchmarkServerGroup {
+export interface StoppableBenchmarkServerHost {
   stop(): Promise<void>;
 }
 
@@ -16,7 +16,7 @@ export function installBenchmarkServerSignalCleanup(input: {
   readonly cleanupFailureLabel: string;
   readonly cleanupLabel: string;
   readonly host: BenchmarkSignalHost;
-  readonly serverGroup: StoppableBenchmarkServerGroup;
+  readonly serverHost: StoppableBenchmarkServerHost;
   readonly writeDiagnostic: (message: string) => void;
 }): () => void {
   let handlingSignal = false;
@@ -30,7 +30,7 @@ export function installBenchmarkServerSignalCleanup(input: {
     handlingSignal = true;
     remove();
     input.writeDiagnostic(`Received ${signal}. Stopping ${input.cleanupLabel}.\n`);
-    void input.serverGroup
+    void input.serverHost
       .stop()
       .catch((error: unknown) => {
         input.writeDiagnostic(
@@ -53,12 +53,12 @@ export function installBenchmarkServerSignalCleanup(input: {
 
 export function installLocalServerSignalCleanup(input: {
   readonly host: BenchmarkSignalHost;
-  readonly serverGroup: LocalRuntimeServerGroup;
+  readonly serverHost: LocalRuntimeServerHost;
   readonly writeDiagnostic: (message: string) => void;
 }): () => void {
   return installBenchmarkServerSignalCleanup({
-    cleanupFailureLabel: "Local server",
-    cleanupLabel: "local benchmark servers",
+    cleanupFailureLabel: "Local benchmark server",
+    cleanupLabel: "the active local benchmark server",
     ...input,
   });
 }

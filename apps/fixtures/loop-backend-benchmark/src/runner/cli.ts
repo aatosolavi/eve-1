@@ -6,10 +6,10 @@ import {
   runLocalBenchmarkCommand,
   runSandboxBenchmarkCommand,
 } from "./commands.js";
-import { LocalRuntimeServerGroup } from "./local-servers.js";
+import { LocalRuntimeServerHost } from "./local-servers.js";
 import { writeJsonlRecord } from "./jsonl.js";
-import { runBenchmarkMatrix } from "./matrix.js";
-import { SandboxRuntimeServerGroup } from "./sandbox-servers.js";
+import { completeBenchmarkRun, executeBenchmarkSamples } from "./matrix.js";
+import { SandboxRuntimeServerHost } from "./sandbox-servers.js";
 import {
   installBenchmarkServerSignalCleanup,
   installLocalServerSignalCleanup,
@@ -29,21 +29,22 @@ async function main(argv: readonly string[]): Promise<void> {
   }
 
   if (config.mode === "sandbox") {
-    const serverGroup = new SandboxRuntimeServerGroup();
+    const serverHost = new SandboxRuntimeServerHost();
     const removeSignalCleanup = installBenchmarkServerSignalCleanup({
       cleanupFailureLabel: "Vercel Sandbox",
-      cleanupLabel: "the Vercel Sandbox benchmark servers",
+      cleanupLabel: "the Vercel Sandbox benchmark host",
       host: processSignalHost,
-      serverGroup,
+      serverHost,
       writeDiagnostic(message) {
         process.stderr.write(message);
       },
     });
     try {
       await runSandboxBenchmarkCommand(config, {
+        completeRun: completeBenchmarkRun,
         createRunId: randomUUID,
-        runMatrix: runBenchmarkMatrix,
-        serverGroup,
+        executeSamples: executeBenchmarkSamples,
+        serverHost,
         writeRecord: writeJsonlRecord,
       });
     } finally {
@@ -52,10 +53,10 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
 
-  const serverGroup = new LocalRuntimeServerGroup();
+  const serverHost = new LocalRuntimeServerHost();
   const removeSignalCleanup = installLocalServerSignalCleanup({
     host: processSignalHost,
-    serverGroup,
+    serverHost,
     writeDiagnostic(message) {
       process.stderr.write(message);
     },
@@ -63,8 +64,9 @@ async function main(argv: readonly string[]): Promise<void> {
   try {
     await runLocalBenchmarkCommand(config, {
       createRunId: randomUUID,
-      runMatrix: runBenchmarkMatrix,
-      serverGroup,
+      completeRun: completeBenchmarkRun,
+      executeSamples: executeBenchmarkSamples,
+      serverHost,
       writeRecord: writeJsonlRecord,
     });
   } finally {

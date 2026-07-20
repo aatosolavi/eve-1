@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "benchmark:compile": "tsc -p tsconfig.runner.json",
-    "benchmark:hosted": "pnpm --silent run benchmark:compile 1>&2 && node dist/benchmark/runner/cli.js hosted",
+    "benchmark:hosted": "pnpm --silent run benchmark:compile 1>&2 && node --env-file-if-exists=.env.local dist/benchmark/runner/cli.js hosted",
     "benchmark:local": "pnpm --silent run build 1>&2 && pnpm --silent run benchmark:compile 1>&2 && node dist/benchmark/runner/cli.js local",
+    "benchmark:report": "pnpm --silent run benchmark:compile 1>&2 && node dist/benchmark/report/cli.js",
     "benchmark:sandbox": "pnpm --silent run benchmark:compile 1>&2 && node --env-file-if-exists=.env.local dist/benchmark/runner/cli.js sandbox",
     "dev": "eve dev",
     "build": "node scripts/build.mjs",

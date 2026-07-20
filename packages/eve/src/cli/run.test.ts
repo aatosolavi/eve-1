@@ -136,6 +136,53 @@ describe("eve dev --input", () => {
   });
 });
 
+describe("eve --loop runtime selection", () => {
+  it("rejects an unknown loop runtime", async () => {
+    await expect(
+      runCli(["dev", "--loop", "durable"], { error: () => {}, log: () => {} }),
+    ).rejects.toThrow('Expected "inline", "workflow", or "temporal", received "durable".');
+  });
+
+  it("rejects a URL target because the selection applies to the local server", async () => {
+    await expect(
+      runCli(
+        ["dev", "--url", "https://example.com", "--loop", "inline"],
+        { error: () => {}, log: () => {} },
+        { runDevelopmentTui: vi.fn(async () => {}) },
+      ),
+    ).rejects.toThrow("--loop selects the local server's loop runtime");
+  });
+
+  it("exports the selection to the server environment before the host boots", async () => {
+    const previous = process.env.EVE_LOOP_BENCHMARK_RUNTIME;
+    delete process.env.EVE_LOOP_BENCHMARK_RUNTIME;
+    const seen: (string | undefined)[] = [];
+    try {
+      await runCli(
+        ["start", "--loop", "inline"],
+        { error: () => {}, log: () => {} },
+        {
+          startProductionHost: async () => {
+            seen.push(process.env.EVE_LOOP_BENCHMARK_RUNTIME);
+            return {
+              close: async () => {},
+              url: "http://127.0.0.1:3000",
+              wait: async () => {},
+            };
+          },
+        },
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.EVE_LOOP_BENCHMARK_RUNTIME;
+      } else {
+        process.env.EVE_LOOP_BENCHMARK_RUNTIME = previous;
+      }
+    }
+    expect(seen).toEqual(["inline"]);
+  });
+});
+
 describe("eve dev --url protocol", () => {
   it("lowers URL userinfo to a Basic authorization header and strips it from the target URL", async () => {
     const runDevelopmentTui = await runInteractiveDev([

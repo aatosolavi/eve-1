@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import type { BenchmarkRuntimeUrls } from "./types.js";
+import type { BenchmarkRuntimeKind } from "../driver/index.js";
 import {
   BENCHMARK_MODEL_KIND_ENV,
   parseBenchmarkModelKind,
@@ -11,6 +11,8 @@ const DEFAULT_MEASURED_BLOCKS = 30;
 const DEFAULT_SEED = 1;
 const DEFAULT_WARMUP_BLOCKS = 3;
 const DEFAULT_GIT_URL = "https://github.com/vercel/eve.git";
+const DEFAULT_HOSTED_WORKFLOW_ORIGIN =
+  "https://loop-backend-benchmark-preview.playground-vercel.tools";
 
 const AI_GATEWAY_API_KEY_ENV = "AI_GATEWAY_API_KEY";
 const GIT_REVISION_ENV = "EVE_LOOP_BENCHMARK_GIT_REVISION";
@@ -33,7 +35,7 @@ const URL_ENVIRONMENT_VARIABLES = {
   inline: "EVE_LOOP_BENCHMARK_INLINE_URL",
   temporal: "EVE_LOOP_BENCHMARK_TEMPORAL_URL",
   workflow: "EVE_LOOP_BENCHMARK_WORKFLOW_URL",
-} satisfies Record<keyof BenchmarkRuntimeUrls, string>;
+} satisfies Record<BenchmarkRuntimeKind, string>;
 
 type RunnerMode = "hosted" | "local" | "sandbox";
 
@@ -42,8 +44,9 @@ export type ParsedRunnerConfig =
       readonly measuredBlocks: number;
       readonly modelKind: BenchmarkModelKind;
       readonly mode: "hosted";
-      readonly runtimeUrls: BenchmarkRuntimeUrls;
-      readonly seed: number;
+      readonly runtimeKind: BenchmarkRuntimeKind;
+      readonly targetUrl: string;
+      readonly vercelOidcToken: string;
       readonly warmupBlocks: number;
     }
   | {
@@ -94,6 +97,13 @@ interface ParsedFlags {
   readonly workflowUrl?: string;
 }
 
+interface HostedTargetCandidate {
+  readonly environmentName: string;
+  readonly flag: string;
+  readonly raw: string | undefined;
+  readonly runtimeKind: BenchmarkRuntimeKind;
+}
+
 export function parseRunnerConfig(input: {
   readonly argv: readonly string[];
   readonly environment: Readonly<Record<string, string | undefined>>;
@@ -103,14 +113,13 @@ export function parseRunnerConfig(input: {
   const common = {
     measuredBlocks: parseCount(flags.blocks, DEFAULT_MEASURED_BLOCKS, "--blocks", 1),
     modelKind: parseBenchmarkModelKind(input.environment[BENCHMARK_MODEL_KIND_ENV]),
-    seed: parseSeed(flags.seed),
     warmupBlocks: parseCount(flags.warmups, DEFAULT_WARMUP_BLOCKS, "--warmups", 0),
   };
 
   if (input.mode === "local") {
     rejectHostedFlags(flags, "local");
     rejectSandboxFlags(flags, "local");
-    return { ...common, mode: "local" };
+    return { ...common, mode: "local", seed: parseSeed(flags.seed) };
   }
 
   if (input.mode === "sandbox") {
@@ -132,6 +141,7 @@ export function parseRunnerConfig(input: {
       gitRevision: parseGitRevision(flags.gitRevision ?? input.environment[GIT_REVISION_ENV]),
       gitUrl: parseGitUrl(flags.gitUrl ?? input.environment[GIT_URL_ENV] ?? DEFAULT_GIT_URL),
       mode: "sandbox" as const,
+      seed: parseSeed(flags.seed),
       vercelOidc: parseSandboxVercelOidc(input.environment[VERCEL_OIDC_TOKEN_ENV]),
     };
     const sandboxConfig =
@@ -147,26 +157,15 @@ export function parseRunnerConfig(input: {
   }
 
   rejectSandboxFlags(flags, "hosted");
+  if (flags.seed !== undefined) {
+    throw new Error("--seed cannot be used by the hosted benchmark command.");
+  }
+  const target = parseHostedTarget(flags, input.environment);
   return {
     ...common,
     mode: "hosted",
-    runtimeUrls: {
-      inline: parseHostedUrl(
-        flags.inlineUrl ?? input.environment[URL_ENVIRONMENT_VARIABLES.inline],
-        "--inline-url",
-        URL_ENVIRONMENT_VARIABLES.inline,
-      ),
-      temporal: parseHostedUrl(
-        flags.temporalUrl ?? input.environment[URL_ENVIRONMENT_VARIABLES.temporal],
-        "--temporal-url",
-        URL_ENVIRONMENT_VARIABLES.temporal,
-      ),
-      workflow: parseHostedUrl(
-        flags.workflowUrl ?? input.environment[URL_ENVIRONMENT_VARIABLES.workflow],
-        "--workflow-url",
-        URL_ENVIRONMENT_VARIABLES.workflow,
-      ),
-    },
+    ...target,
+    vercelOidcToken: parseHostedVercelOidcToken(input.environment[VERCEL_OIDC_TOKEN_ENV]),
   };
 }
 
@@ -357,6 +356,67 @@ function parseModelCredential(
   if (oidcToken !== undefined) return { name: VERCEL_OIDC_TOKEN_ENV, value: oidcToken };
 
   throw new Error(`Set ${AI_GATEWAY_API_KEY_ENV} or ${VERCEL_OIDC_TOKEN_ENV} in the environment.`);
+}
+
+function parseHostedTarget(
+  flags: ParsedFlags,
+  environment: Readonly<Record<string, string | undefined>>,
+): { readonly runtimeKind: BenchmarkRuntimeKind; readonly targetUrl: string } {
+  const candidates = (
+    [
+      {
+        environmentName: URL_ENVIRONMENT_VARIABLES.inline,
+        flag: "--inline-url",
+        raw: flags.inlineUrl ?? environment[URL_ENVIRONMENT_VARIABLES.inline],
+        runtimeKind: "inline",
+      },
+      {
+        environmentName: URL_ENVIRONMENT_VARIABLES.workflow,
+        flag: "--workflow-url",
+        raw: flags.workflowUrl ?? environment[URL_ENVIRONMENT_VARIABLES.workflow],
+        runtimeKind: "workflow",
+      },
+      {
+        environmentName: URL_ENVIRONMENT_VARIABLES.temporal,
+        flag: "--temporal-url",
+        raw: flags.temporalUrl ?? environment[URL_ENVIRONMENT_VARIABLES.temporal],
+        runtimeKind: "temporal",
+      },
+    ] satisfies readonly HostedTargetCandidate[]
+  ).filter((candidate) => candidate.raw !== undefined);
+
+  if (candidates.length === 0) {
+    return {
+      runtimeKind: "workflow",
+      targetUrl: DEFAULT_HOSTED_WORKFLOW_ORIGIN,
+    };
+  }
+
+  if (candidates.length > 1) {
+    const configured = candidates.map((candidate) => candidate.flag).join(", ");
+    throw new Error(
+      `Provide at most one of --inline-url, --workflow-url, or --temporal-url; received ${configured}.`,
+    );
+  }
+
+  const candidate = candidates[0];
+  if (candidate === undefined) {
+    throw new Error("The hosted benchmark target is missing.");
+  }
+  return {
+    runtimeKind: candidate.runtimeKind,
+    targetUrl: parseHostedUrl(candidate.raw, candidate.flag, candidate.environmentName),
+  };
+}
+
+function parseHostedVercelOidcToken(raw: string | undefined): string {
+  const token = parseOptionalCredential(raw)?.trim();
+  if (token === undefined) {
+    throw new Error(
+      `Set ${VERCEL_OIDC_TOKEN_ENV} in the environment to authenticate requests to the hosted eve agent.`,
+    );
+  }
+  return token;
 }
 
 function parseHostedUrl(raw: string | undefined, flag: string, environmentName: string): string {

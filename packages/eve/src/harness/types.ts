@@ -5,6 +5,7 @@ import type { HandleMessageStreamEvent, RuntimeIdentity } from "#protocol/messag
 import type { RunMode } from "#shared/run-mode.js";
 import type { RuntimeActionResult } from "#runtime/actions/types.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
+import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 import type { InputResponse } from "#runtime/input/types.js";
 import type { SandboxState } from "#sandbox/state.js";
 import type { JsonObject } from "#shared/json.js";
@@ -259,4 +260,6 @@ export interface ToolLoopHarnessConfig {
    * definitions directly.
    */
   readonly tools: HarnessToolMap;
+  /** Runtime-owned writer for Workflow-backed eve observability attributes. */
+  readonly writeEveAttributes?: EveAttributeWriter;
 }

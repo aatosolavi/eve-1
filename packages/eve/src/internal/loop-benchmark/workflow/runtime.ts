@@ -12,19 +12,25 @@ import { serializeContext } from "#context/serialize.js";
 import { parseNdjsonStream } from "#execution/ndjson-stream.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
+import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
+import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
 import {
   createLoopBenchmarkRecorder,
   recordLoopBenchmarkInterval,
   scheduleLoopBenchmarkRecorderFlush,
 } from "#internal/loop-benchmark/runtime-telemetry.js";
-import { getRun, resumeHook, start } from "#internal/workflow/runtime.js";
+import { getRun, resumeHook, start, type WorkflowMetadata } from "#internal/workflow/runtime.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 
 import type { WorkflowBenchmarkSessionInput } from "./contracts.js";
-import { workflowBenchmarkSession } from "./workflows.js";
+
+const EVE_PACKAGE_INFO = resolveInstalledPackageInfo();
+const WORKFLOW_BENCHMARK_SESSION_REFERENCE = {
+  workflowId: `workflow//${EVE_PACKAGE_INFO.name}@${EVE_PACKAGE_INFO.version}//workflowBenchmarkSession`,
+} satisfies WorkflowMetadata;
 
 export interface WorkflowBenchmarkRuntimeConfig {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
@@ -67,7 +73,7 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
         const run = await recordLoopBenchmarkInterval(
           recorder,
           "engine.dispatch",
-          async () => await start(workflowBenchmarkSession, [workflowInput]),
+          async () => await start(WORKFLOW_BENCHMARK_SESSION_REFERENCE, [workflowInput]),
         );
         recorder?.engine({ kind: "workflow.run", workflowRunId: run.runId });
         scheduleLoopBenchmarkRecorderFlush(recorder);
@@ -90,7 +96,7 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
     },
 
     async deliver(input: DeliverInput): Promise<{ readonly sessionId: string }> {
-      parseDeliveryMessage(input);
+      parseLoopBenchmarkDeliveryMessage(input, "Workflow");
       const recorder = createControllerRecorder({
         attempt: `${input.requestId ?? input.continuationToken}:deliver`,
         sampleId: input.requestId,
@@ -163,17 +169,6 @@ function parseInitialMessage(input: RunInput): string {
     throw new Error("Workflow benchmark does not support callbacks or delegated sessions.");
   }
   return input.input.message;
-}
-
-function parseDeliveryMessage(input: DeliverInput): string {
-  const keys = Object.keys(input.payload).filter((key) => key !== "message");
-  if (keys.length > 0 || typeof input.payload.message !== "string") {
-    throw new Error("Workflow benchmark only supports plain-text follow-up deliveries.");
-  }
-  if (input.payload.message.trim().length === 0) {
-    throw new Error("Workflow benchmark requires a non-empty follow-up message.");
-  }
-  return input.payload.message;
 }
 
 function readRunId(value: unknown): string {

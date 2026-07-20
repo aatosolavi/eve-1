@@ -882,6 +882,37 @@ describe("createToolLoopHarness", () => {
     });
   });
 
+  it("writes usage attributes only through the injected runtime sink", async () => {
+    setupMockAgent({
+      finishReason: "stop",
+      response: { messages: [{ content: "Hello!", role: "assistant" }] },
+      text: "Hello!",
+      toolCalls: [],
+      toolResults: [],
+      usage: {
+        inputTokenDetails: { cacheReadTokens: 2, cacheWriteTokens: 1 },
+        inputTokens: 7,
+        outputTokens: 3,
+      },
+    });
+    const writeEveAttributes = vi.fn(async () => undefined);
+
+    const runStep = createToolLoopHarness(
+      createTestConfig("conversation", undefined, { writeEveAttributes }),
+    );
+    await runStep(createTestSession(), { message: "Hi" });
+
+    expect(writeEveAttributes).toHaveBeenCalledOnce();
+    expect(writeEveAttributes).toHaveBeenCalledWith({
+      "$eve.cache_read_tokens": 2,
+      "$eve.cache_write_tokens": 1,
+      "$eve.input_tokens": 7,
+      "$eve.model": undefined,
+      "$eve.output_tokens": 3,
+      "$eve.tool_count": 1,
+    });
+  });
+
   it.each([
     {
       details: {

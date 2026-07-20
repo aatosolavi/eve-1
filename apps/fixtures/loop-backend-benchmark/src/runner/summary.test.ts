@@ -2,7 +2,7 @@ import type { BenchmarkRuntimeKind, BenchmarkSampleResult } from "../driver/inde
 import { describe, expect, it } from "vitest";
 
 import { calculatePercentiles, summarizeBenchmarkMatrix } from "./summary.js";
-import type { BenchmarkMatrixConfig, BenchmarkSampleRecord } from "./types.js";
+import type { BenchmarkRunConfig, BenchmarkSampleRecord } from "./types.js";
 
 describe("calculatePercentiles", () => {
   it("uses the nearest-rank definition", () => {
@@ -126,19 +126,21 @@ describe("summarizeBenchmarkMatrix", () => {
         "temporal-minus-inline"
       ]["engine.dispatch"],
     ).toEqual({ count: 2, p50: 50, p90: 60, p95: 60 });
+
+    const runtimeBatchedSamples = ["inline", "workflow", "temporal"].flatMap((runtimeKind) =>
+      samples.filter((sample) => sample.result.runtimeKind === runtimeKind),
+    );
+    expect(summarizeBenchmarkMatrix({ config: config(), samples: runtimeBatchedSamples })).toEqual(
+      summary,
+    );
   });
 });
 
-function config(): BenchmarkMatrixConfig {
+function config(): BenchmarkRunConfig {
   return {
     measuredBlocks: 2,
     modelKind: "deterministic",
     runId: "run-1",
-    runtimeUrls: {
-      inline: "http://inline.example",
-      temporal: "http://temporal.example",
-      workflow: "http://workflow.example",
-    },
     seed: 7,
     targetKind: "local",
     warmupBlocks: 1,

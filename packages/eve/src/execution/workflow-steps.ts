@@ -39,6 +39,7 @@ import {
 } from "#execution/turn-step-operation.js";
 import { buildTurnAttributes, readRootSessionId } from "#execution/eve-workflow-attributes.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
+import { setEveAttributes } from "#runtime/attributes/emit.js";
 import { startWorkflowPreferLatest, turnWorkflowReference } from "#execution/workflow-runtime.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
 
@@ -72,6 +73,7 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
     input: rawInput.input,
     serializedContext: rawInput.serializedContext,
     sessionState: rawInput.sessionState,
+    writeEveAttributes: setEveAttributes,
   });
 
   if (writer !== undefined) {

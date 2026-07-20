@@ -44,6 +44,7 @@ import {
 } from "#protocol/message.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
 import { getRuntimeActionRequestKey } from "#runtime/actions/keys.js";
+import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 import type { AuthorizationCallback } from "#runtime/connections/types.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import type { JsonObject } from "#shared/json.js";
@@ -69,6 +70,8 @@ export interface TurnStepOperationInput {
   readonly input: HookPayload | undefined;
   readonly serializedContext: Record<string, unknown>;
   readonly sessionState: DurableSessionState;
+  /** Workflow attribute sink, or `undefined` when the runtime has no Workflow step context. */
+  readonly writeEveAttributes: EveAttributeWriter | undefined;
 }
 
 /**
@@ -323,6 +326,7 @@ export async function executeTurnStepOperation(
           nodeId: bundle.nodeId,
         },
         node: bundle.graph.root,
+        writeEveAttributes: operationInput.writeEveAttributes,
       });
       return step(refreshedSession, stepInput);
     };

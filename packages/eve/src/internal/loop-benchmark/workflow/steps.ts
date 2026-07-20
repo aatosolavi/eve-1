@@ -18,6 +18,7 @@ import {
   scheduleLoopBenchmarkRecorderFlush,
 } from "#internal/loop-benchmark/runtime-telemetry.js";
 import { getRun, resumeHook } from "#internal/workflow/runtime.js";
+import { setEveAttributes } from "#runtime/attributes/emit.js";
 
 import type {
   CreateWorkflowBenchmarkSessionStepInput,
@@ -93,6 +94,7 @@ export async function executeWorkflowBenchmarkTurnStep(
           input: input.input,
           serializedContext: input.serializedContext,
           sessionState: input.sessionState,
+          writeEveAttributes: setEveAttributes,
         }),
     );
 

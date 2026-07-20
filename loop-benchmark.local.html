@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eve loop benchmark report</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fafafa;
+        --fg: #171717;
+        --muted: #666;
+        --subtle: #f1f1f1;
+        --border: #dedede;
+        --inline: #2563eb;
+        --workflow: #7c3aed;
+        --temporal: #db2777;
+        --ok: #15803d;
+        --warn: #b45309;
+        --phase-1: #1d4ed8;
+        --phase-2: #0369a1;
+        --phase-3: #0f766e;
+        --phase-4: #4d7c0f;
+        --phase-5: #a16207;
+        --phase-6: #c2410c;
+        --phase-7: #be123c;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0a0a0a;
+          --fg: #f5f5f5;
+          --muted: #a3a3a3;
+          --subtle: #191919;
+          --border: #303030;
+          --inline: #60a5fa;
+          --workflow: #a78bfa;
+          --temporal: #f472b6;
+          --ok: #4ade80;
+          --warn: #fbbf24;
+          --phase-1: #60a5fa;
+          --phase-2: #38bdf8;
+          --phase-3: #2dd4bf;
+          --phase-4: #a3e635;
+          --phase-5: #facc15;
+          --phase-6: #fb923c;
+          --phase-7: #fb7185;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          14px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+        padding: 40px 24px 72px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        margin-bottom: 0;
+        font-size: clamp(1.7rem, 4vw, 2.5rem);
+        font-weight: 500;
+        letter-spacing: -0.035em;
+      }
+      h2 {
+        margin-bottom: 0;
+        font-size: 1.35rem;
+        font-weight: 500;
+      }
+      h3 {
+        margin-bottom: 4px;
+        font-size: 1rem;
+        font-weight: 500;
+      }
+      code {
+        font:
+          0.88em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      .page-header,
+      .run-header,
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .page-header {
+        align-items: end;
+        margin-bottom: 24px;
+      }
+      .eyebrow,
+      .source {
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 500;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+      .run-count {
+        margin: 0;
+        color: var(--muted);
+      }
+      .warning {
+        padding: 10px 12px;
+        border-left: 3px solid var(--warn);
+        background: var(--subtle);
+      }
+      .run {
+        padding: 30px 0;
+        border-top: 1px solid var(--border);
+      }
+      .run + .run {
+        margin-top: 26px;
+      }
+      .metadata {
+        display: grid;
+        gap: 7px;
+        margin: 0;
+        text-align: right;
+      }
+      .metadata div {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .metadata dt {
+        color: var(--muted);
+      }
+      .metadata dd {
+        margin: 0;
+      }
+      section {
+        margin-top: 32px;
+      }
+      .section-heading {
+        margin-bottom: 16px;
+      }
+      .section-heading p {
+        max-width: 680px;
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+      .health-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        padding: 14px 0;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+      .health-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-weight: 500;
+      }
+      .health-item p {
+        margin: 4px 0 0 17px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .runtime-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: currentColor;
+        flex: 0 0 auto;
+      }
+      .runtime-dot.inline,
+      .latency-track.inline {
+        color: var(--inline);
+      }
+      .runtime-dot.workflow,
+      .latency-track.workflow {
+        color: var(--workflow);
+      }
+      .runtime-dot.temporal,
+      .latency-track.temporal {
+        color: var(--temporal);
+      }
+      .status {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 400;
+      }
+      .status-ok {
+        color: var(--ok);
+      }
+      .status-warn {
+        color: var(--warn);
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 0.75rem;
+      }
+      .legend-first,
+      .legend-fill,
+      .legend-tick {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        margin-left: 4px;
+      }
+      .legend-first {
+        transform: rotate(45deg);
+        border: 1.5px solid var(--fg);
+        background: var(--bg);
+      }
+      .legend-fill {
+        background: var(--fg);
+        opacity: 0.65;
+      }
+      .legend-tick {
+        width: 1px;
+        background: var(--fg);
+      }
+      .latency-chart,
+      .delta-chart,
+      .layercake {
+        display: grid;
+        gap: 14px;
+      }
+      .latency-row,
+      .delta-row,
+      .layer-row {
+        display: grid;
+        grid-template-columns: 118px minmax(120px, 1fr) 190px;
+        gap: 14px;
+        align-items: center;
+      }
+      .runtime-name {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-weight: 500;
+      }
+      .latency-track,
+      .delta-track {
+        position: relative;
+        height: 22px;
+        background: var(--subtle);
+      }
+      .p95-range,
+      .p50-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        min-width: 2px;
+        background: currentColor;
+      }
+      .p95-range {
+        width: var(--p95);
+        opacity: 0.16;
+      }
+      .p50-fill {
+        width: var(--p50);
+        opacity: 0.62;
+      }
+      .percentile-tick,
+      .first-text {
+        position: absolute;
+        top: -3px;
+        width: 2px;
+        height: 28px;
+        background: currentColor;
+      }
+      .p90 {
+        left: var(--p90);
+        opacity: 0.55;
+      }
+      .p95 {
+        left: var(--p95);
+      }
+      .first-text {
+        left: var(--first);
+        top: 6px;
+        width: 10px;
+        height: 10px;
+        border: 2px solid currentColor;
+        background: var(--bg);
+        transform: translateX(-5px) rotate(45deg);
+      }
+      .metric-values {
+        display: grid;
+        grid-template-columns: auto auto auto auto;
+        align-items: baseline;
+        gap: 4px 7px;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .metric-values strong {
+        font-weight: 500;
+        text-align: right;
+      }
+      .metric-values span {
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+      .layer-bar {
+        display: flex;
+        height: 28px;
+        overflow: hidden;
+        background: var(--subtle);
+      }
+      .phase {
+        min-width: 1px;
+      }
+      .phase-1 {
+        background: var(--phase-1);
+      }
+      .phase-2 {
+        background: var(--phase-2);
+      }
+      .phase-3 {
+        background: var(--phase-3);
+      }
+      .phase-4 {
+        background: var(--phase-4);
+      }
+      .phase-5 {
+        background: var(--phase-5);
+      }
+      .phase-6 {
+        background: var(--phase-6);
+      }
+      .phase-7 {
+        background: var(--phase-7);
+      }
+      .layer-total {
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      .phase-table {
+        width: 100%;
+        margin-top: 18px;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 0.82rem;
+      }
+      .phase-table th,
+      .phase-table td {
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--border);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .phase-table th:first-child {
+        width: 46%;
+        text-align: left;
+        font-weight: 400;
+      }
+      .phase-table thead th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .phase-swatch {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 8px;
+      }
+      .delta-track {
+        color: var(--fg);
+      }
+      .delta-track.workflow {
+        color: var(--workflow);
+      }
+      .delta-track.temporal {
+        color: var(--temporal);
+      }
+      .zero {
+        position: absolute;
+        left: 50%;
+        top: -4px;
+        width: 1px;
+        height: 30px;
+        background: var(--border);
+      }
+      .delta-fill {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        min-width: 2px;
+        background: currentColor;
+        opacity: 0.65;
+      }
+      .delta-p95 {
+        position: absolute;
+        top: -3px;
+        width: 2px;
+        height: 28px;
+        background: currentColor;
+      }
+      .comparison-name {
+        font-weight: 500;
+      }
+      .interval-list {
+        border-top: 1px solid var(--border);
+      }
+      .interval-row {
+        display: grid;
+        grid-template-columns: minmax(150px, 1fr) 3fr;
+        gap: 18px;
+        align-items: center;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .interval-values {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(80px, 1fr));
+        gap: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+      .interval-values span {
+        display: grid;
+      }
+      .interval-values small {
+        color: var(--muted);
+        font-size: 0.68rem;
+      }
+      .delta-value {
+        border-left: 1px solid var(--border);
+        padding-left: 10px;
+      }
+      .empty {
+        margin: 0;
+        color: var(--muted);
+      }
+      .block-empty {
+        padding: 14px 0;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 28px 16px 48px;
+        }
+        .run-header,
+        .section-heading {
+          display: block;
+        }
+        .metadata {
+          margin-top: 14px;
+          text-align: left;
+        }
+        .metadata div {
+          justify-content: flex-start;
+        }
+        .legend {
+          justify-content: flex-start;
+          margin-top: 10px;
+        }
+        .health-grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+        .latency-row,
+        .delta-row,
+        .layer-row {
+          grid-template-columns: 100px minmax(100px, 1fr);
+        }
+        .metric-values,
+        .layer-total {
+          grid-column: 2;
+        }
+        .metric-values {
+          justify-content: start;
+        }
+        .interval-row {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .interval-values {
+          grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        }
+      }
+      @media (max-width: 460px) {
+        .page-header {
+          display: block;
+        }
+        .run-count {
+          margin-top: 8px;
+        }
+        .latency-row,
+        .delta-row,
+        .layer-row {
+          grid-template-columns: 1fr;
+          gap: 7px;
+        }
+        .metric-values,
+        .layer-total {
+          grid-column: 1;
+        }
+        .phase-table {
+          font-size: 0.72rem;
+        }
+        .phase-table th,
+        .phase-table td {
+          padding: 6px 3px;
+        }
+        .phase-table th:first-child {
+          width: 49%;
+        }
+        .phase-swatch {
+          width: 7px;
+          height: 7px;
+          margin-right: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">eve loop benchmark</p>
+          <h1>Runtime latency report</h1>
+        </div>
+        <p class="run-count">1 run</p>
+      </header>
+
+      <article class="run">
+        <header class="run-header">
+          <div>
+            <p class="source">loop-benchmark.local.jsonl</p>
+            <h2>local · deterministic</h2>
+          </div>
+          <dl class="metadata">
+            <div>
+              <dt>Topology</dt>
+              <dd>local-runtime-batches</dd>
+            </div>
+            <div>
+              <dt>Run</dt>
+              <dd><code>49df22cc-4d5f-4aa1-959b-6986b4f8de8f</code></dd>
+            </div>
+          </dl>
+        </header>
+        <section aria-labelledby="run-1-health">
+          <h3 id="run-1-health">Included samples</h3>
+          <div class="health-grid">
+            <div class="health-item">
+              <div class="health-title">
+                <span class="runtime-dot inline"></span>Inline
+                <span class="status status-ok">complete</span>
+              </div>
+              <p>30/30 valid · 30/30 telemetry complete</p>
+            </div>
+            <div class="health-item">
+              <div class="health-title">
+                <span class="runtime-dot workflow"></span>Workflow
+                <span class="status status-ok">complete</span>
+              </div>
+              <p>30/30 valid · 30/30 telemetry complete</p>
+            </div>
+            <div class="health-item">
+              <div class="health-title">
+                <span class="runtime-dot temporal"></span>Temporal
+                <span class="status status-ok">complete</span>
+              </div>
+              <p>30/30 valid · 30/30 telemetry complete</p>
+            </div>
+          </div>
+        </section>
+        <section aria-labelledby="run-1-e2e">
+          <div class="section-heading">
+            <div>
+              <h3 id="run-1-e2e">End-to-end agent latency</h3>
+              <p>
+                Client request start through reducing the terminal
+                <code>session.waiting</code> event.
+              </p>
+            </div>
+            <div class="legend">
+              <span class="legend-first"></span> first text p50
+              <span class="legend-fill"></span> completion p50 <span class="legend-tick"></span> p90
+              / p95
+            </div>
+          </div>
+          <div class="latency-chart">
+            <div class="latency-row">
+              <div class="runtime-name"><span class="runtime-dot inline"></span>Inline</div>
+              <div
+                class="latency-track inline"
+                style="
+                  --p50: 0.6170914018584979%;
+                  --p90: 0.8280888569851637%;
+                  --p95: 0.9143830186311995%;
+                  --first: 0.6097502069358902%;
+                "
+              >
+                <span class="p95-range"></span><span class="p50-fill"></span
+                ><span class="percentile-tick p90"></span><span class="percentile-tick p95"></span
+                ><span class="first-text"></span>
+              </div>
+              <div class="metric-values">
+                <strong>2.39 ms</strong><span>p50</span><strong>3.53 ms</strong><span>p95</span>
+              </div>
+            </div>
+            <div class="latency-row">
+              <div class="runtime-name"><span class="runtime-dot workflow"></span>Workflow</div>
+              <div
+                class="latency-track workflow"
+                style="
+                  --p50: 49.91472467978477%;
+                  --p90: 51.682454405461506%;
+                  --p95: 52.22789108791147%;
+                  --first: 38.65996138264943%;
+                "
+              >
+                <span class="p95-range"></span><span class="p50-fill"></span
+                ><span class="percentile-tick p90"></span><span class="percentile-tick p95"></span
+                ><span class="first-text"></span>
+              </div>
+              <div class="metric-values">
+                <strong>192.9 ms</strong><span>p50</span><strong>201.9 ms</strong><span>p95</span>
+              </div>
+            </div>
+            <div class="latency-row">
+              <div class="runtime-name"><span class="runtime-dot temporal"></span>Temporal</div>
+              <div
+                class="latency-track temporal"
+                style="
+                  --p50: 98.52056048655928%;
+                  --p90: 99.68341248896473%;
+                  --p95: 100%;
+                  --first: 98.46849298072358%;
+                "
+              >
+                <span class="p95-range"></span><span class="p50-fill"></span
+                ><span class="percentile-tick p90"></span><span class="percentile-tick p95"></span
+                ><span class="first-text"></span>
+              </div>
+              <div class="metric-values">
+                <strong>380.8 ms</strong><span>p50</span><strong>386.5 ms</strong><span>p95</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section aria-labelledby="run-1-layercake">
+          <div class="section-heading">
+            <div>
+              <h3 id="run-1-layercake">Client protocol layercake</h3>
+              <p>
+                Mean additive phase durations through terminal-event receipt. Each bar is
+                normalized; totals carry magnitude.
+              </p>
+            </div>
+          </div>
+          <div class="layercake">
+            <div class="layer-row">
+              <div class="runtime-name"><span class="runtime-dot inline"></span>Inline</div>
+              <div class="layer-bar">
+                <span
+                  class="phase phase-1"
+                  style="width: 24.68653966054861%"
+                  aria-label="Request → POST ack: 0.628 ms"
+                ></span
+                ><span
+                  class="phase phase-2"
+                  style="width: 71.78366840057183%"
+                  aria-label="POST ack → session started: 1.82 ms"
+                ></span
+                ><span
+                  class="phase phase-3"
+                  style="width: 1.353496259563829%"
+                  aria-label="Session started → tool request: 0.034 ms"
+                ></span
+                ><span
+                  class="phase phase-4"
+                  style="width: 0.8607725584059183%"
+                  aria-label="Tool request → tool step complete: 0.022 ms"
+                ></span
+                ><span
+                  class="phase phase-5"
+                  style="width: 0.5507521331555717%"
+                  aria-label="Tool step complete → first text: 0.014 ms"
+                ></span
+                ><span
+                  class="phase phase-6"
+                  style="width: 0.42841536864869406%"
+                  aria-label="First text → final step: 0.011 ms"
+                ></span
+                ><span
+                  class="phase phase-7"
+                  style="width: 0.336355619105546%"
+                  aria-label="Final step → session waiting: 0.009 ms"
+                ></span>
+              </div>
+              <strong class="layer-total">2.54 ms</strong>
+            </div>
+            <div class="layer-row">
+              <div class="runtime-name"><span class="runtime-dot workflow"></span>Workflow</div>
+              <div class="layer-bar">
+                <span
+                  class="phase phase-1"
+                  style="width: 2.202095271589839%"
+                  aria-label="Request → POST ack: 4.27 ms"
+                ></span
+                ><span
+                  class="phase phase-2"
+                  style="width: 23.015993308821024%"
+                  aria-label="POST ack → session started: 44.65 ms"
+                ></span
+                ><span
+                  class="phase phase-3"
+                  style="width: 21.8152407631226%"
+                  aria-label="Session started → tool request: 42.32 ms"
+                ></span
+                ><span
+                  class="phase phase-4"
+                  style="width: 10.879616414619923%"
+                  aria-label="Tool request → tool step complete: 21.11 ms"
+                ></span
+                ><span
+                  class="phase phase-5"
+                  style="width: 19.677290944084397%"
+                  aria-label="Tool step complete → first text: 38.17 ms"
+                ></span
+                ><span
+                  class="phase phase-6"
+                  style="width: 11.132905001992423%"
+                  aria-label="First text → final step: 21.60 ms"
+                ></span
+                ><span
+                  class="phase phase-7"
+                  style="width: 11.276858295769795%"
+                  aria-label="Final step → session waiting: 21.88 ms"
+                ></span>
+              </div>
+              <strong class="layer-total">194.0 ms</strong>
+            </div>
+            <div class="layer-row">
+              <div class="runtime-name"><span class="runtime-dot temporal"></span>Temporal</div>
+              <div class="layer-bar">
+                <span
+                  class="phase phase-1"
+                  style="width: 0.6873035661114031%"
+                  aria-label="Request → POST ack: 2.62 ms"
+                ></span
+                ><span
+                  class="phase phase-2"
+                  style="width: 73.01604212371481%"
+                  aria-label="POST ack → session started: 278.2 ms"
+                ></span
+                ><span
+                  class="phase phase-3"
+                  style="width: 0.012307408896568997%"
+                  aria-label="Session started → tool request: 0.047 ms"
+                ></span
+                ><span
+                  class="phase phase-4"
+                  style="width: 0.018756587339500252%"
+                  aria-label="Tool request → tool step complete: 0.071 ms"
+                ></span
+                ><span
+                  class="phase phase-5"
+                  style="width: 26.211326464039118%"
+                  aria-label="Tool step complete → first text: 99.85 ms"
+                ></span
+                ><span
+                  class="phase phase-6"
+                  style="width: 0.05026944714416322%"
+                  aria-label="First text → final step: 0.192 ms"
+                ></span
+                ><span
+                  class="phase phase-7"
+                  style="width: 0.003994402754426208%"
+                  aria-label="Final step → session waiting: 0.015 ms"
+                ></span>
+              </div>
+              <strong class="layer-total">380.9 ms</strong>
+            </div>
+          </div>
+          <table class="phase-table">
+            <caption class="sr-only">
+              Mean protocol phase duration in milliseconds by runtime
+            </caption>
+            <thead>
+              <tr>
+                <th>Mean phase</th>
+                <th>Inline</th>
+                <th>Workflow</th>
+                <th>Temporal</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th><span class="phase-swatch phase-1"></span>Request → POST ack</th>
+                <td>0.628 ms</td>
+                <td>4.27 ms</td>
+                <td>2.62 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-2"></span>POST ack → session started</th>
+                <td>1.82 ms</td>
+                <td>44.65 ms</td>
+                <td>278.2 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-3"></span>Session started → tool request</th>
+                <td>0.034 ms</td>
+                <td>42.32 ms</td>
+                <td>0.047 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-4"></span>Tool request → tool step complete</th>
+                <td>0.022 ms</td>
+                <td>21.11 ms</td>
+                <td>0.071 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-5"></span>Tool step complete → first text</th>
+                <td>0.014 ms</td>
+                <td>38.17 ms</td>
+                <td>99.85 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-6"></span>First text → final step</th>
+                <td>0.011 ms</td>
+                <td>21.60 ms</td>
+                <td>0.192 ms</td>
+              </tr>
+              <tr>
+                <th><span class="phase-swatch phase-7"></span>Final step → session waiting</th>
+                <td>0.009 ms</td>
+                <td>21.88 ms</td>
+                <td>0.015 ms</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <section aria-labelledby="run-1-overhead">
+          <div class="section-heading">
+            <div>
+              <h3 id="run-1-overhead">Paired implementation delta</h3>
+              <p>
+                Matched-block completion latency relative to inline. Positive values are slower.
+              </p>
+            </div>
+          </div>
+          <div class="delta-chart">
+            <div class="delta-row">
+              <div class="comparison-name">Workflow − inline</div>
+              <div class="delta-track workflow">
+                <span class="zero"></span
+                ><span class="delta-fill" style="left: 50%; width: 24.759832177682966%"></span
+                ><span class="delta-p95" style="left: 75.92960301924937%"></span>
+              </div>
+              <div class="metric-values">
+                <strong>+190.2 ms</strong><span>p50</span><strong>+199.2 ms</strong><span>p95</span>
+              </div>
+            </div>
+            <div class="delta-row">
+              <div class="comparison-name">Temporal − inline</div>
+              <div class="delta-track temporal">
+                <span class="zero"></span
+                ><span class="delta-fill" style="left: 50%; width: 49.301241002594196%"></span
+                ><span class="delta-p95" style="left: 100%"></span>
+              </div>
+              <div class="metric-values">
+                <strong>+378.7 ms</strong><span>p50</span><strong>+384.1 ms</strong><span>p95</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section aria-labelledby="run-1-server">
+          <div class="section-heading">
+            <div>
+              <h3 id="run-1-server">Neutral server intervals</h3>
+              <p>
+                Per-sample summed interval p50s. Intervals are independent and may overlap; they are
+                not a stack.
+              </p>
+            </div>
+          </div>
+          <div class="interval-list">
+            <div class="interval-row">
+              <code class="interval-name">controller.prepare</code>
+              <div class="interval-values">
+                <span><small>Inline</small>—</span><span><small>Workflow</small>—</span
+                ><span><small>Temporal</small>0.021 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>—</span
+                ><span class="delta-value"><small>Temporal − inline</small>—</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">engine.dispatch</code>
+              <div class="interval-values">
+                <span><small>Inline</small>0.008 ms</span><span><small>Workflow</small>1.69 ms</span
+                ><span><small>Temporal</small>1.34 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>+1.68 ms</span
+                ><span class="delta-value"><small>Temporal − inline</small>+1.32 ms</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">engine.signal</code>
+              <div class="interval-values">
+                <span><small>Inline</small>—</span><span><small>Workflow</small>1.53 ms</span
+                ><span><small>Temporal</small>—</span>
+                <span class="delta-value"><small>Workflow − inline</small>—</span
+                ><span class="delta-value"><small>Temporal − inline</small>—</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">event.publish</code>
+              <div class="interval-values">
+                <span><small>Inline</small>0.029 ms</span
+                ><span><small>Workflow</small>115.6 ms</span
+                ><span><small>Temporal</small>0.121 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>+115.5 ms</span
+                ><span class="delta-value"><small>Temporal − inline</small>+0.093 ms</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">session.create.operation</code>
+              <div class="interval-values">
+                <span><small>Inline</small>0.062 ms</span
+                ><span><small>Workflow</small>0.039 ms</span
+                ><span><small>Temporal</small>0.050 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>−0.018 ms</span
+                ><span class="delta-value"><small>Temporal − inline</small>−0.004 ms</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">session.rekey</code>
+              <div class="interval-values">
+                <span><small>Inline</small>0.001 ms</span><span><small>Workflow</small>—</span
+                ><span><small>Temporal</small>0.009 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>—</span
+                ><span class="delta-value"><small>Temporal − inline</small>+0.008 ms</span>
+              </div>
+            </div>
+            <div class="interval-row">
+              <code class="interval-name">turn.step.operation</code>
+              <div class="interval-values">
+                <span><small>Inline</small>1.39 ms</span><span><small>Workflow</small>120.1 ms</span
+                ><span><small>Temporal</small>2.16 ms</span>
+                <span class="delta-value"><small>Workflow − inline</small>+118.7 ms</span
+                ><span class="delta-value"><small>Temporal − inline</small>+0.773 ms</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </article>
+    </main>
+  </body>
+</html>

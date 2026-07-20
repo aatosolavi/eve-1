@@ -73,10 +73,24 @@ async function main() {
   let renderer: ReturnType<typeof createEve5Renderer> | undefined;
 
   try {
-    renderer = createEve5Renderer(app.device, FORMAT, mesh, { theme: THEME, paddingRadius: PADDING_RADIUS, bloom: BLOOM_ENABLED });
+    renderer = createEve5Renderer(app.device, FORMAT, mesh, {
+      theme: THEME,
+      paddingRadius: PADDING_RADIUS,
+      bloom: BLOOM_ENABLED,
+    });
     const output = await renderView(renderer, app.device, DEFAULT_CONTROLS, "output.png");
-    await renderView(renderer, app.device, { ...DEFAULT_CONTROLS, yaw: -0.49, pitch: 0.31 }, "rotated.png");
-    await renderView(renderer, app.device, { ...DEFAULT_CONTROLS, wireframe: true }, "wireframe.png");
+    await renderView(
+      renderer,
+      app.device,
+      { ...DEFAULT_CONTROLS, yaw: -0.49, pitch: 0.31 },
+      "rotated.png",
+    );
+    await renderView(
+      renderer,
+      app.device,
+      { ...DEFAULT_CONTROLS, wireframe: true },
+      "wireframe.png",
+    );
 
     const log = {
       runId: RUN_ID,

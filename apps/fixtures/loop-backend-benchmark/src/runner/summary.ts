@@ -4,8 +4,8 @@ import type {
   CompletedBenchmarkMeasurements,
 } from "../driver/index.js";
 import type {
-  BenchmarkMatrixConfig,
   BenchmarkOutcomeCounts,
+  BenchmarkRunConfig,
   BenchmarkSampleRecord,
   BenchmarkSummaryRecord,
   ClientMetricSummary,
@@ -19,7 +19,7 @@ type ClientMetricName = Exclude<keyof CompletedBenchmarkMeasurements, "events">;
 type ValidBenchmarkSampleResult = Extract<BenchmarkSampleResult, { readonly outcome: "valid" }>;
 
 export function summarizeBenchmarkMatrix(input: {
-  readonly config: BenchmarkMatrixConfig;
+  readonly config: BenchmarkRunConfig;
   readonly samples: readonly BenchmarkSampleRecord[];
 }): BenchmarkSummaryRecord {
   const measuredSamples = input.samples.filter((sample) => sample.phase === "measured");

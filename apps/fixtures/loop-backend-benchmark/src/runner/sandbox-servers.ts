@@ -4,12 +4,13 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { BenchmarkRuntimeKind } from "../driver/index.js";
 import { BENCHMARK_MODEL_KIND_ENV, type BenchmarkModelKind } from "../model-kind.js";
 import type { ParsedRunnerConfig } from "./config.js";
-import { BENCHMARK_RUNTIMES, type BenchmarkRuntimeUrls } from "./types.js";
+import { BENCHMARK_RUNTIMES } from "./types.js";
 
 const HEALTH_ROUTE_PATH = "/eve/v1/health";
 const READINESS_POLL_INTERVAL_MS = 500;
 const READINESS_REQUEST_TIMEOUT_MS = 3_000;
 const READINESS_TIMEOUT_MS = 120_000;
+const RUNTIME_STOP_TIMEOUT_MS = 15_000;
 const SANDBOX_TIMEOUT_MS = 45 * 60 * 1_000;
 const SANDBOX_VCPUS = 4;
 
@@ -57,8 +58,10 @@ export interface BenchmarkSandboxCreateInput {
 
 export interface BenchmarkSandboxCommand {
   readonly exitCode: number | null;
+  kill(signal: "SIGTERM"): Promise<void>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
+  wait(): Promise<{ readonly exitCode: number }>;
 }
 
 export interface BenchmarkSandboxRunCommandInput {
@@ -94,29 +97,39 @@ export interface SandboxRuntimeMetadata {
   readonly vcpus: number | null;
 }
 
-export interface SandboxRuntimeStartResult {
-  readonly runtimeUrls: BenchmarkRuntimeUrls;
-  readonly sandbox: SandboxRuntimeMetadata;
-}
-
 export interface SandboxSetupRecord {
   readonly gitRevision: string;
   readonly kind: "setup";
+  readonly maxConcurrentRuntimeServers: 1;
   readonly modelKind: BenchmarkModelKind;
   readonly runId: string;
-  readonly runtimeUrls: BenchmarkRuntimeUrls;
+  readonly runtimeBatchOrder: readonly BenchmarkRuntimeKind[];
+  readonly runtimeReuse: "one-process-per-runtime";
   readonly sandbox: SandboxRuntimeMetadata;
+  readonly sandboxReuse: "one-sandbox-per-run";
   readonly targetKind: "vercel";
-  readonly topology: "vercel-sandbox";
+  readonly topology: "vercel-sandbox-runtime-batches";
 }
 
-export interface SandboxRuntimeServerGroupHandle {
-  readRecordFile(runtimeKind: BenchmarkRuntimeKind): Promise<string | null>;
-  start(config: SandboxRunnerConfig): Promise<SandboxRuntimeStartResult>;
+/** A handle to one running runtime inside the prepared benchmark Sandbox. */
+export interface SandboxRuntimeServerLease<
+  RuntimeKind extends BenchmarkRuntimeKind = BenchmarkRuntimeKind,
+> {
+  readonly runtimeKind: RuntimeKind;
+  readonly targetUrl: string;
+  readRecordFile(): Promise<string | null>;
   stop(): Promise<void>;
 }
 
-interface SandboxRuntimeServerGroupDependencies {
+export interface SandboxRuntimeServerHostHandle {
+  acquire<RuntimeKind extends BenchmarkRuntimeKind>(
+    runtimeKind: RuntimeKind,
+  ): Promise<SandboxRuntimeServerLease<RuntimeKind>>;
+  prepare(config: SandboxRunnerConfig): Promise<SandboxRuntimeMetadata>;
+  stop(): Promise<void>;
+}
+
+export interface SandboxRuntimeServerHostDependencies {
   readonly createSandbox: CreateBenchmarkSandbox;
   readonly fetch: typeof globalThis.fetch;
   readonly now: () => number;
@@ -124,7 +137,7 @@ interface SandboxRuntimeServerGroupDependencies {
   readonly writeDiagnostic: (message: string) => void;
 }
 
-const DEFAULT_DEPENDENCIES: SandboxRuntimeServerGroupDependencies = {
+const DEFAULT_DEPENDENCIES: SandboxRuntimeServerHostDependencies = {
   createSandbox: createVercelSandbox,
   fetch: async (input, init) => await globalThis.fetch(input, init),
   now: Date.now,
@@ -132,22 +145,37 @@ const DEFAULT_DEPENDENCIES: SandboxRuntimeServerGroupDependencies = {
   writeDiagnostic: (message) => process.stderr.write(message),
 };
 
-export class SandboxRuntimeServerGroup implements SandboxRuntimeServerGroupHandle {
-  readonly #dependencies: SandboxRuntimeServerGroupDependencies;
+interface ActiveSandboxRuntime {
+  readonly command: BenchmarkSandboxCommand;
+  readonly leaseId: symbol;
+  readonly runtimeKind: BenchmarkRuntimeKind;
+  stopPromise: Promise<void> | null;
+}
+
+/** Owns one prepared Sandbox and at most one active benchmark runtime. */
+export class SandboxRuntimeServerHost implements SandboxRuntimeServerHostHandle {
+  readonly #dependencies: SandboxRuntimeServerHostDependencies;
+  #active: ActiveSandboxRuntime | null = null;
+  #acquiringRuntime: BenchmarkRuntimeKind | null = null;
+  #config: SandboxRunnerConfig | null = null;
   #createPromise: Promise<BenchmarkSandbox> | null = null;
+  #inFlightCommand: Promise<BenchmarkSandboxCommand> | null = null;
+  readonly #inFlightSandboxOperations = new Set<Promise<unknown>>();
   #sandbox: BenchmarkSandbox | null = null;
+  readonly #sanitizedErrors = new WeakSet<Error>();
   #secrets: readonly string[] = [];
   #stopPromise: Promise<void> | null = null;
 
-  constructor(dependencies: SandboxRuntimeServerGroupDependencies = DEFAULT_DEPENDENCIES) {
+  constructor(dependencies: SandboxRuntimeServerHostDependencies = DEFAULT_DEPENDENCIES) {
     this.#dependencies = dependencies;
   }
 
-  async start(config: SandboxRunnerConfig): Promise<SandboxRuntimeStartResult> {
-    if (this.#sandbox !== null || this.#stopPromise !== null) {
-      throw new Error("The Vercel Sandbox benchmark servers have already been started.");
+  async prepare(config: SandboxRunnerConfig): Promise<SandboxRuntimeMetadata> {
+    if (this.#sandbox !== null || this.#createPromise !== null || this.#stopPromise !== null) {
+      throw new Error("The Vercel Sandbox benchmark host has already been prepared.");
     }
 
+    this.#config = config;
     this.#secrets = [
       config.vercelOidc.token,
       ...(config.modelCredential === undefined ? [] : [config.modelCredential.value]),
@@ -190,112 +218,257 @@ export class SandboxRuntimeServerGroup implements SandboxRuntimeServerGroupHandl
         env: modelEnvironment(config),
       });
 
-      for (const runtimeKind of BENCHMARK_RUNTIMES) {
-        this.#dependencies.writeDiagnostic(
-          `Starting the ${runtimeKind} runtime on port ${String(RUNTIME_PORTS[runtimeKind])}.\n`,
-        );
-        await sandbox.runCommand({
-          args: [
-            "pnpm",
-            "--filter",
-            "loop-backend-benchmark",
-            "exec",
-            "eve",
-            "start",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            String(RUNTIME_PORTS[runtimeKind]),
-          ],
-          cmd: "corepack",
-          cwd: posix.join(sandbox.cwd, "apps/fixtures/loop-backend-benchmark"),
-          detached: true,
-          env: {
-            ...modelEnvironment(config),
-            EVE_LOOP_BENCHMARK_RECORD_PATH: RUNTIME_RECORD_PATHS[runtimeKind],
-            EVE_LOOP_BENCHMARK_RUNTIME: runtimeKind,
-            EVE_LOOP_BENCHMARK_TARGET: "vercel",
-            VERCEL_PROJECT_ID: config.vercelOidc.projectId,
-            VERCEL_TARGET_ENV: config.vercelOidc.environment,
-            WORKFLOW_LOCAL_DATA_DIR: RUNTIME_WORKFLOW_DATA_DIRS[runtimeKind],
-          },
-        });
-      }
-
-      const runtimeUrls = runtimeUrlsFor(sandbox);
-      await Promise.all(
-        BENCHMARK_RUNTIMES.map(async (runtimeKind) => {
-          await this.#waitUntilReady(runtimeKind, runtimeUrls[runtimeKind]);
-        }),
-      );
-
       return {
-        runtimeUrls,
-        sandbox: {
-          memoryMb: sandbox.memory ?? null,
-          name: sandbox.name,
-          region: sandbox.region ?? null,
-          runtime: sandbox.runtime ?? null,
-          vcpus: sandbox.vcpus ?? null,
-        },
+        memoryMb: sandbox.memory ?? null,
+        name: sandbox.name,
+        region: sandbox.region ?? null,
+        runtime: sandbox.runtime ?? null,
+        vcpus: sandbox.vcpus ?? null,
       };
     } catch (error) {
       if (this.#sandbox === null && this.#stopPromise === null) {
         this.#createPromise = null;
+        this.#config = null;
       }
       try {
         await this.stop();
       } catch (cleanupError) {
-        this.#dependencies.writeDiagnostic(
-          `Vercel Sandbox cleanup failed: ${formatError(cleanupError)}\n`,
+        throw sanitizeError(
+          combineOperationAndCleanupErrors(
+            error,
+            cleanupError,
+            "Vercel Sandbox setup failed and cleanup also failed.",
+          ),
+          this.#secrets,
+          this.#sanitizedErrors,
         );
       }
-      throw sanitizeError(error, this.#secrets);
+      throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
     }
   }
 
-  async readRecordFile(runtimeKind: BenchmarkRuntimeKind): Promise<string | null> {
+  async acquire<RuntimeKind extends BenchmarkRuntimeKind>(
+    runtimeKind: RuntimeKind,
+  ): Promise<SandboxRuntimeServerLease<RuntimeKind>> {
     if (this.#stopPromise !== null) {
-      throw new Error("Cannot read benchmark records after Vercel Sandbox cleanup has started.");
+      throw new Error("Cannot start a runtime after Vercel Sandbox cleanup has started.");
     }
-    if (this.#sandbox === null) {
-      throw new Error("Cannot read benchmark records before the Vercel Sandbox has started.");
+    const sandbox = this.#sandbox;
+    const config = this.#config;
+    if (sandbox === null || config === null) {
+      throw new Error("Cannot start a runtime before preparing the Vercel Sandbox.");
+    }
+    if (this.#active !== null) {
+      throw new Error(
+        `The Vercel Sandbox benchmark host already has an active ${this.#active.runtimeKind} runtime.`,
+      );
+    }
+    if (this.#acquiringRuntime !== null) {
+      throw new Error(
+        `The Vercel Sandbox benchmark host is already starting the ${this.#acquiringRuntime} runtime.`,
+      );
     }
 
+    const targetUrl = sandbox.domain(RUNTIME_PORTS[runtimeKind]);
+    this.#acquiringRuntime = runtimeKind;
+    this.#dependencies.writeDiagnostic(
+      `Starting the ${runtimeKind} runtime on port ${String(RUNTIME_PORTS[runtimeKind])}.\n`,
+    );
+    let command: BenchmarkSandboxCommand;
     try {
-      const contents = await this.#sandbox.readFileToBuffer({
-        path: RUNTIME_RECORD_PATHS[runtimeKind],
+      command = await this.#runSandboxCommand({
+        args: [
+          posix.join(sandbox.cwd, "packages/eve/bin/eve.js"),
+          "start",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          String(RUNTIME_PORTS[runtimeKind]),
+        ],
+        cmd: "node",
+        cwd: posix.join(sandbox.cwd, "apps/fixtures/loop-backend-benchmark"),
+        detached: true,
+        env: {
+          ...modelEnvironment(config),
+          EVE_LOOP_BENCHMARK_RECORD_PATH: RUNTIME_RECORD_PATHS[runtimeKind],
+          EVE_LOOP_BENCHMARK_RUNTIME: runtimeKind,
+          EVE_LOOP_BENCHMARK_TARGET: "vercel",
+          VERCEL_PROJECT_ID: config.vercelOidc.projectId,
+          VERCEL_TARGET_ENV: config.vercelOidc.environment,
+          WORKFLOW_LOCAL_DATA_DIR: RUNTIME_WORKFLOW_DATA_DIRS[runtimeKind],
+        },
       });
-      return contents?.toString("utf8") ?? null;
     } catch (error) {
-      throw sanitizeError(error, this.#secrets);
+      if (this.#acquiringRuntime === runtimeKind) this.#acquiringRuntime = null;
+      try {
+        await this.stop();
+      } catch (cleanupError) {
+        throw sanitizeError(
+          combineOperationAndCleanupErrors(
+            error,
+            cleanupError,
+            `${runtimeKind} runtime command publication failed and Vercel Sandbox cleanup also failed.`,
+          ),
+          this.#secrets,
+          this.#sanitizedErrors,
+        );
+      }
+      throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
     }
+
+    if (this.#stopPromise !== null) {
+      if (this.#acquiringRuntime === runtimeKind) this.#acquiringRuntime = null;
+      await this.#stopPromise;
+      throw new Error("Vercel Sandbox cleanup started before the runtime became active.");
+    }
+
+    const leaseId = Symbol(runtimeKind);
+    const active: ActiveSandboxRuntime = {
+      command,
+      leaseId,
+      runtimeKind,
+      stopPromise: null,
+    };
+    this.#acquiringRuntime = null;
+    this.#active = active;
+
+    try {
+      await this.#waitUntilReady(runtimeKind, targetUrl);
+    } catch (error) {
+      try {
+        await this.#stopLease(leaseId);
+      } catch (cleanupError) {
+        throw sanitizeError(
+          combineOperationAndCleanupErrors(
+            error,
+            cleanupError,
+            `${runtimeKind} runtime readiness failed and cleanup also failed.`,
+          ),
+          this.#secrets,
+          this.#sanitizedErrors,
+        );
+      }
+      throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
+    }
+
+    if (this.#active !== active || active.stopPromise !== null) {
+      await this.#stopLease(leaseId);
+      throw new Error(`The ${runtimeKind} Sandbox runtime stopped before it became ready.`);
+    }
+
+    return {
+      readRecordFile: async () => await this.#readLeaseRecord(leaseId, runtimeKind),
+      runtimeKind,
+      stop: async () => await this.#stopLease(leaseId),
+      targetUrl,
+    };
   }
 
   async stop(): Promise<void> {
     const pendingSandbox =
       this.#sandbox === null ? this.#createPromise : Promise.resolve(this.#sandbox);
     if (pendingSandbox === null) return;
+    const inFlightOperations = [...this.#inFlightSandboxOperations].map((operation) =>
+      operation.catch(() => undefined),
+    );
 
-    this.#stopPromise ??= pendingSandbox
-      .then(async (sandbox) => await sandbox.stop())
-      .then(() => undefined)
+    this.#stopPromise ??= Promise.all([pendingSandbox, ...inFlightOperations])
+      .then(async ([sandbox]) => await sandbox.stop())
+      .then(() => {
+        this.#active = null;
+        this.#acquiringRuntime = null;
+      })
       .catch((error: unknown) => {
-        throw sanitizeError(error, this.#secrets);
+        throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
       });
     await this.#stopPromise;
+  }
+
+  async #readLeaseRecord(
+    leaseId: symbol,
+    runtimeKind: BenchmarkRuntimeKind,
+  ): Promise<string | null> {
+    if (this.#active?.leaseId !== leaseId) {
+      throw new Error(`The ${runtimeKind} Vercel Sandbox runtime lease is no longer active.`);
+    }
+    if (this.#stopPromise !== null) {
+      throw new Error("Cannot read benchmark records after Vercel Sandbox cleanup has started.");
+    }
+    const sandbox = this.#sandbox;
+    if (sandbox === null) {
+      throw new Error("Cannot read benchmark records before preparing the Vercel Sandbox.");
+    }
+
+    try {
+      const contents = await this.#runSandboxOperation(
+        async () =>
+          await sandbox.readFileToBuffer({
+            path: RUNTIME_RECORD_PATHS[runtimeKind],
+          }),
+      );
+      if (this.#stopPromise !== null) {
+        await this.#stopPromise;
+        throw new Error("Vercel Sandbox cleanup started before the record read completed.");
+      }
+      return contents?.toString("utf8") ?? null;
+    } catch (error) {
+      throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
+    }
+  }
+
+  async #stopLease(leaseId: symbol): Promise<void> {
+    const active = this.#active;
+    if (active === null || active.leaseId !== leaseId) return;
+
+    active.stopPromise ??= this.#stopActiveRuntime(active);
+    await active.stopPromise;
+  }
+
+  async #stopActiveRuntime(active: ActiveSandboxRuntime): Promise<void> {
+    if (this.#stopPromise !== null) {
+      await this.#stopPromise;
+      return;
+    }
+
+    try {
+      await withTimeout(
+        (async () => {
+          await active.command.kill("SIGTERM");
+          await active.command.wait();
+        })(),
+        RUNTIME_STOP_TIMEOUT_MS,
+        `${active.runtimeKind} runtime did not stop within ${String(RUNTIME_STOP_TIMEOUT_MS / 1_000)} seconds.`,
+      );
+      if (this.#active?.leaseId === active.leaseId) {
+        this.#active = null;
+      }
+    } catch (error) {
+      try {
+        await this.stop();
+      } catch (cleanupError) {
+        throw sanitizeError(
+          combineOperationAndCleanupErrors(
+            error,
+            cleanupError,
+            `${active.runtimeKind} runtime cleanup failed and Vercel Sandbox cleanup also failed.`,
+          ),
+          this.#secrets,
+          this.#sanitizedErrors,
+        );
+      }
+      throw sanitizeError(error, this.#secrets, this.#sanitizedErrors);
+    }
   }
 
   async #runCheckedCommand(
     description: string,
     input: BenchmarkSandboxRunCommandInput,
   ): Promise<void> {
-    const sandbox = this.#sandbox;
-    if (sandbox === null) {
-      throw new Error(`Cannot run ${description} before creating the Vercel Sandbox.`);
+    const command = await this.#runSandboxCommand(input);
+    if (this.#stopPromise !== null) {
+      await this.#stopPromise;
+      throw new Error(`Vercel Sandbox cleanup started before ${description} completed.`);
     }
-
-    const command = await sandbox.runCommand(input);
     if (command.exitCode === 0) return;
 
     const [stdout, stderr] = await Promise.all([command.stdout(), command.stderr()]);
@@ -311,20 +484,69 @@ export class SandboxRuntimeServerGroup implements SandboxRuntimeServerGroupHandl
     );
   }
 
+  async #runSandboxCommand(
+    input: BenchmarkSandboxRunCommandInput,
+  ): Promise<BenchmarkSandboxCommand> {
+    if (this.#stopPromise !== null) {
+      throw new Error("Cannot start a Sandbox command after cleanup has started.");
+    }
+    if (this.#inFlightCommand !== null) {
+      throw new Error("The Vercel Sandbox benchmark host already has a command in flight.");
+    }
+    const sandbox = this.#sandbox;
+    if (sandbox === null) {
+      throw new Error("Cannot run a command before creating the Vercel Sandbox.");
+    }
+
+    const command = this.#runSandboxOperation(async () => await sandbox.runCommand(input));
+    this.#inFlightCommand = command;
+    try {
+      return await command;
+    } finally {
+      if (this.#inFlightCommand === command) this.#inFlightCommand = null;
+    }
+  }
+
+  async #runSandboxOperation<Result>(operation: () => Promise<Result>): Promise<Result> {
+    if (this.#stopPromise !== null) {
+      throw new Error("Cannot start a Sandbox operation after cleanup has started.");
+    }
+
+    const pending = operation();
+    this.#inFlightSandboxOperations.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.#inFlightSandboxOperations.delete(pending);
+    }
+  }
+
   async #waitUntilReady(runtimeKind: BenchmarkRuntimeKind, origin: string): Promise<void> {
     const healthUrl = new URL(HEALTH_ROUTE_PATH, origin).toString();
     const deadline = this.#dependencies.now() + READINESS_TIMEOUT_MS;
 
     while (this.#dependencies.now() < deadline) {
+      if (this.#stopPromise !== null) {
+        await this.#stopPromise;
+        throw new Error("Vercel Sandbox cleanup started before runtime readiness completed.");
+      }
+
+      let ready = false;
       try {
         const response = await this.#dependencies.fetch(healthUrl, {
           signal: AbortSignal.timeout(READINESS_REQUEST_TIMEOUT_MS),
         });
-        if (response.ok && (await isReadyHealthResponse(response))) {
-          this.#dependencies.writeDiagnostic(`${runtimeKind} runtime is ready.\n`);
-          return;
-        }
+        ready = response.ok && (await isReadyHealthResponse(response));
       } catch {}
+
+      if (this.#stopPromise !== null) {
+        await this.#stopPromise;
+        throw new Error("Vercel Sandbox cleanup started before runtime readiness completed.");
+      }
+      if (ready) {
+        this.#dependencies.writeDiagnostic(`${runtimeKind} runtime is ready.\n`);
+        return;
+      }
 
       await this.#dependencies.sleep(READINESS_POLL_INTERVAL_MS);
     }
@@ -360,14 +582,6 @@ function createGitSource(config: SandboxRunnerConfig): SandboxGitSource {
     ...common,
     password: config.gitToken,
     username: config.gitUsername,
-  };
-}
-
-function runtimeUrlsFor(sandbox: BenchmarkSandbox): BenchmarkRuntimeUrls {
-  return {
-    inline: sandbox.domain(RUNTIME_PORTS.inline),
-    temporal: sandbox.domain(RUNTIME_PORTS.temporal),
-    workflow: sandbox.domain(RUNTIME_PORTS.workflow),
   };
 }
 
@@ -418,38 +632,62 @@ async function createVercelSandbox(input: BenchmarkSandboxCreateInput): Promise<
     runCommand: async (commandInput) => {
       if (commandInput.detached === true) {
         if (commandInput.env !== undefined) {
-          return await sandbox.runCommand({
+          return adaptVercelSandboxCommand(
+            await sandbox.runCommand({
+              args: [...commandInput.args],
+              cmd: commandInput.cmd,
+              cwd: commandInput.cwd,
+              detached: true,
+              env: { ...commandInput.env },
+            }),
+          );
+        }
+        return adaptVercelSandboxCommand(
+          await sandbox.runCommand({
             args: [...commandInput.args],
             cmd: commandInput.cmd,
             cwd: commandInput.cwd,
             detached: true,
-            env: { ...commandInput.env },
-          });
-        }
-        return await sandbox.runCommand({
-          args: [...commandInput.args],
-          cmd: commandInput.cmd,
-          cwd: commandInput.cwd,
-          detached: true,
-        });
+          }),
+        );
       }
       if (commandInput.env !== undefined) {
-        return await sandbox.runCommand({
+        return adaptVercelSandboxCommand(
+          await sandbox.runCommand({
+            args: [...commandInput.args],
+            cmd: commandInput.cmd,
+            cwd: commandInput.cwd,
+            env: { ...commandInput.env },
+          }),
+        );
+      }
+      return adaptVercelSandboxCommand(
+        await sandbox.runCommand({
           args: [...commandInput.args],
           cmd: commandInput.cmd,
           cwd: commandInput.cwd,
-          env: { ...commandInput.env },
-        });
-      }
-      return await sandbox.runCommand({
-        args: [...commandInput.args],
-        cmd: commandInput.cmd,
-        cwd: commandInput.cwd,
-      });
+        }),
+      );
     },
     runtime: sandbox.runtime,
     stop: async () => await sandbox.stop(),
     vcpus: sandbox.vcpus,
+  };
+}
+
+function adaptVercelSandboxCommand(command: {
+  readonly exitCode: number | null;
+  kill(signal: "SIGTERM"): Promise<void>;
+  stderr(): Promise<string>;
+  stdout(): Promise<string>;
+  wait(): Promise<{ readonly exitCode: number }>;
+}): BenchmarkSandboxCommand {
+  return {
+    exitCode: command.exitCode,
+    kill: async (signal) => await command.kill(signal),
+    stderr: async () => await command.stderr(),
+    stdout: async () => await command.stdout(),
+    wait: async () => await command.wait(),
   };
 }
 
@@ -459,19 +697,55 @@ function formatCommandOutput(label: string, output: string): string {
   return `${label}:\n${retained}`;
 }
 
-function sanitizeError(error: unknown, secrets: readonly string[]): Error {
-  if (error instanceof Error) {
-    const sanitized = new Error(redactSecrets(error.message, secrets));
+function combineOperationAndCleanupErrors(
+  operationError: unknown,
+  cleanupError: unknown,
+  message: string,
+): unknown {
+  if (operationError === cleanupError) return operationError;
+  return new AggregateError([operationError, cleanupError], message);
+}
+
+function sanitizeError(
+  error: unknown,
+  secrets: readonly string[],
+  sanitizedErrors: WeakSet<Error>,
+): Error {
+  if (error instanceof Error && sanitizedErrors.has(error)) return error;
+
+  let sanitized: Error;
+  if (error instanceof AggregateError) {
+    const nestedErrors: Error[] = [];
+    for (const nestedError of error.errors) {
+      nestedErrors.push(sanitizeError(nestedError, secrets, sanitizedErrors));
+    }
+    sanitized = new AggregateError(nestedErrors, redactSecrets(error.message, secrets));
+  } else if (error instanceof Error) {
+    sanitized = new Error(redactSecrets(error.message, secrets));
     sanitized.name = redactSecrets(error.name, secrets);
-    return sanitized;
+  } else {
+    sanitized = new Error(redactSecrets(String(error), secrets));
   }
-  return new Error(redactSecrets(String(error), secrets));
+  sanitizedErrors.add(sanitized);
+  return sanitized;
 }
 
 function redactSecrets(value: string, secrets: readonly string[]): string {
   return secrets.reduce((redacted, secret) => redacted.split(secret).join("[redacted]"), value);
 }
 
-function formatError(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+async function withTimeout(
+  operation: Promise<void>,
+  milliseconds: number,
+  message: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    await Promise.race([operation, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }

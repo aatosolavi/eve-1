@@ -278,6 +278,7 @@ async function driveSession(input: {
           input: nextInput,
           serializedContext,
           sessionState,
+          writeEveAttributes: undefined,
         }),
     );
     scheduleLoopBenchmarkRecorderFlush(session.telemetry);

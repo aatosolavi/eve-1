@@ -93,6 +93,7 @@ export function createTemporalBenchmarkActivities(input: {
               input: activityInput.input,
               serializedContext: activityInput.serializedContext,
               sessionState: activityInput.sessionState,
+              writeEveAttributes: undefined,
             }),
         );
 

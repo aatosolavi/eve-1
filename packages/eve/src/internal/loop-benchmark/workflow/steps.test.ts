@@ -156,6 +156,7 @@ describe("Workflow benchmark operation steps", () => {
       input: undefined,
       serializedContext: {},
       sessionState: STATE,
+      writeEveAttributes: expect.any(Function),
     });
     expect(mocks.observeEvent).toHaveBeenCalledWith({
       encodedBytes: encoded.byteLength,

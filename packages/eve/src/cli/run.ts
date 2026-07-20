@@ -18,6 +18,8 @@ import { parseDevelopmentServerUrl } from "#cli/dev/url.js";
 import { startCliLiveRow } from "#cli/ui/live-row.js";
 import { createCliTheme, renderCliTaggedLine } from "#cli/ui/output.js";
 import { createLogger } from "#internal/logging.js";
+import { LOOP_BENCHMARK_RUNTIME_ENV } from "#internal/loop-benchmark/config.js";
+import type { RuntimeKind } from "#internal/loop-benchmark/contract.js";
 import type {
   DevelopmentServer,
   DevelopmentServerOptions,
@@ -44,6 +46,7 @@ interface DevelopmentCliOptions {
   host?: string;
   input?: string;
   logs?: LogDisplayMode;
+  loop?: RuntimeKind;
   name?: string;
   port?: number;
   reasoning?: TerminalPartDisplayMode;
@@ -55,6 +58,7 @@ interface DevelopmentCliOptions {
 
 interface ProductionCliOptions {
   host?: string;
+  loop?: RuntimeKind;
   port?: number;
 }
 
@@ -192,6 +196,23 @@ async function waitForProductionServer(input: ProductionServerHandle): Promise<v
       close: () => input.close(),
     }),
   ]);
+}
+
+function parseLoopRuntimeOption(value: string): RuntimeKind {
+  if (value === "inline" || value === "workflow" || value === "temporal") {
+    return value;
+  }
+  throw new InvalidArgumentError(
+    `Expected "inline", "workflow", or "temporal", received "${value}".`,
+  );
+}
+
+// The selection travels through the environment because the loop runtime is
+// resolved per request inside the server, not at CLI parse time.
+function applyLoopRuntimeSelection(loop: RuntimeKind | undefined): void {
+  if (loop !== undefined) {
+    process.env[LOOP_BENCHMARK_RUNTIME_ENV] = loop;
+  }
 }
 
 function parsePortOption(value: string): number {
@@ -353,10 +374,18 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
     .command("start")
     .description("Start a built eve application.")
     .option("--host <host>", "Host interface to bind")
+    .option(
+      "--loop <runtime>",
+      "Loop runtime serving sessions: inline | workflow | temporal (experimental)",
+      parseLoopRuntimeOption,
+    )
     .option("--port <port>", "Port to listen on (defaults to $PORT, then 3000)", parsePortOption)
     .action(async (options: ProductionCliOptions) => {
       const { loadDevelopmentEnvironmentFiles } = await import("#cli/dev/environment.js");
 
+      // Before the first env-file load: keys already in process.env keep
+      // parent-process precedence, so the flag wins over .env files.
+      applyLoopRuntimeSelection(options.loop);
       loadDevelopmentEnvironmentFiles(appRoot);
 
       const startProductionHost = runtime.startProductionHost ?? (await loadStartProductionHost());
@@ -426,6 +455,11 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
       "Which server/agent logs to show: all | stderr | sandbox | none",
       parseLogsMode,
     )
+    .option(
+      "--loop <runtime>",
+      "Loop runtime serving sessions: inline | workflow | temporal (experimental)",
+      parseLoopRuntimeOption,
+    )
     .addHelpText(
       "after",
       "\nYou can also pass a bare URL, for example: eve dev https://example.com\n",
@@ -433,6 +467,12 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
     .action(async (positionalUrl: string | undefined, options: DevelopmentCliOptions) => {
       const remoteTarget = resolveDevelopmentUrlTarget(options, positionalUrl);
       const remoteServerUrl = remoteTarget?.serverUrl;
+      if (options.loop !== undefined && remoteServerUrl !== undefined) {
+        throw new InvalidArgumentError(
+          "--loop selects the local server's loop runtime; it cannot apply to a URL target.",
+        );
+      }
+      applyLoopRuntimeSelection(options.loop);
       const interactive = hasInteractiveTerminal();
       const mode = resolveDevUiMode({ options, interactive });
       if (options.input !== undefined && mode === "headless") {

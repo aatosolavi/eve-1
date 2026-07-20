@@ -667,6 +667,7 @@ describe("turnStep", () => {
         },
       }),
       durableSession,
+      writeEveAttributes: undefined,
     });
 
     const parentWritable = createTestWritable();
@@ -688,6 +689,9 @@ describe("turnStep", () => {
     );
     expect(wrappedEvents).toEqual(publications.map((publication) => publication.event));
     expect(parentWritable.locked).toBe(false);
+    expect(createExecutionNodeStep).toHaveBeenCalledWith(
+      expect.objectContaining({ writeEveAttributes: expect.any(Function) }),
+    );
   });
 
   it("does not open the workflow writer when the adapter handles delivery inline", async () => {

@@ -23,7 +23,14 @@ export type MeshData = {
   bounds: Bounds;
 };
 
-export type EveMaterial = "glass" | "normal" | "camera reflected normal" | "metallic" | "back-albedo" | "back-depth" | "thickness";
+export type EveMaterial =
+  | "glass"
+  | "normal"
+  | "camera reflected normal"
+  | "metallic"
+  | "back-albedo"
+  | "back-depth"
+  | "thickness";
 
 export type RenderControls = {
   yaw: number;
@@ -91,7 +98,12 @@ export function createEve5Renderer(
   device: Device,
   format: GPUTextureFormat,
   mesh: MeshData,
-  options: { thicknessScale?: number; theme?: "light" | "dark"; paddingRadius?: number; bloom?: boolean } = {},
+  options: {
+    thicknessScale?: number;
+    theme?: "light" | "dark";
+    paddingRadius?: number;
+    bloom?: boolean;
+  } = {},
 ) {
   const studioCubemap = createStudioCubemap(device);
   renderStudioCubemap(device, studioCubemap);
@@ -138,7 +150,11 @@ export function createEve5Renderer(
     vertex: { entry: "vs_main", buffers: [vertexLayout] },
     fragment: { entry: "fs_main", targets: [{ format: SCENE_FORMAT }] },
     primitive: { topology: "triangle-list" },
-    depthStencil: { format: BACK_DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: "less-equal" },
+    depthStencil: {
+      format: BACK_DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      depthCompare: "less-equal",
+    },
   });
 
   const frontMaterialPipeline = createRenderPipeline(device, {
@@ -247,11 +263,35 @@ export function createEve5Renderer(
   });
 
   const gpuMesh = createGpuMesh(device, mesh);
-  const insideParams = createBackParamsBinding(device, backMaterialPipeline, studioCubemap, "eve-5-inside-params");
-  const backDepthParams = createUniformParamsBinding(device, backDepthPipeline, "eve-5-back-depth-params");
-  const envBgParams = createEnvParamsBinding(device, envBgPipeline, studioCubemap, "eve-5-env-bg-params");
-  const outsideParams = createParamsBinding(device, frontMaterialPipeline, studioCubemap, "eve-5-outside-params");
-  const opaqueOutsideParams = createParamsBinding(device, opaquePipeline, studioCubemap, "eve-5-opaque-outside-params");
+  const insideParams = createBackParamsBinding(
+    device,
+    backMaterialPipeline,
+    studioCubemap,
+    "eve-5-inside-params",
+  );
+  const backDepthParams = createUniformParamsBinding(
+    device,
+    backDepthPipeline,
+    "eve-5-back-depth-params",
+  );
+  const envBgParams = createEnvParamsBinding(
+    device,
+    envBgPipeline,
+    studioCubemap,
+    "eve-5-env-bg-params",
+  );
+  const outsideParams = createParamsBinding(
+    device,
+    frontMaterialPipeline,
+    studioCubemap,
+    "eve-5-outside-params",
+  );
+  const opaqueOutsideParams = createParamsBinding(
+    device,
+    opaquePipeline,
+    studioCubemap,
+    "eve-5-opaque-outside-params",
+  );
   const wireParams = createParamsBinding(device, wirePipeline, studioCubemap, "eve-5-wire-params");
   const blurParamsBuffer = device.createBuffer({
     label: "eve-5-bloom-blur-params",
@@ -285,7 +325,13 @@ export function createEve5Renderer(
   });
   let bloomTargets: BloomTargets | undefined;
 
-  const writeParams = (target: { buffer: Buffer }, controls: RenderControls, logicalWidth: number, logicalHeight: number, passKind: number) => {
+  const writeParams = (
+    target: { buffer: Buffer },
+    controls: RenderControls,
+    logicalWidth: number,
+    logicalHeight: number,
+    passKind: number,
+  ) => {
     const padded = getPaddedRenderSize(logicalWidth, logicalHeight, paddingRadius);
     const fovRad = degreesToRadians(controls.fov);
     const verticalScale = padded.height / logicalHeight;
@@ -321,7 +367,8 @@ export function createEve5Renderer(
 
   const ensureBloomTargets = (logicalWidth: number, logicalHeight: number) => {
     const padded = getPaddedRenderSize(logicalWidth, logicalHeight, paddingRadius);
-    if (bloomTargets?.width === padded.width && bloomTargets.height === padded.height) return bloomTargets;
+    if (bloomTargets?.width === padded.width && bloomTargets.height === padded.height)
+      return bloomTargets;
     bloomTargets?.scene.destroy();
     bloomTargets?.backMaterial.destroy();
     bloomTargets?.backDepth.destroy();
@@ -332,20 +379,43 @@ export function createEve5Renderer(
       width: padded.width,
       height: padded.height,
       scene: createBloomTexture(device, "eve-5-scene-linear-hdr", padded.width, padded.height),
-      backMaterial: createBloomTexture(device, "eve-5-back-material-linear-hdr", padded.width, padded.height),
-      backDepth: createBloomTexture(device, "eve-5-back-camera-axis-depth", padded.width, padded.height),
-      backSurfaceDepth: createBackDepthTexture(device, "eve-5-back-surface-depth", padded.width, padded.height),
+      backMaterial: createBloomTexture(
+        device,
+        "eve-5-back-material-linear-hdr",
+        padded.width,
+        padded.height,
+      ),
+      backDepth: createBloomTexture(
+        device,
+        "eve-5-back-camera-axis-depth",
+        padded.width,
+        padded.height,
+      ),
+      backSurfaceDepth: createBackDepthTexture(
+        device,
+        "eve-5-back-surface-depth",
+        padded.width,
+        padded.height,
+      ),
       horizontal: createBloomTexture(device, "eve-5-bloom-horizontal", padded.width, padded.height),
       vertical: createBloomTexture(device, "eve-5-bloom-vertical", padded.width, padded.height),
     };
     return bloomTargets;
   };
 
-  const renderBackMaterial = (target: GPUTextureView, depth: GPUTextureView, controls: RenderControls, logicalWidth: number, logicalHeight: number) => {
+  const renderBackMaterial = (
+    target: GPUTextureView,
+    depth: GPUTextureView,
+    controls: RenderControls,
+    logicalWidth: number,
+    logicalHeight: number,
+  ) => {
     writeParams(insideParams, controls, logicalWidth, logicalHeight, PASS_INSIDE);
     const pass = new RenderPass(device, {
       label: "eve-5-back-material-pass",
-      colorAttachments: [{ view: target, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
+      colorAttachments: [
+        { view: target, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] },
+      ],
       depthStencilAttachment: {
         view: depth,
         depthClearValue: 1,
@@ -363,11 +433,19 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderBackDepth = (target: GPUTextureView, depth: GPUTextureView, controls: RenderControls, logicalWidth: number, logicalHeight: number) => {
+  const renderBackDepth = (
+    target: GPUTextureView,
+    depth: GPUTextureView,
+    controls: RenderControls,
+    logicalWidth: number,
+    logicalHeight: number,
+  ) => {
     writeParams(backDepthParams, controls, logicalWidth, logicalHeight, PASS_INSIDE);
     const pass = new RenderPass(device, {
       label: "eve-5-back-depth-pass",
-      colorAttachments: [{ view: target, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
+      colorAttachments: [
+        { view: target, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] },
+      ],
       depthStencilAttachment: {
         view: depth,
         depthLoadOp: "load",
@@ -384,7 +462,14 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderScene = (view: GPUTextureView, backMaterial: GPUTexture, backDepth: GPUTexture, controls: RenderControls, logicalWidth: number, logicalHeight: number) => {
+  const renderScene = (
+    view: GPUTextureView,
+    backMaterial: GPUTexture,
+    backDepth: GPUTexture,
+    controls: RenderControls,
+    logicalWidth: number,
+    logicalHeight: number,
+  ) => {
     writeParams(outsideParams, controls, logicalWidth, logicalHeight, PASS_OUTSIDE);
     writeParams(wireParams, controls, logicalWidth, logicalHeight, PASS_WIREFRAME);
     writeParams(envBgParams, controls, logicalWidth, logicalHeight, PASS_OUTSIDE);
@@ -402,7 +487,9 @@ export function createEve5Renderer(
 
     const pass = new RenderPass(device, {
       label: "eve-5-scene-hdr-pass",
-      colorAttachments: [{ view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, isLight ? 0 : 1] }],
+      colorAttachments: [
+        { view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, isLight ? 0 : 1] },
+      ],
     });
 
     // Optional environment background: draw the studio cubemap behind the logo so the lighting
@@ -444,8 +531,15 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderTargetPreview = (view: GPUTextureView, targets: BloomTargets, controls: RenderControls) => {
-    const basis = cameraBasis(orbitEye(orbitTarget, controls.radius, controls.yaw, controls.pitch), orbitTarget);
+  const renderTargetPreview = (
+    view: GPUTextureView,
+    targets: BloomTargets,
+    controls: RenderControls,
+  ) => {
+    const basis = cameraBasis(
+      orbitEye(orbitTarget, controls.radius, controls.yaw, controls.pitch),
+      orbitTarget,
+    );
     const depthRange = cameraAxisDepthRange(mesh.bounds, basis.forward);
     previewMode.write(
       new Float32Array([
@@ -475,7 +569,14 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderThicknessDebug = (view: GPUTextureView, backMaterial: GPUTexture, backDepth: GPUTexture, controls: RenderControls, logicalWidth: number, logicalHeight: number) => {
+  const renderThicknessDebug = (
+    view: GPUTextureView,
+    backMaterial: GPUTexture,
+    backDepth: GPUTexture,
+    controls: RenderControls,
+    logicalWidth: number,
+    logicalHeight: number,
+  ) => {
     writeParams(outsideParams, controls, logicalWidth, logicalHeight, PASS_OUTSIDE);
     const outsideBindGroup = createParamsBindGroup(
       device,
@@ -501,8 +602,15 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderBlur = (source: GPUTexture, target: GPUTexture, direction: [number, number], extract: boolean) => {
-    blurParamsBuffer.write(new Float32Array([direction[0], direction[1], extract ? 1 : 0, BLOOM_THRESHOLD]));
+  const renderBlur = (
+    source: GPUTexture,
+    target: GPUTexture,
+    direction: [number, number],
+    extract: boolean,
+  ) => {
+    blurParamsBuffer.write(
+      new Float32Array([direction[0], direction[1], extract ? 1 : 0, BLOOM_THRESHOLD]),
+    );
     const bindGroup = device.gpu.createBindGroup({
       label: "eve-5-bloom-blur-bind-group",
       layout: blurPipeline.getBindGroupLayout(0),
@@ -514,7 +622,9 @@ export function createEve5Renderer(
     });
     const pass = new RenderPass(device, {
       label: `eve-5-bloom-${direction[0] > 0 ? "horizontal" : "vertical"}-pass`,
-      colorAttachments: [{ view: target.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
+      colorAttachments: [
+        { view: target.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] },
+      ],
     });
     pass.setPipeline(blurPipeline);
     pass.setBindGroup(0, bindGroup);
@@ -522,7 +632,11 @@ export function createEve5Renderer(
     pass.end();
   };
 
-  const renderComposite = (view: GPUTextureView, targets: BloomTargets, bloomTexture: GPUTexture = targets.vertical) => {
+  const renderComposite = (
+    view: GPUTextureView,
+    targets: BloomTargets,
+    bloomTexture: GPUTexture = targets.vertical,
+  ) => {
     const bindGroup = device.gpu.createBindGroup({
       label: "eve-5-bloom-composite-bind-group",
       layout: compositePipeline.getBindGroupLayout(0),
@@ -563,22 +677,53 @@ export function createEve5Renderer(
   };
 
   return {
-    render(target: GPUTextureView, controls: RenderControls, logicalWidth: number, logicalHeight: number) {
+    render(
+      target: GPUTextureView,
+      controls: RenderControls,
+      logicalWidth: number,
+      logicalHeight: number,
+    ) {
       const safeWidth = Math.max(1, Math.round(logicalWidth));
       const safeHeight = Math.max(1, Math.round(logicalHeight));
       const targets = ensureBloomTargets(safeWidth, safeHeight);
       const backSurfaceDepthView = targets.backSurfaceDepth.createView();
-      renderBackMaterial(targets.backMaterial.createView(), backSurfaceDepthView, controls, safeWidth, safeHeight);
-      renderBackDepth(targets.backDepth.createView(), backSurfaceDepthView, controls, safeWidth, safeHeight);
+      renderBackMaterial(
+        targets.backMaterial.createView(),
+        backSurfaceDepthView,
+        controls,
+        safeWidth,
+        safeHeight,
+      );
+      renderBackDepth(
+        targets.backDepth.createView(),
+        backSurfaceDepthView,
+        controls,
+        safeWidth,
+        safeHeight,
+      );
       if (controls.material === "back-albedo" || controls.material === "back-depth") {
         renderTargetPreview(target, targets, controls);
         return;
       }
       if (controls.material === "thickness") {
-        renderThicknessDebug(target, targets.backMaterial, targets.backDepth, controls, safeWidth, safeHeight);
+        renderThicknessDebug(
+          target,
+          targets.backMaterial,
+          targets.backDepth,
+          controls,
+          safeWidth,
+          safeHeight,
+        );
         return;
       }
-      renderScene(targets.scene.createView(), targets.backMaterial, targets.backDepth, controls, safeWidth, safeHeight);
+      renderScene(
+        targets.scene.createView(),
+        targets.backMaterial,
+        targets.backDepth,
+        controls,
+        safeWidth,
+        safeHeight,
+      );
       if (isLight) {
         renderLightComposite(target, targets);
         return;
@@ -669,7 +814,11 @@ export function createStudioCubemap(device: Device): StudioCubemap {
   });
   // Dawn's node adapter runs in compatibility mode and validates cube views as 2D arrays.
   // Keep the asset semantically as a cubemap, but bind/sample it as six array layers.
-  const view = texture.createView({ dimension: "2d-array", baseArrayLayer: 0, arrayLayerCount: CUBE_FACE_COUNT });
+  const view = texture.createView({
+    dimension: "2d-array",
+    baseArrayLayer: 0,
+    arrayLayerCount: CUBE_FACE_COUNT,
+  });
   const sampler = device.gpu.createSampler({
     label: "eve-5-studio-hdr-cubemap-sampler",
     magFilter: "linear",
@@ -704,7 +853,11 @@ export function renderStudioCubemap(device: Device, cubemap: StudioCubemap) {
       label: `eve-5-studio-cubemap-face-${face}`,
       colorAttachments: [
         {
-          view: cubemap.texture.createView({ dimension: "2d", baseArrayLayer: face, arrayLayerCount: 1 }),
+          view: cubemap.texture.createView({
+            dimension: "2d",
+            baseArrayLayer: face,
+            arrayLayerCount: 1,
+          }),
           loadOp: "clear",
           storeOp: "store",
           clearValue: [0, 0, 0, 1],
@@ -718,8 +871,17 @@ export function renderStudioCubemap(device: Device, cubemap: StudioCubemap) {
   }
 }
 
-function createEnvParamsBinding(device: Device, pipeline: GPURenderPipeline, cubemap: StudioCubemap, label: string) {
-  const buffer = device.createBuffer({ size: PARAMS_BYTE_SIZE, usage: ["uniform", "copy_dst"], label });
+function createEnvParamsBinding(
+  device: Device,
+  pipeline: GPURenderPipeline,
+  cubemap: StudioCubemap,
+  label: string,
+) {
+  const buffer = device.createBuffer({
+    size: PARAMS_BYTE_SIZE,
+    usage: ["uniform", "copy_dst"],
+    label,
+  });
   const bindGroup = device.gpu.createBindGroup({
     label: `${label}-bind-group`,
     layout: pipeline.getBindGroupLayout(0),
@@ -732,8 +894,17 @@ function createEnvParamsBinding(device: Device, pipeline: GPURenderPipeline, cub
   return { buffer, bindGroup };
 }
 
-function createBackParamsBinding(device: Device, pipeline: GPURenderPipeline, cubemap: StudioCubemap, label: string) {
-  const buffer = device.createBuffer({ size: PARAMS_BYTE_SIZE, usage: ["uniform", "copy_dst"], label });
+function createBackParamsBinding(
+  device: Device,
+  pipeline: GPURenderPipeline,
+  cubemap: StudioCubemap,
+  label: string,
+) {
+  const buffer = device.createBuffer({
+    size: PARAMS_BYTE_SIZE,
+    usage: ["uniform", "copy_dst"],
+    label,
+  });
   const bindGroup = device.gpu.createBindGroup({
     label: `${label}-bind-group`,
     layout: pipeline.getBindGroupLayout(0),
@@ -747,7 +918,11 @@ function createBackParamsBinding(device: Device, pipeline: GPURenderPipeline, cu
 }
 
 function createUniformParamsBinding(device: Device, pipeline: GPURenderPipeline, label: string) {
-  const buffer = device.createBuffer({ size: PARAMS_BYTE_SIZE, usage: ["uniform", "copy_dst"], label });
+  const buffer = device.createBuffer({
+    size: PARAMS_BYTE_SIZE,
+    usage: ["uniform", "copy_dst"],
+    label,
+  });
   const bindGroup = device.gpu.createBindGroup({
     label: `${label}-bind-group`,
     layout: pipeline.getBindGroupLayout(0),
@@ -764,7 +939,11 @@ function createParamsBinding(
   backMaterialView?: GPUTextureView,
   backDepthView?: GPUTextureView,
 ) {
-  const buffer = device.createBuffer({ size: PARAMS_BYTE_SIZE, usage: ["uniform", "copy_dst"], label });
+  const buffer = device.createBuffer({
+    size: PARAMS_BYTE_SIZE,
+    usage: ["uniform", "copy_dst"],
+    label,
+  });
   const fallbackBackMaterial = device.gpu.createTexture({
     label: `${label}-empty-back-material`,
     size: [1, 1],
@@ -921,7 +1100,11 @@ function normalizePositionForGpu(position: Vec3, bounds: Bounds): Vec3 {
   const centerX = (bounds.min[0] + bounds.max[0]) * 0.5;
   const centerY = (bounds.min[1] + bounds.max[1]) * 0.5;
   const frontZ = bounds.max[2];
-  return [(position[0] - centerX) / height, (position[1] - centerY) / height, (position[2] - frontZ) / height];
+  return [
+    (position[0] - centerX) / height,
+    (position[1] - centerY) / height,
+    (position[2] - frontZ) / height,
+  ];
 }
 
 function orbitEye(target: Vec3, radius: number, yawRadians: number, pitchRadians: number): Vec3 {

@@ -12,18 +12,11 @@ export const BENCHMARK_RUNTIMES: readonly BenchmarkRuntimeKind[] = [
   "temporal",
 ];
 
-export interface BenchmarkRuntimeUrls {
-  readonly inline: string;
-  readonly temporal: string;
-  readonly workflow: string;
-}
-
-export interface BenchmarkMatrixConfig {
+export interface BenchmarkRunConfig {
   readonly measuredBlocks: number;
   readonly modelKind: BenchmarkModelKind;
   readonly runId: string;
-  readonly runtimeUrls: BenchmarkRuntimeUrls;
-  readonly seed: number;
+  readonly seed: number | null;
   readonly targetKind: BenchmarkTargetKind;
   readonly warmupBlocks: number;
 }
@@ -36,6 +29,25 @@ export interface BenchmarkScheduleEntry {
   readonly phase: BenchmarkPhase;
   readonly runtimeKind: BenchmarkRuntimeKind;
 }
+
+export interface PlannedBenchmarkSample extends BenchmarkScheduleEntry {
+  readonly sampleIndex: number;
+}
+
+export interface BenchmarkExecutionSample extends PlannedBenchmarkSample {
+  readonly targetUrl: string;
+}
+
+type PlannedBenchmarkSampleFor<K extends BenchmarkRuntimeKind> = PlannedBenchmarkSample & {
+  readonly runtimeKind: K;
+};
+
+export type RuntimeBatch = {
+  [K in BenchmarkRuntimeKind]: {
+    readonly runtimeKind: K;
+    readonly samples: readonly PlannedBenchmarkSampleFor<K>[];
+  };
+}[BenchmarkRuntimeKind];
 
 export interface BenchmarkSampleRecord {
   readonly blockIndex: number;
@@ -136,7 +148,7 @@ export interface BenchmarkSummaryRecord {
   readonly modelKind: BenchmarkModelKind;
   readonly pairedMeasuredClientDifferences: PairedClientMetricSummary;
   readonly runId: string;
-  readonly seed: number;
+  readonly seed: number | null;
   readonly targetKind: BenchmarkTargetKind;
   readonly serverTelemetry: {
     readonly measuredSummedIntervalDurationsMsByName: RuntimeIntervalDurationSummary;

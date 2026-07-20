@@ -1,98 +1,87 @@
 import type { BenchmarkSampleResult, RunBenchmarkSampleInput } from "../driver/index.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { runBenchmarkMatrix } from "./matrix.js";
-import type { BenchmarkJsonlRecord, BenchmarkMatrixConfig } from "./types.js";
+import { completeBenchmarkRun, executeBenchmarkSamples } from "./matrix.js";
+import type { BenchmarkExecutionSample, BenchmarkRunConfig } from "./types.js";
 
-describe("runBenchmarkMatrix", () => {
-  it("runs serial complete blocks and writes one record per sample plus the summary", async () => {
-    const inputs: RunBenchmarkSampleInput[] = [];
-    const records: BenchmarkJsonlRecord[] = [];
-    let activeSamples = 0;
-    let maximumActiveSamples = 0;
-
-    const summary = await runBenchmarkMatrix(config(), {
-      async runSample(input) {
-        activeSamples += 1;
-        maximumActiveSamples = Math.max(maximumActiveSamples, activeSamples);
-        await Promise.resolve();
-        inputs.push(input);
-        activeSamples -= 1;
-        return resultFor(input);
-      },
-      writeRecord(record) {
-        records.push(record);
-      },
-    });
-
-    expect(maximumActiveSamples).toBe(1);
-    expect(inputs).toHaveLength(9);
-    expect(records).toHaveLength(10);
-    expect(records.at(-1)).toBe(summary);
-    expect(records.slice(0, -1).every((record) => record.kind === "sample")).toBe(true);
-    expect(records.every((record) => record.modelKind === "deterministic")).toBe(true);
-    expect(
-      records.flatMap((record) =>
-        record.kind === "sample" ? [record.serverTelemetry.status] : [],
-      ),
-    ).toEqual(Array.from({ length: 9 }, () => "unavailable"));
-
-    const warmupInputs = inputs.slice(0, 3);
-    const measuredInputs = inputs.slice(3);
-    expect(new Set(warmupInputs.map((input) => input.runtimeKind))).toEqual(
-      new Set(["inline", "workflow", "temporal"]),
-    );
-    for (let offset = 0; offset < measuredInputs.length; offset += 3) {
-      const block = measuredInputs.slice(offset, offset + 3);
-      expect(new Set(block.map((input) => input.runtimeKind))).toEqual(
-        new Set(["inline", "workflow", "temporal"]),
-      );
-      expect(new Set(block.map((input) => input.nonce))).toHaveLength(1);
-    }
-  });
-
-  it("preserves valid, invalid, and failed sample results in JSONL records", async () => {
-    const records: BenchmarkJsonlRecord[] = [];
-    const collectServerTelemetry = vi.fn(async () => ({
-      rawRecords: [],
-      status: "complete" as const,
-      summedIntervalDurationsMsByName: { "engine.dispatch": 4 },
-    }));
-    await runBenchmarkMatrix(
-      { ...config(), measuredBlocks: 1, warmupBlocks: 0 },
+describe("executeBenchmarkSamples", () => {
+  it("uses planned execution indices and collects telemetry before writing each sample", async () => {
+    const samples: readonly BenchmarkExecutionSample[] = [
       {
-        collectServerTelemetry,
+        blockIndex: 1,
+        orderInBlock: 2,
+        phase: "measured",
+        runtimeKind: "temporal",
+        sampleIndex: 7,
+        targetUrl: "http://temporal-batch.example",
+      },
+      {
+        blockIndex: 0,
+        orderInBlock: 0,
+        phase: "warmup",
+        runtimeKind: "inline",
+        sampleIndex: 8,
+        targetUrl: "http://inline-batch.example",
+      },
+    ];
+    const calls: string[] = [];
+
+    const records = await executeBenchmarkSamples(
+      { config: config(), samples },
+      {
+        async collectServerTelemetry({ sampleId }) {
+          calls.push(`telemetry:${sampleId}`);
+          return {
+            rawRecords: [],
+            status: "complete",
+            summedIntervalDurationsMsByName: {},
+          };
+        },
         async runSample(input) {
+          calls.push(`sample:${input.sampleId}`);
           return resultFor(input);
         },
         writeRecord(record) {
-          records.push(record);
+          expect(record.kind).toBe("sample");
+          if (record.kind === "sample") calls.push(`write:${record.result.sampleId}`);
         },
       },
     );
 
-    expect(
-      records.flatMap((record) => (record.kind === "sample" ? [record.result.outcome] : [])),
-    ).toEqual(expect.arrayContaining(["valid", "invalid", "failed"]));
-    expect(collectServerTelemetry).toHaveBeenCalledTimes(3);
-    expect(
-      records.flatMap((record) =>
-        record.kind === "sample" ? [record.serverTelemetry.status] : [],
-      ),
-    ).toEqual(["complete", "complete", "complete"]);
+    expect(records.map((record) => record.sampleIndex)).toEqual([7, 8]);
+    expect(records.map((record) => record.orderInBlock)).toEqual([2, 0]);
+    expect(records.map((record) => record.result.targetUrl)).toEqual([
+      "http://temporal-batch.example",
+      "http://inline-batch.example",
+    ]);
+    expect(calls).toEqual([
+      "sample:run-fixed:measured:1:temporal",
+      "telemetry:run-fixed:measured:1:temporal",
+      "write:run-fixed:measured:1:temporal",
+      "sample:run-fixed:warmup:0:inline",
+      "telemetry:run-fixed:warmup:0:inline",
+      "write:run-fixed:warmup:0:inline",
+    ]);
   });
 });
 
-function config(): BenchmarkMatrixConfig {
+describe("completeBenchmarkRun", () => {
+  it("writes exactly one summary", () => {
+    const writeRecord = vi.fn();
+
+    const summary = completeBenchmarkRun({ config: config(), samples: [] }, writeRecord);
+
+    expect(writeRecord).toHaveBeenCalledOnce();
+    expect(writeRecord).toHaveBeenCalledWith(summary);
+    expect(summary.kind).toBe("summary");
+  });
+});
+
+function config(): BenchmarkRunConfig {
   return {
     measuredBlocks: 2,
     modelKind: "deterministic",
     runId: "run-fixed",
-    runtimeUrls: {
-      inline: "http://inline.example",
-      temporal: "http://temporal.example",
-      workflow: "http://workflow.example",
-    },
     seed: 19,
     targetKind: "local",
     warmupBlocks: 1,

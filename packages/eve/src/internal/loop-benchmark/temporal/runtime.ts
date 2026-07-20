@@ -19,6 +19,7 @@ import { serializeContext } from "#context/serialize.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { createSampleId, type RawRecord } from "#internal/loop-benchmark/contract.js";
+import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
 import { readLoopBenchmarkRecordPath } from "#internal/loop-benchmark/config.js";
 import { readLoopBenchmarkJsonlRecords } from "#internal/loop-benchmark/jsonl-records.js";
 import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
@@ -179,7 +180,7 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     this.#assertOpen();
     const address = this.#service.resolve(input.continuationToken);
     if (address === null) throw new RuntimeNoActiveSessionError(input.continuationToken);
-    const message = parseDeliveryMessage(input);
+    const message = parseLoopBenchmarkDeliveryMessage(input, "Temporal");
     const recorder = this.#createControllerRecorder(
       this.#service.sampleId(address.sessionId),
       `${address.sessionId}:deliver`,
@@ -389,17 +390,6 @@ function parseInitialMessage(input: RunInput): string {
     throw new Error("Temporal benchmark does not support callbacks or delegated sessions.");
   }
   return input.input.message;
-}
-
-function parseDeliveryMessage(input: DeliverInput): string {
-  const keys = Object.keys(input.payload).filter((key) => key !== "message");
-  if (keys.length > 0 || typeof input.payload.message !== "string") {
-    throw new Error("Temporal benchmark only supports plain-text follow-up deliveries.");
-  }
-  if (input.payload.message.trim().length === 0) {
-    throw new Error("Temporal benchmark requires a non-empty follow-up message.");
-  }
-  return input.payload.message;
 }
 
 function resolveWorkflowsPath(): string {

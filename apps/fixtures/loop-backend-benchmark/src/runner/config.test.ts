@@ -47,23 +47,50 @@ describe("parseRunnerConfig", () => {
     ).toMatchObject({ measuredBlocks: 5, warmupBlocks: 0 });
   });
 
-  it("accepts hosted HTTPS origins from flags and the environment", () => {
+  it("defaults hosted runs to the deployed Workflow benchmark", () => {
     expect(
       parseRunnerConfig({
-        argv: ["--inline-url", "https://inline.example/"],
+        argv: [],
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
+        mode: "hosted",
+      }),
+    ).toMatchObject({
+      mode: "hosted",
+      runtimeKind: "workflow",
+      targetUrl: "https://loop-backend-benchmark-preview.playground-vercel.tools",
+      vercelOidcToken: TEST_VERCEL_OIDC_TOKEN,
+    });
+  });
+
+  it("selects one hosted runtime from its runtime-specific URL flag", () => {
+    expect(
+      parseRunnerConfig({
+        argv: ["--workflow-url", "https://workflow.example/"],
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
+        mode: "hosted",
+      }),
+    ).toMatchObject({
+      mode: "hosted",
+      runtimeKind: "workflow",
+      targetUrl: "https://workflow.example",
+      vercelOidcToken: TEST_VERCEL_OIDC_TOKEN,
+    });
+  });
+
+  it("selects one hosted runtime from its runtime-specific URL environment variable", () => {
+    expect(
+      parseRunnerConfig({
+        argv: [],
         environment: {
           EVE_LOOP_BENCHMARK_TEMPORAL_URL: "https://temporal.example",
-          EVE_LOOP_BENCHMARK_WORKFLOW_URL: "https://workflow.example",
+          VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN,
         },
         mode: "hosted",
       }),
     ).toMatchObject({
       mode: "hosted",
-      runtimeUrls: {
-        inline: "https://inline.example",
-        temporal: "https://temporal.example",
-        workflow: "https://workflow.example",
-      },
+      runtimeKind: "temporal",
+      targetUrl: "https://temporal.example",
     });
   });
 
@@ -234,24 +261,61 @@ describe("parseRunnerConfig", () => {
   ])("rejects a hosted URL outside the HTTPS-origin contract: %s", (inlineUrl) => {
     expect(() =>
       parseRunnerConfig({
-        argv: [
-          "--inline-url",
-          inlineUrl,
-          "--temporal-url",
-          "https://temporal.example",
-          "--workflow-url",
-          "https://workflow.example",
-        ],
-        environment: {},
+        argv: ["--inline-url", inlineUrl],
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
         mode: "hosted",
       }),
     ).toThrow("--inline-url must be");
   });
 
-  it("requires all three hosted origins", () => {
-    expect(() => parseRunnerConfig({ argv: [], environment: {}, mode: "hosted" })).toThrow(
-      "Provide --inline-url",
+  it("rejects multiple hosted origins", () => {
+    expect(() =>
+      parseRunnerConfig({
+        argv: [
+          "--inline-url",
+          "https://inline.example",
+          "--workflow-url",
+          "https://workflow.example",
+        ],
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
+        mode: "hosted",
+      }),
+    ).toThrow(
+      "Provide at most one of --inline-url, --workflow-url, or --temporal-url; received --inline-url, --workflow-url",
     );
+  });
+
+  it("requires Vercel OIDC auth for a hosted target", () => {
+    expect(() =>
+      parseRunnerConfig({
+        argv: ["--workflow-url", "https://workflow.example"],
+        environment: {},
+        mode: "hosted",
+      }),
+    ).toThrow("VERCEL_OIDC_TOKEN");
+  });
+
+  it("rejects a hosted seed because separate hosted runs are not paired blocks", () => {
+    expect(() =>
+      parseRunnerConfig({
+        argv: ["--workflow-url", "https://workflow.example", "--seed", "7"],
+        environment: { VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN },
+        mode: "hosted",
+      }),
+    ).toThrow("--seed cannot be used by the hosted benchmark command");
+  });
+
+  it("rejects multiple hosted origins supplied across flags and environment", () => {
+    expect(() =>
+      parseRunnerConfig({
+        argv: ["--workflow-url", "https://workflow.example"],
+        environment: {
+          EVE_LOOP_BENCHMARK_INLINE_URL: "https://inline.example",
+          VERCEL_OIDC_TOKEN: TEST_VERCEL_OIDC_TOKEN,
+        },
+        mode: "hosted",
+      }),
+    ).toThrow("received --inline-url, --workflow-url");
   });
 
   it.each([

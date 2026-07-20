@@ -5,12 +5,12 @@ import {
   type RunBenchmarkSampleInput,
 } from "../driver/index.js";
 import { writeJsonlRecord } from "./jsonl.js";
-import { createBenchmarkSchedule } from "./schedule.js";
 import type { ServerTelemetryResult } from "./server-telemetry.js";
 import { summarizeBenchmarkMatrix } from "./summary.js";
 import type {
+  BenchmarkExecutionSample,
   BenchmarkJsonlRecord,
-  BenchmarkMatrixConfig,
+  BenchmarkRunConfig,
   BenchmarkSampleRecord,
   BenchmarkSummaryRecord,
 } from "./types.js";
@@ -39,76 +39,79 @@ const DEFAULT_DEPENDENCIES: BenchmarkMatrixDependencies = {
   writeRecord: writeJsonlRecord,
 };
 
-export async function runBenchmarkMatrix(
-  config: BenchmarkMatrixConfig,
+export async function executeBenchmarkSamples(
+  input: {
+    readonly config: BenchmarkRunConfig;
+    readonly samples: readonly BenchmarkExecutionSample[];
+  },
   dependencyOverrides: Partial<BenchmarkMatrixDependencies> = {},
-): Promise<BenchmarkSummaryRecord> {
-  const dependencies: BenchmarkMatrixDependencies = {
-    collectServerTelemetry:
-      dependencyOverrides.collectServerTelemetry ?? DEFAULT_DEPENDENCIES.collectServerTelemetry,
-    runSample: dependencyOverrides.runSample ?? DEFAULT_DEPENDENCIES.runSample,
-    writeRecord: dependencyOverrides.writeRecord ?? DEFAULT_DEPENDENCIES.writeRecord,
-  };
-  const schedule = createBenchmarkSchedule(config);
+): Promise<readonly BenchmarkSampleRecord[]> {
+  const dependencies = resolveDependencies(dependencyOverrides);
   const samples: BenchmarkSampleRecord[] = [];
 
-  for (const [sampleIndex, entry] of schedule.entries()) {
+  for (const sample of input.samples) {
     const nonce = createBlockNonce({
-      blockIndex: entry.blockIndex,
-      phase: entry.phase,
-      runId: config.runId,
+      blockIndex: sample.blockIndex,
+      phase: sample.phase,
+      runId: input.config.runId,
     });
     const sampleId = createSampleId({
-      blockIndex: entry.blockIndex,
-      phase: entry.phase,
-      runId: config.runId,
-      runtimeKind: entry.runtimeKind,
+      blockIndex: sample.blockIndex,
+      phase: sample.phase,
+      runId: input.config.runId,
+      runtimeKind: sample.runtimeKind,
     });
     const result = await dependencies.runSample({
       nonce,
-      runtimeKind: entry.runtimeKind,
+      runtimeKind: sample.runtimeKind,
       sampleId,
-      targetKind: config.targetKind,
-      targetUrl: runtimeUrl(config, entry.runtimeKind),
+      targetKind: input.config.targetKind,
+      targetUrl: sample.targetUrl,
     });
     const serverTelemetry = await dependencies.collectServerTelemetry({
       result,
-      runtimeKind: entry.runtimeKind,
+      runtimeKind: sample.runtimeKind,
       sampleId,
     });
     const record: BenchmarkSampleRecord = {
-      blockIndex: entry.blockIndex,
+      blockIndex: sample.blockIndex,
       kind: "sample",
-      modelKind: config.modelKind,
-      orderInBlock: entry.orderInBlock,
-      phase: entry.phase,
+      modelKind: input.config.modelKind,
+      orderInBlock: sample.orderInBlock,
+      phase: sample.phase,
       result,
-      runId: config.runId,
-      sampleIndex,
+      runId: input.config.runId,
+      sampleIndex: sample.sampleIndex,
       serverTelemetry,
     };
     samples.push(record);
     dependencies.writeRecord(record);
   }
 
-  const summary = summarizeBenchmarkMatrix({ config, samples });
-  dependencies.writeRecord(summary);
+  return samples;
+}
+
+export function completeBenchmarkRun(
+  input: {
+    readonly config: BenchmarkRunConfig;
+    readonly samples: readonly BenchmarkSampleRecord[];
+  },
+  writeRecord: (record: BenchmarkJsonlRecord) => void,
+): BenchmarkSummaryRecord {
+  const summary = summarizeBenchmarkMatrix(input);
+  writeRecord(summary);
   return summary;
 }
 
-function runtimeUrl(config: BenchmarkMatrixConfig, runtimeKind: BenchmarkRuntimeKind): string {
-  switch (runtimeKind) {
-    case "inline":
-      return config.runtimeUrls.inline;
-    case "temporal":
-      return config.runtimeUrls.temporal;
-    case "workflow":
-      return config.runtimeUrls.workflow;
-    default: {
-      const exhaustive: never = runtimeKind;
-      return exhaustive;
-    }
-  }
+function resolveDependencies(
+  dependencyOverrides: Partial<BenchmarkMatrixDependencies>,
+): BenchmarkMatrixDependencies {
+  return {
+    collectServerTelemetry:
+      dependencyOverrides.collectServerTelemetry ?? DEFAULT_DEPENDENCIES.collectServerTelemetry,
+    runSample: dependencyOverrides.runSample ?? DEFAULT_DEPENDENCIES.runSample,
+    writeRecord: dependencyOverrides.writeRecord ?? DEFAULT_DEPENDENCIES.writeRecord,
+  };
 }
 
 function createBlockNonce(input: {
