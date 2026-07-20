@@ -1,0 +1,7 @@
+node_modules/
+.eve/
+.output/
+dist/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

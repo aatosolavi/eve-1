@@ -1,0 +1,14 @@
+{
+  "name": "evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "node ./run.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vercel/agent-eval": "1.3.0",
+    "typescript": "catalog:"
+  }
+}

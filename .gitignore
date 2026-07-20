@@ -17,6 +17,9 @@ coverage/
 # Test artifacts
 .vitest/
 .extension-contracts-cache/
+evals/.tarballs/
+evals/experiments/
+evals/results/
 packages/eve/.workflow-vitest/
 packages/eve/.generated/
 playwright-report/
