@@ -97,6 +97,15 @@ const client = new Client({
 
 Set `redirect` to `"manual"` or `"error"` on credential-bearing clients so fetch cannot forward custom authorization headers to another origin. The policy applies to inspection requests, custom fetches, session creation, and event streams.
 
+For cross-origin cookie authentication, set `credentials: "include"`; the server's CORS policy must also allow credentials and the calling origin. The option applies to every request and stream reconnect, while a raw `client.fetch()` call can override it for that request:
+
+```ts
+const client = new Client({
+  host: "https://agent.example.com",
+  credentials: "include",
+});
+```
+
 Per-request headers can be attached to an individual turn:
 
 ```ts

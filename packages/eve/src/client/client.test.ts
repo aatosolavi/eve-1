@@ -100,6 +100,34 @@ describe("Client request policy", () => {
     }
   });
 
+  it("defaults every agent request to its credentials policy", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json(AGENT_INFO))
+      .mockResolvedValueOnce(Response.json({ ok: true, status: "ready", workflowId: "wf" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        Response.json({ continuationToken: "eve:test", sessionId: "session_1" }, { status: 202 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(`${JSON.stringify({ data: {}, type: "session.completed" })}\n`),
+      );
+    const client = new Client({ credentials: "include", host: "https://eve.test" });
+
+    await client.info();
+    await client.health();
+    await client.fetch("/custom", { credentials: "omit" });
+    await (await client.session().send("hello")).result();
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.credentials)).toEqual([
+      "include",
+      "include",
+      "omit",
+      "include",
+      "include",
+    ]);
+  });
+
   it("expands vercelOidc auth into the bearer and trusted-oidc headers", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

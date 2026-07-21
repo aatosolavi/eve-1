@@ -3,7 +3,13 @@ import type { EveAgentReducer, EveAgentReducerEvent } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { toError } from "#shared/errors.js";
-import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
+import type {
+  ClientAuth,
+  ClientCredentialsPolicy,
+  HeadersValue,
+  SendTurnPayload,
+  SessionState,
+} from "#client/types.js";
 import type { UserContent } from "ai";
 
 /**
@@ -64,6 +70,7 @@ export interface EveAgentStoreCallbacks<TData> {
  */
 export interface EveAgentStoreInit<TData> {
   readonly auth?: ClientAuth;
+  readonly credentials?: ClientCredentialsPolicy;
   readonly headers?: HeadersValue;
   readonly host?: string;
   readonly initialEvents?: readonly HandleMessageStreamEvent[];
@@ -115,6 +122,7 @@ export class EveAgentStore<TData> {
       : () =>
           new Client({
             auth: init.auth,
+            credentials: init.credentials,
             headers: init.headers,
             host: init.host ?? "",
           }).session(init.initialSession);

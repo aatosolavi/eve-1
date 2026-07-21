@@ -11,7 +11,13 @@ import { resolveEveAgentHost } from "#client/agent-host.js";
 import { defaultMessageReducer, type EveMessageData } from "#client/message-reducer.js";
 import type { EveAgentReducer } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
-import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
+import type {
+  ClientAuth,
+  ClientCredentialsPolicy,
+  HeadersValue,
+  SendTurnPayload,
+  SessionState,
+} from "#client/types.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 
 export type { PrepareSend };
@@ -60,7 +66,7 @@ export interface UseEveAgentReturn<TData> {
  * Configuration for a Svelte eve agent session.
  *
  * Read once when `useEveAgent` creates its store; create a new binding to
- * change host, reducer, or session. To rotate credentials or headers without
+ * change host, reducer, or session. To rotate auth tokens or headers without
  * recreating the binding, pass function values to `auth` or `headers`, which
  * the client resolves before each HTTP request.
  */
@@ -77,6 +83,8 @@ export interface UseEveAgentOptions<TData> extends EveAgentStoreCallbacks<TData>
    * per request. Ignored when `session` is supplied.
    */
   readonly auth?: ClientAuth;
+  /** Browser credentials mode for every request made by the auto-created client. */
+  readonly credentials?: ClientCredentialsPolicy;
   /**
    * Custom headers for the auto-created session. Pass a function to resolve
    * fresh values per request. Ignored when `session` is supplied.
@@ -199,6 +207,7 @@ export function useEveAgent<TData>(
   const reducer = options.reducer ?? (defaultMessageReducer() as EveAgentReducer<TData>);
   const store = new EveAgentStore<TData>({
     auth: options.auth,
+    credentials: options.credentials,
     headers: options.headers,
     host: resolveEveAgentHost({ agent: options.agent, host: options.host }),
     initialEvents: options.initialEvents,

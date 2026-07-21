@@ -12,7 +12,13 @@ import type { EveAgentReducer } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
 import { defaultMessageReducer, type EveMessageData } from "#client/message-reducer.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
+import type {
+  ClientAuth,
+  ClientCredentialsPolicy,
+  HeadersValue,
+  SendTurnPayload,
+  SessionState,
+} from "#client/types.js";
 
 export type { PrepareSend };
 
@@ -59,7 +65,7 @@ export interface UseEveAgentReturn<TData> {
  *
  * Session configuration is read once when the composable creates its internal
  * store; to change the host, reducer, or session, remount the component. For
- * credentials or headers that must change without remounting, pass function
+ * auth tokens or headers that must change without remounting, pass function
  * values to `auth` or `headers`; the client resolves those before each request.
  *
  * Lifecycle callbacks (`onError`, `onEvent`, `onFinish`, `onSessionChange`,
@@ -76,6 +82,8 @@ export interface UseEveAgentOptions<TData> extends EveAgentStoreCallbacks<TData>
   readonly agent?: string;
   /** Authentication configuration; a function value is resolved per request. */
   readonly auth?: ClientAuth;
+  /** Browser credentials mode for every request made by the auto-created client. */
+  readonly credentials?: ClientCredentialsPolicy;
   /** Custom headers; a function value is resolved per request. */
   readonly headers?: HeadersValue;
   /**
@@ -142,6 +150,7 @@ export function useEveAgent<TData>(
 
   const store = new EveAgentStore<TData>({
     auth: options.auth,
+    credentials: options.credentials,
     headers: options.headers,
     host: resolveEveAgentHost({ agent: options.agent, host: options.host }),
     initialEvents: options.initialEvents,

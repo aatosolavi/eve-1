@@ -30,6 +30,7 @@ function startIndexOf(url: string | undefined): number {
 function follow(host: string) {
   return followStreamIterable({
     host,
+    requestPolicy: {},
     resolveHeaders: () => Promise.resolve(new Headers()),
     sessionId: "s",
     startIndex: 0,

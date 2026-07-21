@@ -12,9 +12,9 @@ import { followStreamIterable } from "#client/open-stream.js";
 import { advanceSession } from "#client/session-utils.js";
 import { serializeOutputSchema } from "#shared/tool-schema.js";
 import { createClientUrl } from "#client/url.js";
+import { applyClientRequestPolicy, type ClientRequestPolicy } from "#client/request-policy.js";
 import type {
   CancelSessionResult,
-  ClientRedirectPolicy,
   SendTurnInput,
   SendTurnPayload,
   SessionState,
@@ -31,7 +31,7 @@ const DELIVER_RETRY_DELAY_MS = 200;
 interface SessionContext {
   readonly host: string;
   readonly preserveCompletedSessions: boolean;
-  readonly redirect?: ClientRedirectPolicy;
+  readonly requestPolicy: ClientRequestPolicy;
   resolveHeaders(perRequest?: Readonly<Record<string, string>>): Promise<Headers>;
 }
 
@@ -111,13 +111,13 @@ export class ClientSession {
 
     const response = await fetch(
       url,
-      withRedirectPolicy(
+      applyClientRequestPolicy(
         {
           headers,
           method: "POST",
           body: options ? JSON.stringify(options) : undefined,
         },
-        this.#context.redirect,
+        this.#context.requestPolicy,
       ),
     );
     const body = await response.text();
@@ -191,7 +191,7 @@ export class ClientSession {
       body: JSON.stringify(body),
       headers,
       mustDeliver: (input.inputResponses?.length ?? 0) > 0,
-      redirect: this.#context.redirect,
+      requestPolicy: this.#context.requestPolicy,
       signal: input.signal,
       url,
     });
@@ -229,7 +229,7 @@ export class ClientSession {
       for await (const event of followStreamIterable({
         host: this.#context.host,
         resolveHeaders: () => this.#context.resolveHeaders(input.headers),
-        redirect: this.#context.redirect,
+        requestPolicy: this.#context.requestPolicy,
         sessionId,
         signal: input.signal,
         startIndex: initialState.sessionId === sessionId ? initialState.streamIndex : 0,
@@ -264,7 +264,7 @@ export class ClientSession {
       for await (const event of followStreamIterable({
         host: this.#context.host,
         resolveHeaders: () => this.#context.resolveHeaders(),
-        redirect: this.#context.redirect,
+        requestPolicy: this.#context.requestPolicy,
         sessionId,
         signal: options?.signal,
         startIndex: streamIndex,
@@ -290,7 +290,7 @@ async function postTurnWithRetry(input: {
   readonly body: string;
   readonly headers: Headers;
   readonly mustDeliver: boolean;
-  readonly redirect?: ClientRedirectPolicy;
+  readonly requestPolicy: ClientRequestPolicy;
   readonly signal?: AbortSignal;
   readonly url: string;
 }): Promise<Response> {
@@ -300,13 +300,18 @@ async function postTurnWithRetry(input: {
   let lastHeaders: Headers | undefined;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const response = await fetch(input.url, {
-      body: input.body,
-      headers: input.headers,
-      method: "POST",
-      redirect: input.redirect,
-      signal: input.signal ?? null,
-    });
+    const response = await fetch(
+      input.url,
+      applyClientRequestPolicy(
+        {
+          body: input.body,
+          headers: input.headers,
+          method: "POST",
+          signal: input.signal ?? null,
+        },
+        input.requestPolicy,
+      ),
+    );
 
     if (response.ok) return response;
 
@@ -386,8 +391,4 @@ function createHandleMessageBody(input: {
   }
 
   return body;
-}
-
-function withRedirectPolicy(init: RequestInit, redirect?: ClientRedirectPolicy): RequestInit {
-  return redirect === undefined ? init : { ...init, redirect };
 }

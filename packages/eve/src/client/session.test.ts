@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClientSession } from "#client/session.js";
-import type { SessionState } from "#client/types.js";
+import type { ClientCredentialsPolicy, SessionState } from "#client/types.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -10,6 +10,7 @@ afterEach(() => {
 function createSession(
   state: SessionState = { streamIndex: 0 },
   options: {
+    readonly credentials?: ClientCredentialsPolicy;
     readonly preserveCompletedSessions?: boolean;
     readonly redirect?: "error" | "follow" | "manual";
     readonly resolveHeaders?: () => Promise<Headers>;
@@ -18,7 +19,10 @@ function createSession(
   const context: ConstructorParameters<typeof ClientSession>[0] = {
     host: "https://eve.test",
     preserveCompletedSessions: options.preserveCompletedSessions ?? false,
-    redirect: options.redirect,
+    requestPolicy: {
+      credentials: options.credentials,
+      redirect: options.redirect,
+    },
     resolveHeaders: options.resolveHeaders ?? (async () => new Headers()),
   };
 
@@ -75,11 +79,17 @@ function createStreamResponse(events: readonly unknown[]) {
 describe("ClientSession", () => {
   it("cancels an accepted turn before its stream settles with freshly resolved auth", async () => {
     let headerResolution = 0;
-    const requests: Array<{ headers: Headers; method: string; url: string }> = [];
+    const requests: Array<{
+      credentials: ClientCredentialsPolicy | undefined;
+      headers: Headers;
+      method: string;
+      url: string;
+    }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url =
         typeof request === "string" ? request : request instanceof URL ? request.href : request.url;
       requests.push({
+        credentials: init?.credentials,
         headers: new Headers(init?.headers),
         method: init?.method ?? "GET",
         url,
@@ -95,6 +105,7 @@ describe("ClientSession", () => {
     const session = createSession(
       { streamIndex: 0 },
       {
+        credentials: "include",
         redirect: "error",
         resolveHeaders: async () => {
           headerResolution += 1;
@@ -112,6 +123,7 @@ describe("ClientSession", () => {
     expect(requests).toHaveLength(2);
     expect(new URL(requests[1]!.url).pathname).toBe("/eve/v1/session/session_1/cancel");
     expect(requests[1]!.method).toBe("POST");
+    expect(requests[1]!.credentials).toBe("include");
     expect(requests[1]!.headers.get("authorization")).toBe("Bearer token-2");
   });
 
@@ -420,9 +432,11 @@ describe("ClientSession", () => {
 
   it("retries a transient fetch failure while reopening an active turn stream", async () => {
     const encoder = new TextEncoder();
+    const credentials: Array<ClientCredentialsPolicy | undefined> = [];
     const streamUrls: string[] = [];
     let streamRequest = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      credentials.push(init?.credentials);
       if ((init?.method ?? "GET") === "POST") {
         return createAcceptedResponse();
       }
@@ -461,7 +475,9 @@ describe("ClientSession", () => {
         },
       ]);
     });
-    const session = createSession();
+    const session = createSession(undefined, {
+      credentials: "include",
+    });
 
     vi.useFakeTimers();
     try {
@@ -472,6 +488,7 @@ describe("ClientSession", () => {
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(credentials).toEqual(["include", "include", "include", "include"]);
     expect(streamUrls.map((url) => new URL(url).searchParams.get("startIndex"))).toEqual([
       null,
       "1",

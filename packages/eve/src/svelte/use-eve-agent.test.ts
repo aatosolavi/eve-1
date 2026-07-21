@@ -88,12 +88,14 @@ describe("useEveAgent (Svelte rune binding)", () => {
       createMessageReceivedEvent({ message: "Hello", sequence: 0, turnId: "turn_1" }),
       createSessionWaitingEvent("eve:http:session_1"),
     ];
-    vi.spyOn(globalThis, "fetch")
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(createStartedMessageResponse("session_1", "http:session_1"))
       .mockResolvedValueOnce(createEagerStreamResponse(events));
     const seenEvents: HandleMessageStreamEvent[] = [];
 
     const agent = useEveAgent({
+      credentials: "include",
       onEvent(event) {
         seenEvents.push(event);
       },
@@ -102,5 +104,6 @@ describe("useEveAgent (Svelte rune binding)", () => {
     await agent.send({ message: "Hello" });
 
     expect(seenEvents).toEqual(events);
+    expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "include")).toBe(true);
   });
 });

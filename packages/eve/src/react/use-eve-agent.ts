@@ -12,7 +12,13 @@ import type { EveAgentReducer } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
 import { defaultMessageReducer, type EveMessageData } from "#client/message-reducer.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
+import type {
+  ClientAuth,
+  ClientCredentialsPolicy,
+  HeadersValue,
+  SendTurnPayload,
+  SessionState,
+} from "#client/types.js";
 
 export type { PrepareSend };
 
@@ -52,7 +58,7 @@ export interface UseEveAgentHelpers<TData> extends UseEveAgentSnapshot<TData> {
  * remount the component to point at a different host, reducer, or session.
  * Lifecycle callbacks update on every render.
  *
- * For credentials or headers that must change without remounting, pass function
+ * For auth tokens or headers that must change without remounting, pass function
  * values to `auth` or `headers`; the client resolves those before each request.
  */
 export interface UseEveAgentOptions<TData> extends EveAgentStoreCallbacks<TData> {
@@ -64,6 +70,8 @@ export interface UseEveAgentOptions<TData> extends EveAgentStoreCallbacks<TData>
    */
   readonly agent?: string;
   readonly auth?: ClientAuth;
+  /** Browser credentials mode for every request made by the auto-created client. */
+  readonly credentials?: ClientCredentialsPolicy;
   readonly headers?: HeadersValue;
   /**
    * Base URL for eve client requests. Do not combine with `agent`.
@@ -123,6 +131,7 @@ export function useEveAgent<TData>(
     const reducer = options.reducer ?? (defaultMessageReducer() as EveAgentReducer<TData>);
     storeRef.current = new EveAgentStore({
       auth: options.auth,
+      credentials: options.credentials,
       headers: options.headers,
       host: resolveEveAgentHost({ agent: options.agent, host: options.host }),
       initialEvents: options.initialEvents,

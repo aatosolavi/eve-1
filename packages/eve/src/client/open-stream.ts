@@ -2,8 +2,8 @@ import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { createEveMessageStreamRoutePath } from "#protocol/routes.js";
 import { ClientError } from "#client/client-error.js";
 import { isStreamDisconnectError, readNdjsonStream } from "#client/ndjson.js";
-import type { ClientRedirectPolicy } from "#client/types.js";
 import { createClientUrl } from "#client/url.js";
+import { applyClientRequestPolicy, type ClientRequestPolicy } from "#client/request-policy.js";
 
 const STREAM_OPEN_RETRY_ATTEMPTS = 12;
 const STREAM_OPEN_RETRY_BASE_DELAY_MS = 250;
@@ -20,7 +20,7 @@ const STREAM_MAX_IDLE_RECONNECTS = 5;
 interface FollowStreamInput {
   readonly host: string;
   readonly resolveHeaders: () => Promise<Headers>;
-  readonly redirect?: ClientRedirectPolicy;
+  readonly requestPolicy: ClientRequestPolicy;
   readonly sessionId: string;
   readonly signal?: AbortSignal;
   readonly startIndex: number;
@@ -114,11 +114,16 @@ export async function openStreamBody(
     const headers = await input.resolveHeaders();
     let response: Response;
     try {
-      response = await fetch(url, {
-        headers,
-        redirect: input.redirect,
-        signal: input.signal ?? null,
-      });
+      response = await fetch(
+        url,
+        applyClientRequestPolicy(
+          {
+            headers,
+            signal: input.signal ?? null,
+          },
+          input.requestPolicy,
+        ),
+      );
     } catch (error) {
       if (
         input.signal?.aborted ||

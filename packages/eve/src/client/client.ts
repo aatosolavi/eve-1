@@ -6,11 +6,11 @@ import { ClientError } from "#client/client-error.js";
 import { ClientSession } from "#client/session.js";
 import { createInitialSessionState } from "#client/session-utils.js";
 import { createClientUrl } from "#client/url.js";
+import { applyClientRequestPolicy, type ClientRequestPolicy } from "#client/request-policy.js";
 import type {
   AgentInfoResult,
   ClientAuth,
   ClientOptions,
-  ClientRedirectPolicy,
   HeadersValue,
   HealthResult,
   SessionState,
@@ -30,14 +30,17 @@ export class Client {
   readonly #headers: HeadersValue | undefined;
   readonly #host: string;
   readonly #preserveCompletedSessions: boolean;
-  readonly #redirect: ClientRedirectPolicy | undefined;
+  readonly #requestPolicy: ClientRequestPolicy;
 
   constructor(options: ClientOptions) {
     this.#host = options.host;
     this.#auth = options.auth;
     this.#headers = options.headers;
     this.#preserveCompletedSessions = options.preserveCompletedSessions ?? false;
-    this.#redirect = options.redirect;
+    this.#requestPolicy = {
+      credentials: options.credentials,
+      redirect: options.redirect,
+    };
   }
 
   /**
@@ -48,7 +51,7 @@ export class Client {
   async health(): Promise<HealthResult> {
     const url = createClientUrl(this.#host, EVE_HEALTH_ROUTE_PATH);
     const headers = await this.#resolveHeaders();
-    const response = await fetch(url, withRedirectPolicy({ headers }, this.#redirect));
+    const response = await fetch(url, applyClientRequestPolicy({ headers }, this.#requestPolicy));
 
     if (!response.ok) {
       const body = await response.text();
@@ -109,7 +112,7 @@ export class Client {
   async fetch(path: string, init: RequestInit = {}): Promise<Response> {
     const url = createClientUrl(this.#host, path);
     const headers = await this.#resolveHeaders(headersInitToRecord(init.headers));
-    return await fetch(url, withRedirectPolicy({ ...init, headers }, this.#redirect));
+    return await fetch(url, applyClientRequestPolicy({ ...init, headers }, this.#requestPolicy));
   }
 
   /**
@@ -135,7 +138,7 @@ export class Client {
       {
         host: this.#host,
         preserveCompletedSessions: this.#preserveCompletedSessions,
-        redirect: this.#redirect,
+        requestPolicy: this.#requestPolicy,
         resolveHeaders: (perRequest) => this.#resolveHeaders(perRequest),
       },
       resolved,
@@ -231,11 +234,4 @@ function headersInitToRecord(
 ): Readonly<Record<string, string>> {
   if (headers === undefined) return {};
   return Object.fromEntries(new Headers(headers).entries());
-}
-
-function withRedirectPolicy(
-  init: RequestInit,
-  redirect: ClientRedirectPolicy | undefined,
-): RequestInit {
-  return redirect === undefined ? init : { ...init, redirect };
 }
