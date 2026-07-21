@@ -1,5 +1,5 @@
 import { defineAgent } from "eve";
-import { mockModel, type MockModelRequest } from "eve/evals";
+import { mockModel, type MockModelRequest, type MockModelResponse } from "eve/evals";
 
 import {
   COMPACTION_CHECKPOINT_TEXT,
@@ -19,120 +19,119 @@ type RegressionCase =
   | "task-survival"
   | "oversized-step-truncation";
 
-let activeCase: RegressionCase | undefined;
-const checkpointAdvanceCallCounts = new Map<RegressionCase, number>();
-const toolCallCounts = new Map<RegressionCase, number>();
+/** Per-case call bookkeeping shared by every responder. */
+interface CaseState {
+  advanceCalls: number;
+  toolCalls: number;
+}
 
-let requestCount = 0;
+type CaseResponder = (request: MockModelRequest, state: CaseState) => MockModelResponse | string;
 
-const taskModel = mockModel({
-  modelId: "compaction-regression-task-model",
-  respond(request) {
-    // EVE_E2E_DUMP_CONTEXT=1 prints every request's messages — the context
-    // exactly as the model sees it, so compaction, capping, and replay are
-    // observable per step while iterating on these evals.
-    if (process.env.EVE_E2E_DUMP_CONTEXT) {
-      requestCount += 1;
-      console.log(`\n=== model request #${requestCount} (${request.messages.length} messages) ===`);
-      for (const message of request.messages) {
-        const text = message.text.replace(/\s+/g, " ");
-        console.log(`  [${message.role}] ${text.length} chars | ${text.slice(0, 160)}`);
-      }
+/**
+ * One responder per regression case. Adding a case means adding an entry
+ * here (plus its marker in {@link regressionCaseFromText}) — the dispatch
+ * and bookkeeping never change.
+ */
+const responders: Record<RegressionCase, CaseResponder> = {
+  "redundant-tool-calls": markerWorkCase(
+    "redundant-tool-calls",
+    "REPOSITORY_INSPECTION_COMPLETE",
+    (attempt) => ({
+      id: `inspect-repository-${attempt}`,
+      input: { scope: "repository" },
+      name: "inspect-repository",
+    }),
+  ),
+
+  "stale-todo-work": markerWorkCase("stale-todo-work", "SOURCE_ANALYSIS_COMPLETE", (attempt) => ({
+    id: `perform-source-analysis-${attempt}`,
+    input: { approach: `attempt-${attempt}` },
+    name: "perform-source-analysis",
+  })),
+
+  "task-survival": (request, state) => {
+    const compacted = request.messages.some(
+      (message) => message.role === "user" && message.text === COMPACTION_CHECKPOINT_TEXT,
+    );
+    if (compacted) {
+      // The harness must hand the model its verbatim task back after
+      // compaction — via the kept tail or the resumption replay. Losing it
+      // is the trace failure this case pins.
+      return request.userMessages.some((text) => text.includes(TASK_TAIL_SENTINEL))
+        ? `Task text still visible: ${TASK_PRESERVED_MARKER}`
+        : "Task text lost after compaction: TASK_LOST";
     }
 
-    const initialCase = findInitialCase(request);
-    if (initialCase !== undefined && activeCase !== initialCase) {
-      activeCase = initialCase;
-      checkpointAdvanceCallCounts.set(initialCase, 0);
-      toolCallCounts.set(initialCase, 0);
+    if (state.toolCalls >= MAX_TOOL_CALLS) {
+      return "Hard stop without a compaction: TASK_SURVIVAL_NO_COMPACTION";
     }
 
-    if (activeCase === undefined) {
-      throw new Error("Compaction regression task model received no case marker.");
+    state.toolCalls += 1;
+    return {
+      toolCalls: [
+        {
+          id: `inspect-repository-${state.toolCalls}`,
+          input: { scope: "repository" },
+          name: "inspect-repository",
+        },
+      ],
+    };
+  },
+
+  "oversized-step-truncation": (request, state) => {
+    // The harness truncates the oversized result at attach time, so the
+    // annotation must be visible in the request — whether the result is
+    // still verbatim in recent history or reduced during compaction —
+    // before the model reports success.
+    if (request.messages.some((message) => message.text.includes(TRUNCATION_ANNOTATION_PREFIX))) {
+      return `Observed harness truncation: ${OVERSIZED_TRUNCATION_MARKER}`;
     }
 
-    const regressionCase = activeCase;
-
-    if (regressionCase === "task-survival") {
-      const compacted = request.messages.some(
-        (message) => message.role === "user" && message.text === COMPACTION_CHECKPOINT_TEXT,
-      );
-      if (compacted) {
-        // The harness must hand the model its verbatim task back after
-        // compaction — via the kept tail or the resumption replay. Losing it
-        // is the trace failure this case pins.
-        return request.userMessages.some((text) => text.includes(TASK_TAIL_SENTINEL))
-          ? `Task text still visible: ${TASK_PRESERVED_MARKER}`
-          : "Task text lost after compaction: TASK_LOST";
-      }
-
-      const pressureCalls = toolCallCounts.get(regressionCase) ?? 0;
-      if (pressureCalls >= MAX_TOOL_CALLS) {
-        return "Hard stop without a compaction: TASK_SURVIVAL_NO_COMPACTION";
-      }
-
-      toolCallCounts.set(regressionCase, pressureCalls + 1);
-      return {
-        toolCalls: [
-          {
-            id: `inspect-repository-${pressureCalls + 1}`,
-            input: { scope: "repository" },
-            name: "inspect-repository",
-          },
-        ],
-      };
+    if (state.toolCalls >= MAX_TOOL_CALLS) {
+      return `Hard stop after ${MAX_TOOL_CALLS} calls: TRUNCATION_ANNOTATION_MISSING`;
     }
 
-    if (regressionCase === "oversized-step-truncation") {
-      // The harness truncates the oversized result at attach time, so the
-      // annotation must be visible in the request — whether the result is
-      // still verbatim in recent history or reduced during compaction —
-      // before the model reports success.
-      if (request.messages.some((message) => message.text.includes(TRUNCATION_ANNOTATION_PREFIX))) {
-        return `Observed harness truncation: ${OVERSIZED_TRUNCATION_MARKER}`;
-      }
+    state.toolCalls += 1;
+    return {
+      toolCalls: [
+        {
+          id: `emit-oversized-output-${state.toolCalls}`,
+          input: {},
+          name: "emit-oversized-output",
+        },
+      ],
+    };
+  },
+};
 
-      const emitCalls = toolCallCounts.get(regressionCase) ?? 0;
-      if (emitCalls >= MAX_TOOL_CALLS) {
-        return `Hard stop after ${MAX_TOOL_CALLS} calls: TRUNCATION_ANNOTATION_MISSING`;
-      }
-
-      toolCallCounts.set(regressionCase, emitCalls + 1);
-      return {
-        toolCalls: [
-          {
-            id: `emit-oversized-output-${emitCalls + 1}`,
-            input: {},
-            name: "emit-oversized-output",
-          },
-        ],
-      };
-    }
-
-    const marker = completionMarker(regressionCase);
-
-    // These are fixture markers, not compaction protocol fields. `marker` records the
-    // regression work tool; `SECOND_CHECKPOINT_MARKER` records the test-only tool
-    // whose output makes the harness cross the compaction threshold a second time.
-    // Completion evidence is detected in any assistant message: compaction may
-    // leave it as a summarization checkpoint or as a capped result, and the
-    // model must not repeat work in either case. User messages are excluded
-    // because the eval instructions themselves quote the markers.
+/**
+ * The shared protocol of the two marker-driven work cases: run the work tool
+ * until its completion marker is visible, then run the second-compaction
+ * trigger tool, then finish. Completion evidence is detected in any assistant
+ * message: compaction may leave it as a summarization checkpoint or as a
+ * capped result, and the model must not repeat work in either case. User
+ * messages are excluded because the eval instructions quote the markers.
+ */
+function markerWorkCase(
+  regressionCase: "redundant-tool-calls" | "stale-todo-work",
+  marker: string,
+  workToolCall: (attempt: number) => { id: string; input: object; name: string },
+): CaseResponder {
+  return (request, state) => {
     if (assistantEvidenceContains(request.messages, marker)) {
       if (assistantEvidenceContains(request.messages, SECOND_CHECKPOINT_MARKER)) {
         return `Done: ${marker}; ${SECOND_CHECKPOINT_MARKER}`;
       }
 
-      const advanceCalls = checkpointAdvanceCallCounts.get(regressionCase) ?? 0;
-      if (advanceCalls >= MAX_TOOL_CALLS) {
+      if (state.advanceCalls >= MAX_TOOL_CALLS) {
         return `Hard stop after ${MAX_TOOL_CALLS} checkpoint advances: ${marker}`;
       }
 
-      checkpointAdvanceCallCounts.set(regressionCase, advanceCalls + 1);
+      state.advanceCalls += 1;
       return {
         toolCalls: [
           {
-            id: `advance-checkpoint-${advanceCalls + 1}`,
+            id: `advance-checkpoint-${state.advanceCalls}`,
             input: { regressionCase },
             name: "advance-checkpoint",
           },
@@ -140,33 +139,40 @@ const taskModel = mockModel({
       };
     }
 
-    const completedCalls = toolCallCounts.get(regressionCase) ?? 0;
-    if (completedCalls >= MAX_TOOL_CALLS) {
+    if (state.toolCalls >= MAX_TOOL_CALLS) {
       return `Hard stop after ${MAX_TOOL_CALLS} calls: ${marker}`;
     }
 
-    const attempt = completedCalls + 1;
-    toolCallCounts.set(regressionCase, attempt);
+    state.toolCalls += 1;
+    return { toolCalls: [workToolCall(state.toolCalls)] };
+  };
+}
 
-    return regressionCase === "redundant-tool-calls"
-      ? {
-          toolCalls: [
-            {
-              id: `inspect-repository-${attempt}`,
-              input: { scope: "repository" },
-              name: "inspect-repository",
-            },
-          ],
-        }
-      : {
-          toolCalls: [
-            {
-              id: `perform-source-analysis-${attempt}`,
-              input: { approach: `attempt-${attempt}` },
-              name: "perform-source-analysis",
-            },
-          ],
-        };
+let activeCase: RegressionCase | undefined;
+const caseStates = new Map<RegressionCase, CaseState>();
+let requestCount = 0;
+
+const taskModel = mockModel({
+  modelId: "compaction-regression-task-model",
+  respond(request) {
+    dumpContextWhenEnabled(request);
+
+    const initialCase = findInitialCase(request);
+    if (initialCase !== undefined && activeCase !== initialCase) {
+      activeCase = initialCase;
+      caseStates.set(initialCase, { advanceCalls: 0, toolCalls: 0 });
+    }
+
+    if (activeCase === undefined) {
+      throw new Error("Compaction regression task model received no case marker.");
+    }
+
+    const state = caseStates.get(activeCase);
+    if (state === undefined) {
+      throw new Error(`Compaction regression task model has no state for ${activeCase}.`);
+    }
+
+    return responders[activeCase](request, state);
   },
 });
 
@@ -183,6 +189,21 @@ export default defineAgent({
   },
 });
 
+// EVE_E2E_DUMP_CONTEXT=1 prints every request's messages — the context
+// exactly as the model sees it, so compaction, capping, and replay are
+// observable per step while iterating on these evals.
+function dumpContextWhenEnabled(request: MockModelRequest): void {
+  if (!process.env.EVE_E2E_DUMP_CONTEXT) {
+    return;
+  }
+  requestCount += 1;
+  console.log(`\n=== model request #${requestCount} (${request.messages.length} messages) ===`);
+  for (const message of request.messages) {
+    const text = message.text.replace(/\s+/g, " ");
+    console.log(`  [${message.role}] ${text.length} chars | ${text.slice(0, 160)}`);
+  }
+}
+
 function findInitialCase(request: MockModelRequest): RegressionCase | undefined {
   for (const message of request.userMessages) {
     const regressionCase = regressionCaseFromText(message);
@@ -198,14 +219,6 @@ function regressionCaseFromText(text: string): RegressionCase | undefined {
   if (text.includes("[case: task-survival]")) return "task-survival";
   if (text.includes("[case: oversized-step-truncation]")) return "oversized-step-truncation";
   return undefined;
-}
-
-function completionMarker(
-  regressionCase: Exclude<RegressionCase, "oversized-step-truncation" | "task-survival">,
-): string {
-  return regressionCase === "redundant-tool-calls"
-    ? "REPOSITORY_INSPECTION_COMPLETE"
-    : "SOURCE_ANALYSIS_COMPLETE";
 }
 
 function assistantEvidenceContains(
