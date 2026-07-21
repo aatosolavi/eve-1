@@ -4,16 +4,15 @@ import { estimateTokens } from "#harness/token-estimate.js";
 import { truncateToolResults, type ToolResultPart } from "#harness/tool-result-truncation.js";
 
 /**
- * Target minimum number of model steps between compactions. The per-step
- * tool-output budget is the compaction threshold divided by this count, so a
- * step's combined tool results can never fill the context in fewer steps.
+ * Target number of tool-output-heavy model steps per compaction threshold.
+ * The per-step tool-output budget is the threshold divided by this count, so
+ * typical thresholds allocate roughly one-twentieth of the window per step.
  */
 export const MIN_STEPS_BETWEEN_COMPACTIONS = 20;
 
-// Only guards degenerate thresholds (tests force compaction with thresholds in
-// the hundreds); it binds when threshold < 40k and never for a real context
-// window. There is deliberately no larger floor: at production thresholds the
-// step cadence wins over keeping a single maximum-size tool result whole.
+// Keeps tool feedback useful when the proportional budget would be too small.
+// It binds when the threshold is below 40k; below that point, readable tool
+// results take priority over the twenty-step target.
 const DEGENERATE_THRESHOLD_GUARD_TOKENS = 2_000;
 
 // Truncated results keep at least this much content so the model can see what
