@@ -20,63 +20,10 @@ export interface DatadogReporterConfig {
   readonly projectName: string;
 }
 
-interface DatadogLlmObs {
-  readonly enabled: boolean;
-  trace<T>(
-    options: {
-      kind: "workflow";
-      name: string;
-      sessionId?: string;
-      mlApp?: string;
-    },
-    fn: (span: unknown) => T,
-  ): T;
-  annotate(
-    span: unknown,
-    options: {
-      inputData?: Record<string, unknown>;
-      outputData?: Record<string, unknown>;
-      metadata?: Record<string, unknown>;
-      metrics?: Record<string, number>;
-      tags?: Record<string, string>;
-    },
-  ): void;
-  exportSpan(span: unknown): DatadogSpanContext;
-  submitEvaluation(spanContext: DatadogSpanContext, options: DatadogEvaluationOptions): void;
-  flush(): void | Promise<void>;
-}
-
-interface DatadogTracer {
-  readonly llmobs: DatadogLlmObs;
-  init(options: {
-    llmobs: {
-      agentlessEnabled: boolean;
-      mlApp: string;
-    };
-  }): DatadogTracer;
-}
-
 interface ResolvedDatadogReporterConfig {
   readonly apiKey: string;
   readonly appKey?: string;
   readonly projectName: string;
-}
-
-interface DatadogSpanContext {
-  readonly traceId: string;
-  readonly spanId: string;
-}
-
-interface DatadogEvaluationOptions {
-  readonly label: string;
-  readonly metricType: "score";
-  readonly value: number;
-  readonly tags?: Record<string, string>;
-  readonly mlApp?: string;
-  readonly timestampMs?: number;
-  readonly assessment?: "pass" | "fail";
-  readonly reasoning?: string;
-  readonly metadata?: Record<string, unknown>;
 }
 
 /**
@@ -187,11 +134,14 @@ class DatadogReporter implements EvalReporter {
 }
 
 const DATADOG_PACKAGE = "dd-trace";
+type DatadogTracer = typeof import("dd-trace");
+type DatadogModule = { readonly default: DatadogTracer };
+type DatadogLlmObs = DatadogTracer["llmobs"];
 
 async function loadDatadogLlmObs(config: ResolvedDatadogReporterConfig): Promise<DatadogLlmObs> {
-  let sdk: unknown;
+  let tracer: DatadogTracer;
   try {
-    sdk = await import(DATADOG_PACKAGE);
+    tracer = ((await import(DATADOG_PACKAGE)) as DatadogModule).default;
   } catch {
     throw new Error(
       [
@@ -203,13 +153,6 @@ async function loadDatadogLlmObs(config: ResolvedDatadogReporterConfig): Promise
     );
   }
 
-  const tracer = resolveDatadogTracer(sdk);
-  if (!isDatadogTracer(tracer)) {
-    throw new Error(
-      "The installed 'dd-trace' package does not expose the Datadog LLM Observability SDK. Install a current version of 'dd-trace'.",
-    );
-  }
-
   tracer.init({
     llmobs: {
       agentlessEnabled: true,
@@ -218,34 +161,6 @@ async function loadDatadogLlmObs(config: ResolvedDatadogReporterConfig): Promise
   });
 
   return tracer.llmobs;
-}
-
-function resolveDatadogTracer(sdk: unknown): unknown {
-  if (typeof sdk !== "object" || sdk === null) return undefined;
-
-  const module = sdk as { default?: unknown };
-  return module.default ?? module;
-}
-
-function isDatadogTracer(value: unknown): value is DatadogTracer {
-  if (typeof value !== "object" || value === null) return false;
-
-  const tracer = value as Partial<DatadogTracer>;
-  return typeof tracer.init === "function" && isDatadogLlmObs(tracer.llmobs);
-}
-
-function isDatadogLlmObs(value: unknown): value is DatadogLlmObs {
-  if (typeof value !== "object" || value === null) return false;
-
-  const llmobs = value as Partial<DatadogLlmObs>;
-  return (
-    typeof llmobs.enabled === "boolean" &&
-    typeof llmobs.trace === "function" &&
-    typeof llmobs.annotate === "function" &&
-    typeof llmobs.exportSpan === "function" &&
-    typeof llmobs.submitEvaluation === "function" &&
-    typeof llmobs.flush === "function"
-  );
 }
 
 function resolveDatadogReporterConfig(
