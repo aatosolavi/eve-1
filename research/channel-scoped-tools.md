@@ -4,65 +4,77 @@ status: proposed
 last_updated: "2026-07-21"
 ---
 
-# Channel-scoped dynamic tools
+# Channel tools: design options
 
-This proposal is intentionally split into two deliverables:
+Channels can receive messages, maintain delivery state, and react to session
+events. They cannot give the model actions that are available only through the
+active channel.
 
-1. **Part I — Channel-scoped tools API** defines and implements the
-   transport-neutral framework capability. It ships first and does not change
-   any platform channel's built-in behavior.
-2. **Part II — Slack features** follows after Part I and uses only that public
-   API to add Slack-specific tools and delivery behavior.
+Slack makes the gap concrete. An agent cannot post to another Slack channel,
+and it cannot stage a sandbox file for the Slack adapter to attach to its final
+reply. The first draft proposed an async tool resolver on `defineChannel`.
+Review raised a broader question: is that the right ownership boundary, or can
+we fit this into eve's existing tool and extension model?
 
-## Part I — Channel-scoped tools API
+This document compares the main designs. It does not recommend one yet.
 
-### Summary
+## What the design must support
 
-Channels need to contribute tools that exist only for turns running through
-that channel. The tool set may depend on the current caller, channel state, or
-an asynchronous policy check, and tool executors need the channel's live
-context so they can reuse inherited credentials without serializing them.
+- **Typed context.** Executors can use the channel's live client and state
+  without casts.
+- **Defaults and overrides.** Bundled channels can ship tools that applications
+  can replace or disable.
+- **Conditional tools.** Availability can depend on the current caller,
+  channel state, or an async policy check.
+- **Durable replay.** A resolved tool set survives workflow boundaries without
+  rerunning policy checks or serializing live clients and credentials.
+- **Discoverability.** Authors and `eve info` can explain where a tool came
+  from and when it is available.
+- **Off-channel behavior.** The design says what happens when another surface,
+  such as web or a schedule, asks for the same capability.
+- **A clear boundary.** Adding channel tools should not accidentally imply that
+  every definition type can contribute every other definition type.
+- **Safe context.** Channel-owned fields cannot collide with
+  framework-owned `ToolContext` fields.
 
-Add an async, per-turn `tools` resolver to `defineChannel`. It returns a
-record-keyed overlay of ordinary `defineTool(...)` definitions and
-`disableTool()` sentinels. The resolver and its tool executors receive the
-channel context returned by `context(...)`, in addition to their existing eve
-context.
+## Two kinds of capability
 
-### Public authoring API
+The motivating Slack tools have different lifetimes:
+
+- `stage_file_upload` is tied to delivery. It writes to the active thread's
+  durable state, and the Slack `message.completed` handler consumes that
+  state. It has no useful meaning outside a Slack-backed session.
+- `post_slack_message` belongs to a workspace. It needs Slack credentials,
+  but it does not need the active thread. A web or scheduled session could use
+  it just as well.
+
+This distinction matters. Channel-only designs fit delivery tools but hide
+workspace capabilities from other surfaces. Global designs make workspace
+capabilities easy but do not provide the live state delivery tools need.
+
+## Option A — inline resolver on the channel
+
+Add an async `tools` resolver to `defineChannel`. eve runs it once per turn,
+after the channel has hydrated auth and state. It returns a named overlay of
+`defineTool(...)` definitions and `disableTool()` sentinels.
 
 ```ts
-import { defineChannel, POST } from "eve/channels";
-import { z } from "zod";
-
 export default defineChannel({
-  state: {
-    workspaceId: null as string | null,
-  },
+  state: { workspaceId: null as string | null },
 
-  context(state, session) {
-    return {
-      state,
-      acme: createAcmeClient(credentials),
-    };
+  context(state) {
+    return { state, acme: createAcmeClient(credentials) };
   },
 
   async tools(ctx, { defineTool, disableTool }) {
-    const caller = ctx.session.auth.current;
-    const canPost = caller?.attributes.canPost === true;
+    const canPost = ctx.session.auth.current?.attributes.canPost === true;
 
     return {
       post_acme_message: canPost
         ? defineTool({
             description: "Post a message to an Acme room.",
-            inputSchema: z.object({
-              roomId: z.string(),
-              text: z.string(),
-            }),
-            async execute({ roomId, text }, ctx) {
-              await ctx.acme.postMessage(roomId, text);
-              return { roomId };
-            },
+            inputSchema: z.object({ roomId: z.string(), text: z.string() }),
+            execute: ({ roomId, text }, ctx) => ctx.channel.acme.postMessage(roomId, text),
           })
         : disableTool(),
     };
@@ -72,276 +84,249 @@ export default defineChannel({
 });
 ```
 
-`tools` has this conceptual public shape:
+The overlay is durable for the turn and is reapplied after ordinary static and
+dynamic tools. Bundled channels provide their defaults before the application
+overlay, so an application can replace or disable a default by key. Executors
+receive a freshly reconstructed channel context; they never capture the live
+resolver context.
 
-```ts
-type ChannelToolEntry<TContext> =
-  ChannelToolDefinition<TContext, unknown, unknown> | DisabledToolSentinel;
+This is the shortest path to the original API. It handles typed context,
+defaults, and set-level async policy well. The cost is that tools become the
+product of another inline resolver, and channel ownership—not the nature of the
+capability—determines where they are visible.
 
-type ChannelToolEntries<TContext> = Readonly<Record<string, ChannelToolEntry<TContext>>>;
+## Option B — a filesystem slot under the channel
 
-type ChannelToolResolver<TContext> = (
-  ctx: ChannelToolResolverContext<TContext>,
-  helpers: ChannelToolAuthoring<TContext>,
-) => ChannelToolEntries<TContext> | null | Promise<ChannelToolEntries<TContext> | null>;
+Keep channel ownership, but make tools visible on disk:
+
+```text
+agent/
+  channels/
+    acme/
+      channel.ts
+      tools/
+        post_message.ts
+        stage_upload.ts
 ```
 
-The concrete declarations should preserve all existing `defineTool` schema
-overloads rather than expose `unknown` to authors.
+Each file exports one tool, or a dynamic resolver that returns several tools.
+Names come from file paths. Bundled channel tools follow the extension override
+model: an application file with the same path replaces the default, while
+`disableTool()` removes it.
 
-- `ChannelToolResolverContext<TContext>` combines `SessionContext` with the
-  channel's inferred `context(...)` return. The current inbound caller is
-  available at `ctx.session.auth.current`; the session initiator remains at
-  `ctx.session.auth.initiator`.
-- The resolver's scoped `defineTool` is the canonical eve tool helper with its
-  executor context bound to `ToolContext & TContext`. It retains input/output
-  schema inference, approvals, `toModelOutput`, branding, and validation.
-- The resolver's `disableTool` is the existing sentinel helper. The containing
-  record key supplies the target name, replacing the filesystem path used by
-  `agent/tools/<name>.ts`.
-- Tool names are the bare record keys. They are not automatically prefixed by
-  the channel name.
-- Framework-owned `SessionContext` and `ToolContext` fields are reserved and
-  cannot be shadowed by the channel context.
-
-### Resolution and overlay semantics
-
-eve awaits the resolver once per turn, after the channel's `turn.started`
-handler has hydrated current auth and channel state and before the first model
-call. A new inbound caller therefore produces a newly resolved tool set on the
-next turn.
-
-The returned record is an overlay applied after framework, authored,
-extension, and ordinary dynamic tools:
-
-- an omitted key leaves the existing tool unchanged;
-- `defineTool(...)` adds the key or intentionally replaces its active
-  definition for this channel turn;
-- `disableTool()` removes the key for this channel turn;
-- `null` and an empty record make no changes.
-
-The channel overlay remains last in precedence for every model call, including
-when a `step.started` dynamic resolver contributes a matching name. Resolver
-failure fails the turn rather than reusing a previous caller's overlay or
-silently exposing a tool the resolver may have intended to remove.
-
-The resolved overlay is durable for the rest of the turn. Workflow replay uses
-the recorded result instead of repeating asynchronous policy checks. A later
-turn invokes the resolver again. Returned executors follow the existing
-dynamic-tool requirement that `execute` be inline and captured values be
-serializable.
-
-The live channel context is reconstructed for each tool execution and merged
-with `ToolContext`. Executors should use that fresh context rather than capture
-API handles from the resolver. Credentials, clients, and session handles never
-enter durable tool metadata.
-
-Channel tools are available only to the root session whose active adapter owns
-the resolver. They persist across follow-up turns on that channel and do not
-propagate into delegated subagents, schedules, framework HTTP sessions, or
-sessions on a different channel. A cross-channel `receive(...)` starts a root
-session owned by the target adapter, so that target resolves its own tools.
-
-### Implementation boundaries
-
-Reuse the existing dynamic-tool serialization and replay machinery for the
-resolved overlay, while associating the durable result with the active channel
-adapter and turn. The compiler must apply the existing inline-executor
-transform to tools returned from channel resolvers.
-
-The adapter registry continues to reattach channel behavior and construct live
-context after each workflow boundary. The harness merges the recorded channel
-overlay into its effective tool map last and must reject execution when the
-active adapter does not own that overlay.
-
-`eve info` should list these as conditional tools under their owning channel,
-not as globally available agent tools.
-
-### Validation
-
-- Type tests cover schema inference, resolver and executor access to custom
-  channel context, protected context fields, and ordinary tools remaining
-  limited to `ToolContext`.
-- Runtime tests cover async caller-based resolution, add/replace/disable
-  overlays, precedence over step-dynamic tools, resolver failure, and a new
-  overlay on the next turn.
-- Durability tests prove replay does not rerun the resolver, inline closure data
-  survives, and live clients or credentials are never serialized.
-- Scope tests cover custom-channel roots, follow-up turns, cross-channel
-  receive, and absence from other channels and subagents.
-- Update the custom channel, dynamic capabilities, and TypeScript API
-  documentation, and include a patch changeset for the published `eve` package.
-
-Part I is complete when custom channels can define, resolve, execute, disable,
-and durably replay channel-scoped tools. It must not add bundled tools or
-special-case any platform adapter.
-
-## Part II — Slack features built on the API
-
-Part II begins only after Part I lands. It adds Slack behavior by authoring
-channel tools and state through the public API; it must not introduce a private
-Slack-only tool registry or execution path.
-
-### Cross-channel message posting
-
-`slackChannel()` contributes `post_slack_message` by default:
+There are two plausible typing APIs:
 
 ```ts
-post_slack_message({
-  channelId: string,
-  text: string,
-  threadTs?: string,
-});
+// Instance-bound helper: best inference, but every tool imports the channel value.
+import acme from "../channel";
+export default acme.tool({/* ctx.channel is AcmeContext */});
 ```
 
-Its executor calls the Slack API through `ctx.slack`, reusing the channel's bot
-credentials and workspace binding, and returns an eve-owned result:
-
 ```ts
-{
-  channelId: string;
-  messageTs: string;
-  threadTs: string | null;
-}
+// Generic helper: type-only coupling, but the author can name the wrong channel.
+import { defineChannelTool } from "eve/channels";
+import type acme from "../channel";
+export default defineChannelTool<typeof acme>({/* ... */});
 ```
 
-`SlackChannelConfig.tools` accepts the Part I async resolver. Slack merges its
-bundled defaults first and applies the authored overlay second, so applications
-can conditionally disable, replace, or extend the defaults:
+Putting each tool on disk fits eve's filesystem model and makes the set easy to
+inspect. It requires new discovery rules beneath `channels/`, and a policy that
+changes several tools may still be split across several files. Like Option A,
+every tool in the slot is channel-scoped.
+
+## Option C — ordinary dynamic tools with a typed channel accessor
+
+Keep tools in `agent/tools/`. Channels expose a typed accessor that returns
+their live context when the current session uses that channel.
 
 ```ts
-export default slackChannel({
-  async tools(ctx, { defineTool, disableTool }) {
-    if (ctx.session.auth.current?.attributes.readOnly === true) {
-      return { post_slack_message: disableTool() };
-    }
+// agent/tools/slack.ts
+export default defineDynamic({
+  events: {
+    "turn.started": (_event, ctx) => {
+      const slack = slackContext(ctx);
+      if (slack === null) return null;
 
-    return {
-      find_slack_user: defineTool({
-        description: "Find a Slack user by email.",
-        inputSchema: z.object({ email: z.string().email() }),
-        execute: ({ email }, ctx) => ctx.slack.request("users.lookupByEmail", { email }),
-      }),
-    };
+      return {
+        post_message: defineTool({
+          description: "Post a message to another Slack channel.",
+          inputSchema: z.object({ channelId: z.string(), text: z.string() }),
+          execute: ({ channelId, text }, ctx) =>
+            slackContext(ctx)!.slack.request("chat.postMessage", {
+              channel: channelId,
+              text,
+            }),
+        }),
+      };
+    },
   },
 });
 ```
 
-The default is present when the application omits `tools`, returns `null`, or
-does not mention `post_slack_message`.
+The accessor can also be used by static tools and hooks. It avoids merging
+channel fields into `ToolContext`, and the existing dynamic-tool lifecycle
+already provides conditional resolution and replay.
 
-### Staged file delivery
+The missing piece is bundled defaults. A channel package cannot place files in
+an application's `agent/tools/`. Defaults would need a hidden channel
+registry, which brings back Option A internally, or a companion extension as
+in Option E.
 
-Slack also contributes `stage_file_upload`. The tool does not upload bytes
-itself. It records a sandbox-relative path in durable Slack channel state, and
-the final `message.completed` handler reads and attaches the file using the
-same Slack binding that posts the answer.
+## Option D — tools declare a channel requirement
 
-The state is a queue rather than a single path so one turn can stage several
-files. Entries carry the turn id to prevent an abandoned file from leaking into
-a later answer and the tool call id to make replay an upsert rather than a
-duplicate append:
+Keep tools in their existing slot and let each tool declare the channel context
+it requires:
 
 ```ts
-interface SlackPendingUpload {
-  id: string;
-  turnId: string;
-  path: string;
-  filename: string;
-}
+// agent/tools/post_acme_message.ts
+import acme from "../channels/acme";
 
-interface SlackChannelState {
-  // Existing fields omitted.
-  pendingUploads: SlackPendingUpload[];
-}
+export default defineTool({
+  channel: acme,
+  description: "Post a message to an Acme room.",
+  inputSchema: z.object({ roomId: z.string(), text: z.string() }),
+  execute: ({ roomId, text }, ctx) => ctx.channel.acme.postMessage(roomId, text),
+});
 ```
 
-The channel authors the tool with the Part I API:
+The declaration controls advertisement and gives the executor a non-nullable,
+inferred `ctx.channel`. Caller-specific availability can remain a dynamic tool
+concern, or the API can add a per-tool `enabled(ctx)` predicate.
+
+This is explicit and easy to search. It also allows visibility to be chosen per
+tool, which fits the delivery/workspace split. Set-level policy is less
+convenient: one async decision that controls five tools becomes five predicates
+unless those tools come from one dynamic resolver.
+
+Bundled defaults would merge with authored tools by name, like framework tools
+today. That needs a way for a channel package to register those default
+definitions without creating a second public authoring surface.
+
+## Option E — workspace capabilities as an extension
+
+Put workspace-wide actions in an extension rather than the channel:
 
 ```ts
-stage_file_upload: defineTool({
-  description: "Attach a sandbox file to the final Slack response.",
-  inputSchema: z.object({
-    path: z.string(),
-    filename: z.string(),
-  }),
-  execute({ path, filename }, ctx) {
-    const pending = {
-      id: ctx.callId,
-      turnId: ctx.session.turn.id,
-      path,
-      filename,
-    };
-    const index = ctx.state.pendingUploads.findIndex((file) => file.id === ctx.callId);
+// agent/extensions/slack.ts
+import { slackExtension } from "eve/extensions/slack";
 
-    if (index === -1) ctx.state.pendingUploads.push(pending);
-    else ctx.state.pendingUploads[index] = pending;
-
-    return { staged: true, path, filename };
-  },
-}),
+export default slackExtension({
+  botToken: process.env.SLACK_BOT_TOKEN,
+});
 ```
 
-The Slack `message.completed` handler ignores intermediate completions that
-request tools. On the final completion it loads this turn's paths from the live
-sandbox, posts the message and files together, then removes only the entries it
-successfully delivered:
+The extension can contribute namespaced tools such as
+`slack__post_message` and `slack__find_user` to every session. Existing
+extension discovery, overrides, `disableTool()`, compatibility metadata, and
+`eve info` support all apply.
+
+This gives workspace capabilities the cleanest off-channel behavior. It does
+not solve delivery-bound tools: `stage_file_upload` needs the active channel's
+state and `message.completed` handler. Option E therefore pairs with a small
+channel-scoped mechanism rather than replacing one.
+
+The channel and extension also need one credential story. Requiring authors to
+configure the same Slack credentials twice would be a poor result.
+
+## Option F — a general contributions API
+
+Generalize the idea beyond tools:
 
 ```ts
-async "message.completed"(data, channel, ctx) {
-  if (data.finishReason === "tool-calls") return;
-
-  const pending = channel.state.pendingUploads.filter(
-    (file) => file.turnId === ctx.session.turn.id,
-  );
-  if (pending.length === 0) {
-    await channel.thread.post(data.message);
-    return;
-  }
-
-  const sandbox = await ctx.getSandbox();
-  const files = await Promise.all(
-    pending.map(async ({ path, filename }) => {
-      const data = await sandbox.readBinaryFile({ path });
-      if (data === null) throw new Error(`Staged file does not exist: ${path}`);
-      return { data, filename };
+export default defineChannel({
+  contributes: {
+    tools: async (ctx) => ({
+      post_acme_message: defineTool({/* ... */}),
     }),
-  );
-
-  await channel.thread.post({
-    markdown: data.message,
-    files,
-  });
-
-  const delivered = new Set(pending.map((file) => file.id));
-  channel.state.pendingUploads = channel.state.pendingUploads.filter(
-    (file) => !delivered.has(file.id),
-  );
-},
+    skills: () => ({
+      acme_formatting: defineSkill({/* ... */}),
+    }),
+    instructions: () => ["Prefer the caller's locale."],
+  },
+});
 ```
 
-Only JSON metadata belongs in channel state; file bytes remain in the sandbox.
-Paths are interpreted by `SandboxSession`, so relative paths resolve from
-`/workspace` and no host filesystem path is persisted. The handler clears
-entries only after Slack accepts the upload. Terminal `turn.failed` and
-`turn.cancelled` handlers discard entries for that turn so abandoned paths do
-not accumulate.
+The same shape could eventually apply to extensions and other owners. The
+runtime already has related lifecycle machinery for tools, skills, and
+instructions.
 
-The bundled Slack default handler performs this drain. An application that
-replaces `events["message.completed"]` assumes responsibility for posting the
-answer and draining staged uploads, matching the existing replace-not-compose
-event semantics. It may instead disable `stage_file_upload` through its tools
-overlay.
+This gives the framework one general rule instead of making channels special.
+It is also much larger than the problem at hand. The first version would need
+precedence and lifecycle rules across every contribution kind, while retaining
+the discoverability and channel-scope drawbacks of Option A.
 
-### Slack validation and delivery
+## Decisions shared by several options
 
-- Verify `post_slack_message` request mapping, inherited credentials, optional
-  thread targeting, stable output, conditional disablement, and API errors
-  without credential leakage.
-- Verify one and multiple staged files, parallel tool calls, replay upserts,
-  final-message-only delivery, missing files, successful cleanup, and terminal
-  cleanup after failed or cancelled turns.
-- Verify both tools are absent from non-Slack roots and delegated subagents,
-  while proactive `receive(slack, ...)` sessions receive them.
-- Update the Slack documentation and add a separate patch changeset for the
-  Part II `eve` package change.
+### Context shape
+
+Options A, B, D, and F still need to decide how channel context reaches an
+executor:
+
+1. **Flat:** `ctx.slack` or `ctx.acme`. Concise, but every future
+   `ToolContext` field can collide with a channel field.
+2. **Namespaced:** `ctx.channel.slack` or `ctx.channel.acme`. One reserved
+   key, at the cost of one extra property access.
+3. **Accessor:** `slackContext(ctx)`. No merge and explicit narrowing, but the
+   result is nullable outside the matching channel.
+
+The namespaced form is the conservative default if the chosen design merges
+context. The accessor remains useful even if it is not the primary authoring
+API.
+
+### Visibility
+
+Channel-associated tools can be:
+
+1. available only to root sessions on the owning channel;
+2. advertised more broadly and resolved or rejected at execution;
+3. global when credentials do not depend on the active channel; or
+4. configured per tool.
+
+The delivery/workspace split points toward per-tool visibility. Delivery-bound
+tools should be channel-only. Workspace capabilities should be global when
+their credentials can be resolved independently of the active channel.
+
+## Comparison
+
+| Option                   | Typed context  | Defaults | Async set policy | Replay | Discoverable | Off-channel | Narrow boundary |
+| ------------------------ | -------------- | -------- | ---------------- | ------ | ------------ | ----------- | --------------- |
+| A — inline resolver      | Strong         | Strong   | Strong           | Strong | Weak         | Weak        | Weak            |
+| B — filesystem slot      | Strong¹        | Strong   | Mixed            | Strong | Strong       | Weak        | Mixed           |
+| C — accessor             | Nullable       | Missing  | Strong           | Strong | Strong       | Mixed       | Strong          |
+| D — declared requirement | Strong         | Strong²  | Mixed            | Strong | Strong       | Mixed       | Strong          |
+| E — extension            | Not applicable | Strong   | Mixed            | Strong | Strong       | Strong      | Strong          |
+| F — contributions        | Strong         | Strong   | Strong           | Strong | Weak         | Weak        | Strong          |
+
+¹ Depends on the instance-bound or generic helper.
+
+² Requires an internal default-tool registration path for bundled channels.
+
+Options can be combined. In particular:
+
+- **C + E** keeps channel context behind an accessor and puts workspace tools in
+  an extension. It still cannot bundle delivery-bound defaults without another
+  registration mechanism.
+- **D + E** uses declared channel requirements for delivery tools and an
+  extension for workspace tools.
+
+## How the Slack examples map to each option
+
+| Option | `post_slack_message`                                                                     | `stage_file_upload`                                |
+| ------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| A      | Bundled resolver tool, available only on Slack sessions.                                 | Bundled resolver tool writing channel state.       |
+| B      | File in the Slack channel's tool slot.                                                   | File in the same slot, writing channel state.      |
+| C      | Ordinary dynamic tool gated by `slackContext(ctx)`; not bundleable by the channel alone. | Same, but the channel cannot ship it as a default. |
+| D      | Ordinary tool with a Slack requirement, or a global extension tool.                      | Hard-scoped tool with a Slack requirement.         |
+| E      | Global, namespaced extension tool.                                                       | Not supported without a channel-scoped companion.  |
+| F      | Slack-owned tool contribution.                                                           | Slack-owned contribution writing channel state.    |
+
+The upload mechanics do not depend on the authoring shape: store a
+JSON-serializable queue keyed by turn and tool call, keep bytes in the sandbox,
+drain the queue on the final `message.completed`, and clean up terminal turns.
+
+## Next step
+
+Use review feedback to narrow the list and settle context shape and visibility.
+Then replace this comparison with a decision-complete specification of the
+winning API. The Slack implementation should follow that API rather than add a
+private registry or execution path.
