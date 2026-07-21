@@ -1,5 +1,31 @@
 # eve
 
+## 0.27.0
+
+### Minor Changes
+
+- 1db41fd: `eve/nuxt` now deploys the agent through Vercel's stable services model: on Vercel builds the module generates an eve Build Output service and a `/eve/v1/*` service route instead of writing legacy `experimentalServices` to `vercel.json`, which Vercel no longer routes (every agent request returned a platform NOT_FOUND). The `configureVercelJson` and `servicePrefix` module options and the `EVE_NUXT_SERVICE_PREFIX` export were removed. Delete any generated `experimentalServices` block from `vercel.json` — the module warns when it sees one — or declare the eve service and its rewrite yourself under the stable `services` field to keep managing routing manually.
+
+  A generated eve service build now also skips host middleware preservation when the host's Build Output config is not yet present, instead of failing the build. Unlike the Next.js integration, which writes that config early, the Nuxt web service emits it only at the end of its own build, so an isolated eve service build could crash reading a file that had no middleware to preserve.
+
+### Patch Changes
+
+- 707de7f: Anthropic models served through the standard `@ai-sdk/amazon-bedrock` Converse provider are now detected as cacheable. Prompt-cache breakpoints previously only matched on the provider name, so Bedrock (which reports provider `amazon-bedrock` and carries the Anthropic identity in the model id) fell through to no caching. The cache marker now also carries the Bedrock `cachePoint` namespace that the Converse provider reads.
+- 7df0bf1: Compaction now reserves room for its checkpoint prompt before reaching the configured threshold. The prompt asks the compaction model to distinguish completed work from remaining work, and later compactions receive the previous checkpoint intact instead of truncating it with ordinary transcript text.
+- 7df0bf1: Compaction now feeds the summarizer full-fidelity conversation text (tool payloads stay compact) and first tries evicting older tool results before summarizing; the kept recent window retains tool results verbatim. Agents lose less context per compaction and stop re-running completed tools.
+- c0e368a: Routes protected by `httpBasic()` now advertise a standards-compliant `WWW-Authenticate: Basic` challenge on 401, using an optional realm that defaults to `"eve"`; HTTP Basic credentials are normalized to Unicode NFC to match the advertised UTF-8 encoding. `routeAuth` collects challenges from the configured auth strategies instead of always emitting `Bearer`.
+
+## 0.26.2
+
+### Patch Changes
+
+- dbca15c: Bump the vendored chat SDK (`chat`, `@chat-adapter/*`) from 4.31.0 to 4.34.0. Slack card tables now render as native data table blocks — paginated and sortable — instead of plain table blocks, and `Table()` supports optional `caption` and `pageSize` fields.
+- 938ef92: Identify Eve and its version on AI Gateway, Sandbox, and Workflow service requests.
+- d034e01: Fixed the default chat message reducer dropping assistant text when a single turn produced more than one message — for example, text shown before an OAuth authorization prompt was overwritten by the text that followed it once authorization completed. Each message now renders in the order it arrived.
+- dad9472: `eve info` now reports discovered subagents and schedules in both the human table and the `--json` output, matching what the CLI reference already documented. Previously both surfaces silently omitted them even though discovery resolved them correctly.
+- f1253c5: Listing or loading static skills no longer requires opening a sandbox. Dynamic skills and access to supporting skill package files, such as references, assets, and scripts, remain sandbox-backed.
+- de917a6: Fix a crash when an agent is triggered by a bare mention with no text (e.g. sending just `@bot` in a Microsoft Teams channel). The agent now responds normally instead of failing.
+
 ## 0.26.1
 
 ### Patch Changes
