@@ -1,12 +1,22 @@
 ---
 issue: TBD
 status: proposed
-last_updated: "2026-07-20"
+last_updated: "2026-07-21"
 ---
 
 # Channel-scoped dynamic tools
 
-## Summary
+This proposal is intentionally split into two deliverables:
+
+1. **Part I — Channel-scoped tools API** defines and implements the
+   transport-neutral framework capability. It ships first and does not change
+   any platform channel's built-in behavior.
+2. **Part II — Slack features** follows after Part I and uses only that public
+   API to add Slack-specific tools and delivery behavior.
+
+## Part I — Channel-scoped tools API
+
+### Summary
 
 Channels need to contribute tools that exist only for turns running through
 that channel. The tool set may depend on the current caller, channel state, or
@@ -19,7 +29,7 @@ record-keyed overlay of ordinary `defineTool(...)` definitions and
 channel context returned by `context(...)`, in addition to their existing eve
 context.
 
-## Public authoring API
+### Public authoring API
 
 ```ts
 import { defineChannel, POST } from "eve/channels";
@@ -94,7 +104,7 @@ overloads rather than expose `unknown` to authors.
 - Framework-owned `SessionContext` and `ToolContext` fields are reserved and
   cannot be shadowed by the channel context.
 
-## Resolution and overlay semantics
+### Resolution and overlay semantics
 
 eve awaits the resolver once per turn, after the channel's `turn.started`
 handler has hydrated current auth and channel state and before the first model
@@ -122,17 +132,57 @@ dynamic-tool requirement that `execute` be inline and captured values be
 serializable.
 
 The live channel context is reconstructed for each tool execution and merged
-with `ToolContext`. Executors should use that fresh context (for example,
-`ctx.slack`) rather than capture API handles from the resolver. Credentials,
-clients, and session handles never enter durable tool metadata.
+with `ToolContext`. Executors should use that fresh context rather than capture
+API handles from the resolver. Credentials, clients, and session handles never
+enter durable tool metadata.
 
 Channel tools are available only to the root session whose active adapter owns
-the resolver. They persist across follow-up turns on that channel and are
-available when `receive(slack, ...)` starts a Slack-owned session. They do not
-propagate into delegated subagents, schedules, HTTP sessions, or sessions on a
-different channel.
+the resolver. They persist across follow-up turns on that channel and do not
+propagate into delegated subagents, schedules, framework HTTP sessions, or
+sessions on a different channel. A cross-channel `receive(...)` starts a root
+session owned by the target adapter, so that target resolves its own tools.
 
-## Slack default
+### Implementation boundaries
+
+Reuse the existing dynamic-tool serialization and replay machinery for the
+resolved overlay, while associating the durable result with the active channel
+adapter and turn. The compiler must apply the existing inline-executor
+transform to tools returned from channel resolvers.
+
+The adapter registry continues to reattach channel behavior and construct live
+context after each workflow boundary. The harness merges the recorded channel
+overlay into its effective tool map last and must reject execution when the
+active adapter does not own that overlay.
+
+`eve info` should list these as conditional tools under their owning channel,
+not as globally available agent tools.
+
+### Validation
+
+- Type tests cover schema inference, resolver and executor access to custom
+  channel context, protected context fields, and ordinary tools remaining
+  limited to `ToolContext`.
+- Runtime tests cover async caller-based resolution, add/replace/disable
+  overlays, precedence over step-dynamic tools, resolver failure, and a new
+  overlay on the next turn.
+- Durability tests prove replay does not rerun the resolver, inline closure data
+  survives, and live clients or credentials are never serialized.
+- Scope tests cover custom-channel roots, follow-up turns, cross-channel
+  receive, and absence from other channels and subagents.
+- Update the custom channel, dynamic capabilities, and TypeScript API
+  documentation, and include a patch changeset for the published `eve` package.
+
+Part I is complete when custom channels can define, resolve, execute, disable,
+and durably replay channel-scoped tools. It must not add bundled tools or
+special-case any platform adapter.
+
+## Part II — Slack features built on the API
+
+Part II begins only after Part I lands. It adds Slack behavior by authoring
+channel tools and state through the public API; it must not introduce a private
+Slack-only tool registry or execution path.
+
+### Cross-channel message posting
 
 `slackChannel()` contributes `post_slack_message` by default:
 
@@ -155,7 +205,7 @@ credentials and workspace binding, and returns an eve-owned result:
 }
 ```
 
-`SlackChannelConfig.tools` accepts the same async resolver. Slack merges its
+`SlackChannelConfig.tools` accepts the Part I async resolver. Slack merges its
 bundled defaults first and applies the authored overlay second, so applications
 can conditionally disable, replace, or extend the defaults:
 
@@ -180,35 +230,118 @@ export default slackChannel({
 The default is present when the application omits `tools`, returns `null`, or
 does not mention `post_slack_message`.
 
-## Implementation boundaries
+### Staged file delivery
 
-Reuse the existing dynamic-tool serialization and replay machinery for the
-resolved overlay, while associating the durable result with the active channel
-adapter and turn. The compiler must apply the existing inline-executor
-transform to tools returned from channel resolvers.
+Slack also contributes `stage_file_upload`. The tool does not upload bytes
+itself. It records a sandbox-relative path in durable Slack channel state, and
+the final `message.completed` handler reads and attaches the file using the
+same Slack binding that posts the answer.
 
-The adapter registry continues to reattach channel behavior and construct live
-context after each workflow boundary. The harness merges the recorded channel
-overlay into its effective tool map last and must reject execution when the
-active adapter does not own that overlay.
+The state is a queue rather than a single path so one turn can stage several
+files. Entries carry the turn id to prevent an abandoned file from leaking into
+a later answer and the tool call id to make replay an upsert rather than a
+duplicate append:
 
-`eve info` should list these as conditional tools under their owning channel,
-not as globally available agent tools.
+```ts
+interface SlackPendingUpload {
+  id: string;
+  turnId: string;
+  path: string;
+  filename: string;
+}
 
-## Validation
+interface SlackChannelState {
+  // Existing fields omitted.
+  pendingUploads: SlackPendingUpload[];
+}
+```
 
-- Type tests cover schema inference, resolver and executor access to custom
-  channel context, protected context fields, and ordinary tools remaining
-  limited to `ToolContext`.
-- Runtime tests cover async caller-based resolution, add/replace/disable
-  overlays, precedence over step-dynamic tools, resolver failure, and a new
-  overlay on the next turn.
-- Durability tests prove replay does not rerun the resolver, inline closure data
-  survives, and live clients or credentials are never serialized.
-- Scope tests cover Slack and custom-channel roots, follow-up turns,
-  cross-channel receive, and absence from other channels and subagents.
-- Slack tests cover the default request and stable result, inherited
-  credentials, optional thread targeting, conditional disablement, custom
-  additions, and API failures without credential leakage.
-- Update the custom channel, Slack, dynamic capabilities, and TypeScript API
-  documentation, and include a patch changeset for the published `eve` package.
+The channel authors the tool with the Part I API:
+
+```ts
+stage_file_upload: defineTool({
+  description: "Attach a sandbox file to the final Slack response.",
+  inputSchema: z.object({
+    path: z.string(),
+    filename: z.string(),
+  }),
+  execute({ path, filename }, ctx) {
+    const pending = {
+      id: ctx.callId,
+      turnId: ctx.session.turn.id,
+      path,
+      filename,
+    };
+    const index = ctx.state.pendingUploads.findIndex((file) => file.id === ctx.callId);
+
+    if (index === -1) ctx.state.pendingUploads.push(pending);
+    else ctx.state.pendingUploads[index] = pending;
+
+    return { staged: true, path, filename };
+  },
+}),
+```
+
+The Slack `message.completed` handler ignores intermediate completions that
+request tools. On the final completion it loads this turn's paths from the live
+sandbox, posts the message and files together, then removes only the entries it
+successfully delivered:
+
+```ts
+async "message.completed"(data, channel, ctx) {
+  if (data.finishReason === "tool-calls") return;
+
+  const pending = channel.state.pendingUploads.filter(
+    (file) => file.turnId === ctx.session.turn.id,
+  );
+  if (pending.length === 0) {
+    await channel.thread.post(data.message);
+    return;
+  }
+
+  const sandbox = await ctx.getSandbox();
+  const files = await Promise.all(
+    pending.map(async ({ path, filename }) => {
+      const data = await sandbox.readBinaryFile({ path });
+      if (data === null) throw new Error(`Staged file does not exist: ${path}`);
+      return { data, filename };
+    }),
+  );
+
+  await channel.thread.post({
+    markdown: data.message,
+    files,
+  });
+
+  const delivered = new Set(pending.map((file) => file.id));
+  channel.state.pendingUploads = channel.state.pendingUploads.filter(
+    (file) => !delivered.has(file.id),
+  );
+},
+```
+
+Only JSON metadata belongs in channel state; file bytes remain in the sandbox.
+Paths are interpreted by `SandboxSession`, so relative paths resolve from
+`/workspace` and no host filesystem path is persisted. The handler clears
+entries only after Slack accepts the upload. Terminal `turn.failed` and
+`turn.cancelled` handlers discard entries for that turn so abandoned paths do
+not accumulate.
+
+The bundled Slack default handler performs this drain. An application that
+replaces `events["message.completed"]` assumes responsibility for posting the
+answer and draining staged uploads, matching the existing replace-not-compose
+event semantics. It may instead disable `stage_file_upload` through its tools
+overlay.
+
+### Slack validation and delivery
+
+- Verify `post_slack_message` request mapping, inherited credentials, optional
+  thread targeting, stable output, conditional disablement, and API errors
+  without credential leakage.
+- Verify one and multiple staged files, parallel tool calls, replay upserts,
+  final-message-only delivery, missing files, successful cleanup, and terminal
+  cleanup after failed or cancelled turns.
+- Verify both tools are absent from non-Slack roots and delegated subagents,
+  while proactive `receive(slack, ...)` sessions receive them.
+- Update the Slack documentation and add a separate patch changeset for the
+  Part II `eve` package change.
