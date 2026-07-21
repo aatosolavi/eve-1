@@ -8,7 +8,11 @@ import type { StepInput, StepResult, TurnDependencies } from "#core/types.js";
  * in request order as the next step's input.
  */
 export async function next(dependencies: TurnDependencies, input: StepInput): Promise<StepResult> {
-  const generated = await dependencies.generate({ input: input.input, state: input.state });
+  const generated = await dependencies.generate({
+    input: input.input,
+    state: input.state,
+    stepOrdinal: input.stepOrdinal,
+  });
 
   if (generated.kind === "finish") {
     return {

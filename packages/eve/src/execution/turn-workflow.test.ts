@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HookPayload } from "#channel/types.js";
 import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
@@ -55,6 +55,10 @@ vi.mock("./workflow-callback-url.js", () => ({
 }));
 
 describe("turnWorkflow", () => {
+  beforeEach(() => {
+    installInbox([]);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     resumeHookMock.mockReset();
@@ -74,6 +78,7 @@ describe("turnWorkflow", () => {
     await turnWorkflow(input);
 
     expect(turnStep).toHaveBeenCalledWith({
+      abortSignal: expect.any(AbortSignal),
       input: input.stepInput.input,
       parentWritable,
       serializedContext: input.stepInput.serializedContext,
@@ -115,6 +120,7 @@ describe("turnWorkflow", () => {
     });
 
     expect(turnStep).toHaveBeenCalledWith({
+      abortSignal: expect.any(AbortSignal),
       input: delivery,
       parentWritable,
       serializedContext: { state: "start" },
@@ -183,31 +189,6 @@ describe("turnWorkflow", () => {
     );
   });
 
-  it("dispatches runtime actions when a runtime action batch is pending", async () => {
-    const sessionState = createSessionState();
-    vi.mocked(turnStep).mockResolvedValueOnce({
-      action: "park",
-      hasPendingAuthorization: false,
-      hasPendingInputBatch: false,
-      pendingRuntimeActionKeys: ["subagent-call:delegate:call-1"],
-      serializedContext: { state: "pending-runtime-action" },
-      sessionState,
-    });
-
-    const { input } = createInput({ mode: "task", sessionState });
-    await turnWorkflow(input);
-
-    expect(resumeHookMock).toHaveBeenCalledWith("turn-token", {
-      action: {
-        kind: "dispatch-runtime-actions",
-        pendingActionKeys: ["subagent-call:delegate:call-1"],
-        serializedContext: { state: "pending-runtime-action" },
-        sessionState,
-      },
-      kind: "turn-result",
-    });
-  });
-
   it("parks for pending input when the channel supports input requests", async () => {
     const sessionState = createSessionState();
     vi.mocked(turnStep).mockResolvedValueOnce({
@@ -268,7 +249,6 @@ describe("turnWorkflow", () => {
 
     // Task mode on purpose: cancellation bypasses the `canPark` gate.
     const { input } = createInput({
-      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
       mode: "task",
       sessionState,
     });
@@ -307,7 +287,6 @@ describe("turnWorkflow", () => {
     });
 
     const { input } = createInput({
-      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
       sessionState,
     });
     await turnWorkflow(input);
@@ -332,7 +311,6 @@ describe("turnWorkflow", () => {
     });
 
     const { input } = createInput({
-      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
       sessionState,
     });
     await turnWorkflow(input);
@@ -351,23 +329,6 @@ describe("turnWorkflow", () => {
     );
   });
 
-  it("registers no cancel hook when the driver cannot settle cancelled parks", async () => {
-    const sessionState = createSessionState();
-    installInbox([]);
-    vi.mocked(turnStep).mockResolvedValueOnce({
-      action: "done",
-      output: "ok",
-      serializedContext: { state: "done" },
-      sessionState,
-    });
-
-    const { input } = createInput({ driverCapabilities: { turnInbox: true }, sessionState });
-    await turnWorkflow(input);
-
-    expect(vi.mocked(turnStep).mock.calls[0]?.[0].abortSignal).toBeUndefined();
-    expect(cancelHookTokens()).toEqual([]);
-  });
-
   it("registers no cancel hook when the session cannot park", async () => {
     const sessionState = createSessionState({ continuationToken: "" });
     installInbox([]);
@@ -379,7 +340,6 @@ describe("turnWorkflow", () => {
     });
 
     const { input } = createInput({
-      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
       mode: "task",
       sessionState,
     });
@@ -404,7 +364,6 @@ describe("turnWorkflow", () => {
     });
 
     const { input } = createInput({
-      driverCapabilities: { turnInbox: true },
       sessionState,
     });
     await Promise.all([turnWorkflow(input), turnWorkflow(input)]);
@@ -428,7 +387,7 @@ describe("turnWorkflow", () => {
         token: "turn-token:inbox",
       },
     });
-    const { input } = createInput({ driverCapabilities: { turnInbox: true } });
+    const { input } = createInput();
 
     await turnWorkflow(input);
 
@@ -441,7 +400,7 @@ describe("turnWorkflow", () => {
   it("reports non-conflict inbox claim failures to the driver", async () => {
     const failure = new Error("hook storage unavailable");
     const inbox = installInbox([], { claimError: failure });
-    const { input } = createInput({ driverCapabilities: { turnInbox: true } });
+    const { input } = createInput();
 
     await expect(turnWorkflow(input)).rejects.toBe(failure);
 
@@ -491,7 +450,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input, parentWritable } = createInput({
-      driverCapabilities: { turnInbox: true },
       mode: "task",
       sessionState: initialState,
     });
@@ -564,7 +522,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input } = createInput({
-      driverCapabilities: { cancelledTurnSettle: true, turnInbox: true },
       mode: "task",
       sessionState: initialState,
     });
@@ -616,7 +573,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input, parentWritable } = createInput({
-      driverCapabilities: { turnInbox: true },
       mode: "task",
       sessionState: pendingState,
     });
@@ -698,7 +654,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input } = createInput({
-      driverCapabilities: { turnInbox: true },
       mode: "task",
       sessionState: pendingState,
     });
@@ -808,7 +763,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input, parentWritable } = createInput({
-      driverCapabilities: { turnInbox: true },
       mode: "task",
       sessionState: pendingState,
     });
@@ -913,7 +867,6 @@ describe("turnWorkflow", () => {
       });
 
     const { input } = createInput({
-      driverCapabilities: { turnInbox: true },
       mode: "task",
       sessionState: pendingState,
     });

@@ -35,7 +35,13 @@ export async function runTurn(backend: TurnBackend, input: TurnProgramInput): Pr
         input.mode === "conversation";
       if (!canPark) throw new Error(TASK_MODE_WAIT_ERROR_MESSAGE);
 
-      return { authorizationNames: step.authorizationNames, kind: "waiting", state };
+      return {
+        authorizationNames: step.authorizationNames,
+        hasPendingAuthorization: step.hasPendingAuthorization,
+        hasPendingInputBatch: step.hasPendingInputBatch,
+        kind: "waiting",
+        state,
+      };
     }
 
     if (step.kind === "cancelled") {

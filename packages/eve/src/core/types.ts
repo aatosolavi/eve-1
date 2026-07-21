@@ -23,6 +23,7 @@ export type Delivery = DeliverHookPayload;
 export interface GenerateInput {
   readonly input: TurnInput | undefined;
   readonly state: SessionState;
+  readonly stepOrdinal: number;
 }
 
 /**
@@ -93,11 +94,26 @@ export interface TurnBackend extends TurnDependencies {
   checkpoint(state: SessionState): Promise<void>;
 }
 
-/** Everything the loop can do, enumerable in one place. */
-export interface LoopBackend extends TurnBackend {
-  finish(outcome: TerminalOutcome): Promise<void>;
-  receive(state: SessionState): Promise<Delivery>;
-  spawnTurn(input: TurnProgramInput): TurnHandle;
+/** A completed turn, including the final session state. */
+export type CompletedTurn = Extract<TurnOutcome, { readonly kind: "done" }>;
+
+/** A parked turn whose reason must cross the session boundary intact. */
+export type SuspendedTurn = Exclude<TurnOutcome, CompletedTurn>;
+
+/** The result of parking a suspended turn at the engine boundary. */
+export type SessionAdvance =
+  | {
+      readonly delivery: Delivery;
+      readonly kind: "delivery";
+      readonly state: SessionState;
+    }
+  | { readonly kind: "closed"; readonly outcome: TerminalOutcome };
+
+/** Engine operations used only by the shared session program. */
+export interface SessionBackend {
+  finish(turn: CompletedTurn): Promise<void>;
+  park(turn: SuspendedTurn): Promise<SessionAdvance>;
+  spawnTurn(input: TurnProgramInput, turnOrdinal: number): TurnHandle;
 }
 
 export interface StepInput {
@@ -152,6 +168,8 @@ export type TurnOutcome =
     }
   | {
       readonly authorizationNames?: readonly string[];
+      readonly hasPendingAuthorization: boolean;
+      readonly hasPendingInputBatch: boolean;
       readonly kind: "waiting";
       readonly state: SessionState;
     }

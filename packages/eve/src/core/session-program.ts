@@ -1,30 +1,37 @@
-import type { Delivery, LoopBackend, SessionProgramInput, TerminalOutcome } from "#core/types.js";
+import type {
+  Delivery,
+  SessionBackend,
+  SessionProgramInput,
+  TerminalOutcome,
+} from "#core/types.js";
 
 /**
  * Drives one session: dispatch a turn per delivery until a turn completes
  * the session, then publish the terminal outcome exactly once through
  * `finish`. A waiting or cancelled turn parks the session; the next
- * delivery arrives through `receive`, which owns buffering, coalescing,
- * and descendant routing below the port.
+ * delivery arrives through `park`, which owns buffering, coalescing,
+ * cancellation settlement, authorization waits, and descendant routing
+ * below the port.
  */
 export async function runSession(
-  backend: LoopBackend,
+  backend: SessionBackend,
   input: SessionProgramInput,
 ): Promise<TerminalOutcome> {
   let state = input.state;
-  let delivery: Delivery | undefined = input.initialDelivery;
+  let delivery: Delivery = input.initialDelivery;
+  let turnOrdinal = 0;
 
   while (true) {
-    const received = delivery ?? (await backend.receive(state));
-    delivery = undefined;
-
     const turn = await backend
-      .spawnTurn({
-        capabilities: input.capabilities,
-        delivery: received,
-        mode: input.mode,
-        state,
-      })
+      .spawnTurn(
+        {
+          capabilities: input.capabilities,
+          delivery,
+          mode: input.mode,
+          state,
+        },
+        turnOrdinal++,
+      )
       .wait();
     state = turn.state;
 
@@ -34,8 +41,13 @@ export async function runSession(
         output: turn.output,
         usage: turn.usage,
       };
-      await backend.finish(outcome);
+      await backend.finish(turn);
       return outcome;
     }
+
+    const advance = await backend.park(turn);
+    if (advance.kind === "closed") return advance.outcome;
+    delivery = advance.delivery;
+    state = advance.state;
   }
 }
