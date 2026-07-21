@@ -1,0 +1,308 @@
+import { describe, expect, it } from "vitest";
+
+import { runSession, runTurn } from "#core/index.js";
+import { TASK_MODE_WAIT_ERROR_MESSAGE } from "#core/turn-program.js";
+import { DURABLE_SESSION_VERSION } from "#execution/durable-session-store.js";
+import type {
+  ChildResults,
+  Delivery,
+  Generated,
+  GenerateInput,
+  LoopBackend,
+  LoopRequest,
+  SessionState,
+  TerminalOutcome,
+  TurnHandle,
+  TurnOutcome,
+  TurnProgramInput,
+} from "#core/types.js";
+
+describe("runTurn", () => {
+  it("advances through continue steps, checkpointing each, and settles done", async () => {
+    const backend = new ScriptedBackend([
+      { kind: "continue", state: state("s1") },
+      {
+        kind: "finish",
+        output: "final",
+        state: state("s2"),
+        usage: { cacheReadTokens: 0, cacheWriteTokens: 0, inputTokens: 1, outputTokens: 2 },
+      },
+    ]);
+
+    const outcome = await runTurn(backend, turnInput({ mode: "task" }));
+
+    expect(outcome).toMatchObject({ kind: "done", output: "final" });
+    expect(outcome.state.durable.sessionId).toBe("s2");
+    // Checkpoint fires after the continue step only; terminal state travels
+    // in the outcome.
+    expect(backend.checkpoints.map((s) => s.durable.sessionId)).toEqual(["s1"]);
+    // The first step receives the delivery; continuation steps receive none.
+    expect(backend.generateCalls.map((call) => call.input?.kind)).toEqual(["deliver", undefined]);
+  });
+
+  it("parks a conversation waiting for public input", async () => {
+    const backend = new ScriptedBackend([
+      {
+        hasPendingAuthorization: false,
+        hasPendingInputBatch: false,
+        kind: "waiting",
+        state: state("s1"),
+      },
+    ]);
+
+    await expect(runTurn(backend, turnInput({ mode: "conversation" }))).resolves.toMatchObject({
+      kind: "waiting",
+    });
+  });
+
+  it("rejects an unparkable task-mode wait", async () => {
+    const backend = new ScriptedBackend([
+      {
+        hasPendingAuthorization: false,
+        hasPendingInputBatch: false,
+        kind: "waiting",
+        state: state("s1"),
+      },
+    ]);
+
+    await expect(runTurn(backend, turnInput({ mode: "task" }))).rejects.toThrow(
+      TASK_MODE_WAIT_ERROR_MESSAGE,
+    );
+  });
+
+  it.each([
+    {
+      name: "a pending authorization",
+      waiting: { hasPendingAuthorization: true, hasPendingInputBatch: false },
+    },
+    {
+      name: "a pending input batch with requestInput capability",
+      waiting: { hasPendingAuthorization: false, hasPendingInputBatch: true },
+    },
+  ])("parks a task-mode wait for $name", async ({ waiting }) => {
+    const backend = new ScriptedBackend([{ ...waiting, kind: "waiting", state: state("s1") }]);
+
+    await expect(
+      runTurn(backend, turnInput({ capabilities: { requestInput: true }, mode: "task" })),
+    ).resolves.toMatchObject({ kind: "waiting" });
+  });
+
+  it("settles an observed cancellation as a cancelled outcome, not a failure", async () => {
+    const backend = new ScriptedBackend([{ kind: "cancelled", state: state("s1") }]);
+
+    await expect(runTurn(backend, turnInput({ mode: "conversation" }))).resolves.toMatchObject({
+      kind: "cancelled",
+    });
+    expect(backend.checkpoints).toHaveLength(0);
+  });
+
+  it("spawns every child before waiting and folds results back in as the next input", async () => {
+    const requests: LoopRequest[] = [
+      { key: "subagent-call:a:1", kind: "subagent" },
+      { key: "subagent-call:b:2", kind: "subagent" },
+    ];
+    const results: ChildResults = [
+      { callId: "call-a", kind: "subagent-result", output: "A", subagentName: "a" },
+      { callId: "call-b", kind: "subagent-result", output: "B", subagentName: "b" },
+    ];
+    const backend = new ScriptedBackend(
+      [
+        { kind: "requests", requests, state: state("s1") },
+        { kind: "finish", output: "after-children", state: state("s2") },
+      ],
+      { childResults: results },
+    );
+
+    const outcome = await runTurn(backend, turnInput({ mode: "task" }));
+
+    expect(outcome).toMatchObject({ kind: "done", output: "after-children" });
+    expect(backend.spawnedRequests).toEqual([requests]);
+    expect(backend.spawnOrder).toEqual(["spawn", "wait"]);
+    // The folded results arrive as the second generation's input.
+    expect(backend.generateCalls[1]?.input).toMatchObject({
+      kind: "runtime-action-result",
+    });
+  });
+
+  it("continues with no input when the child wait observes a cancellation", async () => {
+    const backend = new ScriptedBackend(
+      [
+        {
+          kind: "requests",
+          requests: [{ key: "subagent-call:a:1", kind: "subagent" }],
+          state: state("s1"),
+        },
+        { kind: "cancelled", state: state("s2") },
+      ],
+      { childResults: "cancelled" },
+    );
+
+    await expect(runTurn(backend, turnInput({ mode: "conversation" }))).resolves.toMatchObject({
+      kind: "cancelled",
+    });
+    expect(backend.generateCalls[1]?.input).toBeUndefined();
+  });
+
+  it("hands each step a monotonically increasing ordinal", async () => {
+    const backend = new ScriptedBackend([
+      { kind: "continue", state: state("s1") },
+      { kind: "continue", state: state("s2") },
+      { kind: "finish", output: "done", state: state("s3") },
+    ]);
+
+    await runTurn(backend, turnInput({ mode: "task" }));
+
+    expect(backend.generateOrdinals).toEqual([0, 1, 2]);
+  });
+});
+
+describe("runSession", () => {
+  it("dispatches a turn per delivery and finishes exactly once on done", async () => {
+    const turns: TurnOutcome[] = [
+      { kind: "waiting", state: state("s1") },
+      { kind: "done", output: "bye", state: state("s2") },
+    ];
+    const backend = new ScriptedBackend([], {
+      deliveries: [delivery("follow-up")],
+      turns,
+    });
+
+    const outcome = await runSession(backend, {
+      capabilities: undefined,
+      initialDelivery: delivery("hello"),
+      mode: "conversation",
+      state: state("s0"),
+    });
+
+    expect(outcome).toEqual({ isError: undefined, output: "bye", usage: undefined });
+    expect(backend.finished).toEqual([outcome]);
+    expect(backend.turnDeliveries.map((d) => d.requestId)).toEqual(["hello", "follow-up"]);
+    // The waiting turn's state threads into the next turn's input.
+    expect(backend.turnStates.map((s) => s.durable.sessionId)).toEqual(["s0", "s1"]);
+  });
+
+  it("parks through a cancelled turn and resumes on the next delivery", async () => {
+    const backend = new ScriptedBackend([], {
+      deliveries: [delivery("after-cancel")],
+      turns: [
+        { kind: "cancelled", state: state("s1") },
+        { kind: "done", output: "recovered", state: state("s2") },
+      ],
+    });
+
+    await expect(
+      runSession(backend, {
+        capabilities: undefined,
+        initialDelivery: delivery("hello"),
+        mode: "conversation",
+        state: state("s0"),
+      }),
+    ).resolves.toMatchObject({ output: "recovered" });
+  });
+});
+
+function state(sessionId: string): SessionState {
+  return {
+    durable: {
+      continuationToken: `token:${sessionId}`,
+      emissionState: { sequence: 0, sessionStarted: true, stepIndex: 0, turnId: "" },
+      hasProxyInputRequests: false,
+      sessionId,
+      version: DURABLE_SESSION_VERSION,
+    },
+    serializedContext: { sessionId },
+  };
+}
+
+function delivery(requestId: string): Delivery {
+  return { kind: "deliver", payloads: [{ message: requestId }], requestId };
+}
+
+function turnInput(input: {
+  readonly capabilities?: TurnProgramInput["capabilities"];
+  readonly mode: TurnProgramInput["mode"];
+}): TurnProgramInput {
+  return {
+    capabilities: input.capabilities,
+    delivery: delivery("initial"),
+    mode: input.mode,
+    state: state("s0"),
+  };
+}
+
+class ScriptedBackend implements LoopBackend {
+  readonly checkpoints: SessionState[] = [];
+  readonly finished: TerminalOutcome[] = [];
+  readonly generateCalls: GenerateInput[] = [];
+  readonly generateOrdinals: number[] = [];
+  readonly spawnedRequests: (readonly LoopRequest[])[] = [];
+  readonly spawnOrder: string[] = [];
+  readonly turnDeliveries: Delivery[] = [];
+  readonly turnStates: SessionState[] = [];
+  readonly #childResults: ChildResults;
+  readonly #deliveries: Delivery[];
+  readonly #script: Generated[];
+  readonly #turns: TurnOutcome[];
+
+  constructor(
+    script: readonly Generated[],
+    options: {
+      readonly childResults?: ChildResults;
+      readonly deliveries?: readonly Delivery[];
+      readonly turns?: readonly TurnOutcome[];
+    } = {},
+  ) {
+    this.#childResults = options.childResults ?? [];
+    this.#deliveries = [...(options.deliveries ?? [])];
+    this.#script = [...script];
+    this.#turns = [...(options.turns ?? [])];
+  }
+
+  async checkpoint(state: SessionState): Promise<void> {
+    this.checkpoints.push(state);
+  }
+
+  async generate(input: GenerateInput): Promise<Generated> {
+    this.generateCalls.push(input);
+    this.generateOrdinals.push(this.generateCalls.length - 1);
+    const scripted = this.#script.shift();
+    if (scripted === undefined) throw new Error("Scripted backend ran out of generations.");
+    return scripted;
+  }
+
+  async spawnChildren(state: SessionState, requests: readonly LoopRequest[]) {
+    this.spawnedRequests.push(requests);
+    this.spawnOrder.push("spawn");
+    return {
+      handle: {
+        wait: async () => {
+          this.spawnOrder.push("wait");
+          return { results: this.#childResults, state };
+        },
+      },
+      state,
+    };
+  }
+
+  async finish(outcome: TerminalOutcome): Promise<void> {
+    this.finished.push(outcome);
+  }
+
+  async receive(): Promise<Delivery> {
+    const next = this.#deliveries.shift();
+    if (next === undefined) throw new Error("Scripted backend ran out of deliveries.");
+    return next;
+  }
+
+  spawnTurn(input: TurnProgramInput): TurnHandle {
+    this.turnDeliveries.push(input.delivery as Delivery);
+    this.turnStates.push(input.state);
+    return {
+      wait: async () => {
+        const next = this.#turns.shift();
+        if (next === undefined) throw new Error("Scripted backend ran out of turns.");
+        return next;
+      },
+    };
+  }
+}
