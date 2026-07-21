@@ -46,6 +46,7 @@ import {
   sessionCancelHookToken,
   type TurnCancelPayload,
 } from "#execution/turn-cancellation-token.js";
+import { buildInvocationAttributes } from "#internal/invocation/metadata.js";
 
 const WORKFLOW_ENTRY_NAME = "workflowEntry";
 const TURN_WORKFLOW_NAME = "turnWorkflow";
@@ -115,7 +116,7 @@ export function createWorkflowRuntime(config: {
       const ctx = buildRunContext({ bundle, run: input });
       const serializedContext = serializeContext(ctx);
       const parentLineage = readParentLineage(serializedContext);
-      const attributes =
+      const sessionAttributes =
         parentLineage.sessionId === undefined
           ? buildSessionAttributes({
               inputMessage: input.title ?? input.input.message,
@@ -129,6 +130,12 @@ export function createWorkflowRuntime(config: {
               rootSessionId: parentLineage.rootSessionId ?? parentLineage.sessionId,
               serializedContext,
             });
+      const attributes = {
+        ...sessionAttributes,
+        ...(input.externalInvocation === undefined
+          ? {}
+          : buildInvocationAttributes(input.externalInvocation)),
+      };
 
       let run: Awaited<ReturnType<typeof startWorkflowPreferLatest>>;
       try {
