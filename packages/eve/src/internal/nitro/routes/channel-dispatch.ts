@@ -10,10 +10,6 @@ import { createSendFn } from "#channel/send.js";
 import { createGetSessionFn } from "#channel/session.js";
 import { createLogger, logError } from "#internal/logging.js";
 import { attachAgentInfoRouteResponse } from "#internal/nitro/routes/channel-route-context.js";
-import {
-  readLoopBenchmarkRuntime,
-  readLoopBenchmarkSampleId,
-} from "#internal/loop-benchmark/config.js";
 import type { NitroArtifactsConfig } from "#internal/nitro/routes/runtime-artifacts.js";
 import { resolveNitroChannelRuntimeBundle } from "#internal/nitro/routes/runtime-stack.js";
 import { readVercelProjectLink } from "#internal/vercel/project-link.js";
@@ -232,11 +228,6 @@ function createRouteAgent(runtime: Runtime, requestId: string | undefined): Agen
 }
 
 function readChannelRequestId(headers: Headers): string | undefined {
-  if (readLoopBenchmarkRuntime() !== undefined) {
-    const sampleId = readLoopBenchmarkSampleId(headers);
-    if (sampleId !== undefined) return sampleId;
-  }
-
   const requestId = headers.get("x-vercel-id")?.trim();
   return requestId === "" ? undefined : requestId;
 }

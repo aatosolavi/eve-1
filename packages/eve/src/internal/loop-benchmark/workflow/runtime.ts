@@ -13,13 +13,7 @@ import { parseNdjsonStream } from "#execution/ndjson-stream.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
-import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
 import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
 import { getRun, resumeHook, start, type WorkflowMetadata } from "#internal/workflow/runtime.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -37,70 +31,50 @@ export interface WorkflowBenchmarkRuntimeConfig {
   readonly nodeId?: string;
 }
 
-/** Creates the independently orchestrated Workflow DevKit benchmark runtime. */
+/** Creates the independently orchestrated Workflow DevKit loop runtime. */
 export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeConfig): Runtime {
   return {
     async run(input: RunInput): Promise<RunHandle> {
       const message = parseInitialMessage(input);
       const continuationToken =
         input.continuationToken ?? `workflow-benchmark:${crypto.randomUUID()}`;
-      const recorder = createControllerRecorder({
-        attempt: `${input.requestId ?? continuationToken}:run`,
-        sampleId: input.requestId,
+
+      const bundle = await getCompiledRuntimeAgentBundle({
+        compiledArtifactsSource: config.compiledArtifactsSource,
+        nodeId: config.nodeId,
       });
+      const context = buildRunContext({
+        bundle,
+        run: { ...input, continuationToken },
+      });
+      const workflowInput: WorkflowBenchmarkSessionInput = {
+        compiledArtifactsSource: config.compiledArtifactsSource,
+        continuationToken,
+        initialDelivery: {
+          kind: "deliver",
+          payloads: [{ message }],
+          requestId: input.requestId,
+        },
+        nodeId: config.nodeId,
+        serializedContext: serializeContext(context),
+      };
+      const run = await start(WORKFLOW_BENCHMARK_SESSION_REFERENCE, [workflowInput]);
 
-      try {
-        const bundle = await getCompiledRuntimeAgentBundle({
-          compiledArtifactsSource: config.compiledArtifactsSource,
-          nodeId: config.nodeId,
-        });
-        const context = buildRunContext({
-          bundle,
-          run: { ...input, continuationToken },
-        });
-        const workflowInput: WorkflowBenchmarkSessionInput = {
-          compiledArtifactsSource: config.compiledArtifactsSource,
-          continuationToken,
-          initialDelivery: {
-            kind: "deliver",
-            payloads: [{ message }],
-            requestId: input.requestId,
-          },
-          nodeId: config.nodeId,
-          sampleId: input.requestId,
-          serializedContext: serializeContext(context),
-        };
-        const run = await recordLoopBenchmarkInterval(
-          recorder,
-          "engine.dispatch",
-          async () => await start(WORKFLOW_BENCHMARK_SESSION_REFERENCE, [workflowInput]),
-        );
-        recorder?.engine({ kind: "workflow.run", workflowRunId: run.runId });
-        scheduleLoopBenchmarkRecorderFlush(recorder);
-
-        let events: ReadableStream<HandleMessageStreamEvent> | undefined;
-        return {
-          continuationToken,
-          get events() {
-            events ??= parseNdjsonStream<HandleMessageStreamEvent>(() =>
-              getRun(run.runId).getReadable(),
-            );
-            return events;
-          },
-          sessionId: run.runId,
-        };
-      } catch (error) {
-        scheduleLoopBenchmarkRecorderFlush(recorder);
-        throw error;
-      }
+      let events: ReadableStream<HandleMessageStreamEvent> | undefined;
+      return {
+        continuationToken,
+        get events() {
+          events ??= parseNdjsonStream<HandleMessageStreamEvent>(() =>
+            getRun(run.runId).getReadable(),
+          );
+          return events;
+        },
+        sessionId: run.runId,
+      };
     },
 
     async deliver(input: DeliverInput): Promise<{ readonly sessionId: string }> {
       parseLoopBenchmarkDeliveryMessage(input, "Workflow");
-      const recorder = createControllerRecorder({
-        attempt: `${input.requestId ?? input.continuationToken}:deliver`,
-        sampleId: input.requestId,
-      });
       const payload: Extract<HookPayload, { readonly kind: "deliver" }> = {
         auth: input.auth,
         kind: "deliver",
@@ -109,13 +83,9 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
       };
 
       try {
-        const resumed = await recordLoopBenchmarkInterval(recorder, "engine.signal", async () =>
-          resumeHook(input.continuationToken, payload),
-        );
-        scheduleLoopBenchmarkRecorderFlush(recorder);
+        const resumed = await resumeHook(input.continuationToken, payload);
         return { sessionId: readRunId(resumed) };
       } catch (error) {
-        scheduleLoopBenchmarkRecorderFlush(recorder);
         if (HookNotFoundError.is(error)) {
           throw new RuntimeNoActiveSessionError(input.continuationToken);
         }
@@ -132,19 +102,6 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
       );
     },
   };
-}
-
-function createControllerRecorder(input: {
-  readonly attempt: string;
-  readonly sampleId: string | undefined;
-}): LoopBenchmarkRecorder | undefined {
-  return createLoopBenchmarkRecorder({
-    actor: "controller",
-    attempt: input.attempt,
-    hostRole: "controller",
-    runtime: "workflow",
-    sampleId: input.sampleId,
-  });
 }
 
 function parseInitialMessage(input: RunInput): string {

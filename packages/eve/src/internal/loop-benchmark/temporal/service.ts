@@ -3,18 +3,15 @@ import {
   InMemoryBenchmarkEventLog,
   type BenchmarkEventPublication,
 } from "#internal/loop-benchmark/event-log.js";
-import type { SampleId } from "#internal/loop-benchmark/contract.js";
 import { TemporalBenchmarkAddressStore, type TemporalBenchmarkAddress } from "./address-store.js";
 
 /** Shared process-local state used by the local Temporal client and Worker. */
 export class LocalTemporalBenchmarkService {
   readonly #addresses = new TemporalBenchmarkAddressStore();
   readonly #eventLogs = new Map<string, InMemoryBenchmarkEventLog>();
-  readonly #sampleBySession = new Map<string, SampleId>();
 
   begin(input: {
     readonly continuationToken: string;
-    readonly sampleId: SampleId | undefined;
     readonly sessionId: string;
     readonly workflowId: string;
   }): void {
@@ -24,7 +21,6 @@ export class LocalTemporalBenchmarkService {
       workflowId: input.workflowId,
     });
     this.#eventLogs.set(input.sessionId, new InMemoryBenchmarkEventLog());
-    if (input.sampleId !== undefined) this.#sampleBySession.set(input.sessionId, input.sampleId);
   }
 
   attachRun(input: { readonly runId: string; readonly sessionId: string }): void {
@@ -55,10 +51,6 @@ export class LocalTemporalBenchmarkService {
   fail(sessionId: string, error: unknown): void {
     if (!this.#addresses.settle(sessionId)) return;
     this.#requireEventLog(sessionId).fail(error);
-  }
-
-  sampleId(sessionId: string): SampleId | undefined {
-    return this.#sampleBySession.get(sessionId);
   }
 
   #requireEventLog(sessionId: string): InMemoryBenchmarkEventLog {

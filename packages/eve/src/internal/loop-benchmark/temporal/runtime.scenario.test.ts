@@ -1,8 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
 import type { RunInput } from "#channel/types.js";
@@ -15,14 +11,8 @@ import { createLocalTemporalBenchmarkRuntime } from "./runtime.js";
 
 const ADAPTER: ChannelAdapter = { kind: "http" };
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 describe("LocalTemporalBenchmarkRuntime", () => {
   it("runs the production one-tool loop through a child Workflow and rekeys after it completes", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "eve-temporal-loop-benchmark-"));
-    vi.stubEnv("EVE_LOOP_BENCHMARK_RECORD_PATH", join(directory, "records.jsonl"));
     let toolExecutions = 0;
     const tool = mockTool({
       description: "Echo the benchmark nonce for runtime overhead measurement.",
@@ -82,27 +72,7 @@ describe("LocalTemporalBenchmarkRuntime", () => {
         expect(history.scheduledActivityTypes).toEqual(
           expect.arrayContaining(["createSession", "rekeySession"]),
         );
-
-        const records = await waitForParkRecords(runtime, "temporal-scenario-sample");
-        const intervalNames = records.flatMap((record) =>
-          record.kind === "interval" ? [record.name] : [],
-        );
-        expect(intervalNames).toEqual(
-          expect.arrayContaining([
-            "engine.dispatch",
-            "session.create.operation",
-            "turn.step.operation",
-            "event.publish",
-            "session.rekey",
-          ]),
-        );
-        expect(
-          records.some(
-            (record) => record.kind === "mark" && record.name === "runtime.park.accepted",
-          ),
-        ).toBe(true);
-        expect(records.every((record) => record.runtime === "temporal")).toBe(true);
-        expect(intervalNames).not.toContain("session.settle");
+        expect(history.scheduledActivityTypes).not.toContain("settleSession");
       } finally {
         await runtime.close();
       }
@@ -164,22 +134,6 @@ async function waitForRekeyHistory(
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Temporal history did not record rekey after child completion.");
-}
-
-async function waitForParkRecords(
-  runtime: Awaited<ReturnType<typeof createLocalTemporalBenchmarkRuntime>>,
-  sampleId: string,
-): Promise<Awaited<ReturnType<typeof runtime.records>>> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const records = await runtime.records(sampleId);
-    if (
-      records.some((record) => record.kind === "mark" && record.name === "runtime.park.accepted")
-    ) {
-      return records;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("Temporal benchmark did not record accepted park telemetry.");
 }
 
 async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {

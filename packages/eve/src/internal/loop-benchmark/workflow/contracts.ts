@@ -9,14 +9,12 @@ export interface WorkflowBenchmarkSessionInput {
   readonly continuationToken: string;
   readonly initialDelivery: DeliverHookPayload;
   readonly nodeId?: string;
-  readonly sampleId?: string;
   readonly serializedContext: Record<string, unknown>;
 }
 
 export interface WorkflowBenchmarkTurnInput {
   readonly initialInput: HookPayload;
   readonly parentWritable: WritableStream<Uint8Array>;
-  readonly sampleId?: string;
   readonly serializedContext: Record<string, unknown>;
   readonly sessionState: DurableSessionState;
   readonly settledToken: string;
@@ -39,23 +37,14 @@ export interface WorkflowBenchmarkChildSettled {
   readonly turnOrdinal: number;
 }
 
-export interface CreateWorkflowBenchmarkSessionStepInput extends CreateSessionOperationInput {
-  readonly sampleId?: string;
-}
+export interface CreateWorkflowBenchmarkSessionStepInput extends CreateSessionOperationInput {}
 
 export interface ExecuteWorkflowBenchmarkTurnStepInput extends Pick<
   TurnStepOperationInput,
   "input" | "serializedContext" | "sessionState"
 > {
   readonly parentWritable: WritableStream<Uint8Array>;
-  readonly sampleId?: string;
   readonly stepOrdinal: number;
-  readonly turnOrdinal: number;
-}
-
-export interface WorkflowBenchmarkParkAcceptedStepInput {
-  readonly sampleId?: string;
-  readonly sessionId: string;
   readonly turnOrdinal: number;
 }
 

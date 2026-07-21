@@ -40,7 +40,6 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
 
   const created = await activities.createSession({
     continuationToken: input.continuationToken,
-    sampleId: input.sampleId,
     sessionId: input.sessionId,
   });
 
@@ -58,7 +57,6 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
       args: [
         {
           input: turnInput,
-          sampleId: input.sampleId,
           serializedContext,
           sessionId: input.sessionId,
           sessionState,
@@ -74,14 +72,12 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
     switch (result.action) {
       case "done":
         await activities.settleSession({
-          sampleId: input.sampleId,
           sessionId: input.sessionId,
         });
         return;
       case "park": {
         await activities.rekeySession({
           continuationToken: result.sessionState.continuationToken,
-          sampleId: input.sampleId,
           sessionId: input.sessionId,
         });
         await condition(() => deliveries.length > 0);
@@ -126,7 +122,6 @@ export async function temporalBenchmarkTurnWorkflow(
   while (true) {
     const result = await activities.executeTurnStep({
       input: stepInput,
-      sampleId: input.sampleId,
       serializedContext,
       sessionId: input.sessionId,
       sessionState,
@@ -172,7 +167,6 @@ function parseWorkflowInput(value: unknown): TemporalBenchmarkWorkflowInput {
     continuationToken: requireString(record["continuationToken"], "continuationToken"),
     initialMessage: requireString(record["initialMessage"], "initialMessage"),
     requestId: optionalString(record["requestId"], "requestId"),
-    sampleId: optionalString(record["sampleId"], "sampleId"),
     serializedContext: requireRecord(record["serializedContext"], "serializedContext"),
     sessionId: requireString(record["sessionId"], "sessionId"),
   };

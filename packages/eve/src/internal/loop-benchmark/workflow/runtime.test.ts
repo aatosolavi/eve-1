@@ -11,14 +11,9 @@ import { createWorkflowBenchmarkRuntime } from "./runtime.js";
 
 const mocks = vi.hoisted(() => ({
   buildRunContext: vi.fn(),
-  createLoopBenchmarkRecorder: vi.fn(),
   getCompiledRuntimeAgentBundle: vi.fn(),
   getRun: vi.fn(),
-  recordLoopBenchmarkInterval: vi.fn(
-    async (_recorder: unknown, _name: string, run: () => Promise<unknown>) => await run(),
-  ),
   resumeHook: vi.fn(),
-  scheduleLoopBenchmarkRecorderFlush: vi.fn(),
   serializeContext: vi.fn(),
   start: vi.fn(),
 }));
@@ -31,22 +26,15 @@ vi.mock("#compiled/@workflow/core/runtime.js", () => ({
 
 vi.mock("#context/serialize.js", () => ({ serializeContext: mocks.serializeContext }));
 vi.mock("#execution/runtime-context.js", () => ({ buildRunContext: mocks.buildRunContext }));
-vi.mock("#internal/loop-benchmark/runtime-telemetry.js", () => ({
-  createLoopBenchmarkRecorder: mocks.createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval: mocks.recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush: mocks.scheduleLoopBenchmarkRecorderFlush,
-}));
 vi.mock("#runtime/sessions/compiled-agent-cache.js", () => ({
   getCompiledRuntimeAgentBundle: mocks.getCompiledRuntimeAgentBundle,
 }));
 
 const SOURCE = createBundledRuntimeCompiledArtifactsSource();
 const ADAPTER: ChannelAdapter = { kind: "http", state: {} };
-const RECORDER = { engine: vi.fn() };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.createLoopBenchmarkRecorder.mockReturnValue(RECORDER);
   mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({ bundle: true });
   mocks.buildRunContext.mockReturnValue({ context: true });
   mocks.serializeContext.mockReturnValue({ serialized: true });
@@ -93,20 +81,10 @@ describe("createWorkflowBenchmarkRuntime", () => {
             requestId: "sample-workflow",
           },
           nodeId: undefined,
-          sampleId: "sample-workflow",
           serializedContext: { serialized: true },
         },
       ],
     );
-    expect(mocks.recordLoopBenchmarkInterval).toHaveBeenCalledWith(
-      RECORDER,
-      "engine.dispatch",
-      expect.any(Function),
-    );
-    expect(RECORDER.engine).toHaveBeenCalledWith({
-      kind: "workflow.run",
-      workflowRunId: "workflow-benchmark-run",
-    });
   });
 
   it.each([

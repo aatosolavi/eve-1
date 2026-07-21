@@ -16,18 +16,10 @@ import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-a
 import { createWorkflowBenchmarkSessionStep, executeWorkflowBenchmarkTurnStep } from "./steps.js";
 
 const mocks = vi.hoisted(() => ({
-  createLoopBenchmarkRecorder: vi.fn(),
   createSessionOperation: vi.fn(),
-  engine: vi.fn(),
   executeTurnStepOperation: vi.fn(),
   getStepMetadata: vi.fn(),
   getWorkflowMetadata: vi.fn(),
-  mark: vi.fn(),
-  observeEvent: vi.fn(),
-  recordLoopBenchmarkInterval: vi.fn(
-    async (_recorder: unknown, _name: string, run: () => Promise<unknown>) => await run(),
-  ),
-  scheduleLoopBenchmarkRecorderFlush: vi.fn(),
 }));
 
 vi.mock("#compiled/@workflow/core/index.js", () => ({
@@ -39,11 +31,6 @@ vi.mock("#execution/session-operation.js", () => ({
 }));
 vi.mock("#execution/turn-step-operation.js", () => ({
   executeTurnStepOperation: mocks.executeTurnStepOperation,
-}));
-vi.mock("#internal/loop-benchmark/runtime-telemetry.js", () => ({
-  createLoopBenchmarkRecorder: mocks.createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval: mocks.recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush: mocks.scheduleLoopBenchmarkRecorderFlush,
 }));
 
 const SOURCE = createBundledRuntimeCompiledArtifactsSource();
@@ -76,11 +63,6 @@ const PARK_RESULT: Extract<DurableStepResult, { readonly action: "park" }> = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.createLoopBenchmarkRecorder.mockReturnValue({
-    engine: mocks.engine,
-    mark: mocks.mark,
-    observeEvent: mocks.observeEvent,
-  });
   mocks.getStepMetadata.mockReturnValue({
     attempt: 2,
     stepId: "step-1",
@@ -97,7 +79,6 @@ describe("Workflow benchmark operation steps", () => {
       createWorkflowBenchmarkSessionStep({
         compiledArtifactsSource: SOURCE,
         continuationToken: "benchmark-token",
-        sampleId: "sample-workflow",
         sessionId: "benchmark-session",
       }),
     ).resolves.toEqual({ state: STATE });
@@ -106,17 +87,6 @@ describe("Workflow benchmark operation steps", () => {
       compiledArtifactsSource: SOURCE,
       continuationToken: "benchmark-token",
       sessionId: "benchmark-session",
-    });
-    expect(mocks.recordLoopBenchmarkInterval).toHaveBeenCalledWith(
-      expect.any(Object),
-      "session.create.operation",
-      expect.any(Function),
-    );
-    expect(mocks.engine).toHaveBeenCalledWith({
-      attempt: 2,
-      kind: "workflow.step",
-      stepId: "step-1",
-      workflowRunId: "workflow-run",
     });
   });
 
@@ -141,7 +111,6 @@ describe("Workflow benchmark operation steps", () => {
       executeWorkflowBenchmarkTurnStep({
         input: undefined,
         parentWritable,
-        sampleId: "sample-workflow",
         serializedContext: {},
         sessionState: STATE,
         stepOrdinal: 0,
@@ -157,13 +126,6 @@ describe("Workflow benchmark operation steps", () => {
       serializedContext: {},
       sessionState: STATE,
       writeEveAttributes: expect.any(Function),
-    });
-    expect(mocks.observeEvent).toHaveBeenCalledWith({
-      encodedBytes: encoded.byteLength,
-      eventType: "session.waiting",
-      metaAt: "2026-07-10T00:00:00.000Z",
-      ordinal: 0,
-      stage: "publish.ack",
     });
   });
 

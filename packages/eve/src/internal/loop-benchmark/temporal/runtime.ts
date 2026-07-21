@@ -18,19 +18,8 @@ import { SessionIdKey } from "#context/keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
-import { createSampleId, type RawRecord } from "#internal/loop-benchmark/contract.js";
 import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
-import {
-  readLoopBenchmarkRecordPath,
-  readLoopBenchmarkTemporalDevServer,
-} from "#internal/loop-benchmark/config.js";
-import { readLoopBenchmarkJsonlRecords } from "#internal/loop-benchmark/jsonl-records.js";
-import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
+import { readLoopBenchmarkTemporalDevServer } from "#internal/loop-benchmark/config.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { createTemporalBenchmarkActivities } from "./activities.js";
@@ -98,67 +87,43 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     const initialMessage = parseInitialMessage(input);
     const sessionId = `eve-loop-benchmark-${randomUUID()}`;
     const continuationToken = input.continuationToken || sessionId;
-    const sampleId = input.requestId === undefined ? undefined : createSampleId(input.requestId);
     this.#service.begin({
       continuationToken,
-      sampleId,
       sessionId,
       workflowId: sessionId,
     });
-    const recorder = this.#createControllerRecorder(sampleId, `${sessionId}:run`);
     let startedHandle: WorkflowHandleWithStartDetails<TemporalBenchmarkWorkflow> | undefined;
 
     try {
-      const prepare = async () => {
-        const bundle = await getCompiledRuntimeAgentBundle({
-          compiledArtifactsSource: this.#compiledArtifactsSource,
-          nodeId: this.#nodeId,
-        });
-        const context = buildRunContext({
-          bundle,
-          run: { ...input, continuationToken },
-        });
-        context.set(SessionIdKey, sessionId);
-        return serializeContext(context);
-      };
-      const serializedContext =
-        recorder === undefined
-          ? await prepare()
-          : await recordLoopBenchmarkInterval(recorder, "controller.prepare", prepare);
-      const workflowInputWithoutSample = {
+      const bundle = await getCompiledRuntimeAgentBundle({
+        compiledArtifactsSource: this.#compiledArtifactsSource,
+        nodeId: this.#nodeId,
+      });
+      const context = buildRunContext({
+        bundle,
+        run: { ...input, continuationToken },
+      });
+      context.set(SessionIdKey, sessionId);
+      const serializedContext = serializeContext(context);
+      const workflowInput: TemporalBenchmarkWorkflowInput = {
         continuationToken,
         initialMessage,
         requestId: input.requestId,
         serializedContext,
         sessionId,
       };
-      const workflowInput: TemporalBenchmarkWorkflowInput =
-        sampleId === undefined
-          ? workflowInputWithoutSample
-          : { ...workflowInputWithoutSample, sampleId };
-      const dispatch = async () =>
-        await this.#environment.client.workflow.start<TemporalBenchmarkWorkflow>(
-          TEMPORAL_BENCHMARK_WORKFLOW,
-          {
-            args: [workflowInput],
-            taskQueue: this.#worker.options.taskQueue,
-            workflowId: sessionId,
-          },
-        );
-      const handle =
-        recorder === undefined
-          ? await dispatch()
-          : await recordLoopBenchmarkInterval(recorder, "engine.dispatch", dispatch);
+      const handle = await this.#environment.client.workflow.start<TemporalBenchmarkWorkflow>(
+        TEMPORAL_BENCHMARK_WORKFLOW,
+        {
+          args: [workflowInput],
+          taskQueue: this.#worker.options.taskQueue,
+          workflowId: sessionId,
+        },
+      );
       startedHandle = handle;
       this.#service.attachRun({ runId: handle.firstExecutionRunId, sessionId });
-      recorder?.engine({
-        kind: "temporal.workflow",
-        runId: handle.firstExecutionRunId,
-        workflowId: handle.workflowId,
-      });
       this.#handles.set(sessionId, handle);
       this.#observeResult(sessionId, handle);
-      scheduleLoopBenchmarkRecorderFlush(recorder);
 
       return {
         continuationToken,
@@ -174,7 +139,6 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
         await startedHandle.result().catch(() => {});
         this.#handles.delete(sessionId);
       }
-      scheduleLoopBenchmarkRecorderFlush(recorder);
       throw error;
     }
   }
@@ -184,32 +148,19 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     const address = this.#service.resolve(input.continuationToken);
     if (address === null) throw new RuntimeNoActiveSessionError(input.continuationToken);
     const message = parseLoopBenchmarkDeliveryMessage(input, "Temporal");
-    const recorder = this.#createControllerRecorder(
-      this.#service.sampleId(address.sessionId),
-      `${address.sessionId}:deliver`,
-    );
 
     try {
-      const signal = async () => {
-        const handle = this.#environment.client.workflow.getHandle<TemporalBenchmarkWorkflow>(
-          address.workflowId,
-          address.runId,
-        );
-        await handle.signal(temporalBenchmarkDeliverySignal, {
-          auth: input.auth,
-          message,
-          requestId: input.requestId,
-        });
-      };
-      if (recorder === undefined) {
-        await signal();
-      } else {
-        await recordLoopBenchmarkInterval(recorder, "engine.signal", signal);
-      }
-      scheduleLoopBenchmarkRecorderFlush(recorder);
+      const handle = this.#environment.client.workflow.getHandle<TemporalBenchmarkWorkflow>(
+        address.workflowId,
+        address.runId,
+      );
+      await handle.signal(temporalBenchmarkDeliverySignal, {
+        auth: input.auth,
+        message,
+        requestId: input.requestId,
+      });
       return { sessionId: address.sessionId };
     } catch (error) {
-      scheduleLoopBenchmarkRecorderFlush(recorder);
       if (this.#service.resolve(input.continuationToken) === null) {
         throw new RuntimeNoActiveSessionError(input.continuationToken);
       }
@@ -250,15 +201,6 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     };
   }
 
-  async records(sampleId: string): Promise<readonly RawRecord[]> {
-    const path = readLoopBenchmarkRecordPath();
-    if (path === undefined) return [];
-    const expected = createSampleId(sampleId);
-    return (await readLoopBenchmarkJsonlRecords(path)).filter(
-      (record) => record.sampleId === expected,
-    );
-  }
-
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
@@ -294,19 +236,6 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
         cause: this.#workerFailure.error,
       });
     }
-  }
-
-  #createControllerRecorder(
-    sampleId: string | undefined,
-    attempt: string,
-  ): LoopBenchmarkRecorder | undefined {
-    return createLoopBenchmarkRecorder({
-      actor: "controller",
-      attempt,
-      hostRole: "controller",
-      runtime: "temporal",
-      sampleId,
-    });
   }
 
   #observeResult(

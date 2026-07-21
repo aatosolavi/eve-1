@@ -22,7 +22,6 @@ import {
   awaitWorkflowBenchmarkTurnResultStep,
   createWorkflowBenchmarkSessionStep,
   executeWorkflowBenchmarkTurnStep,
-  recordWorkflowBenchmarkParkAcceptedStep,
   sendWorkflowBenchmarkChildSettledStep,
 } from "./steps.js";
 
@@ -47,7 +46,6 @@ export async function workflowBenchmarkSession(
       compiledArtifactsSource: input.compiledArtifactsSource,
       continuationToken: input.continuationToken,
       nodeId: input.nodeId,
-      sampleId: input.sampleId,
       sessionId,
     });
 
@@ -60,7 +58,6 @@ export async function workflowBenchmarkSession(
       const result = await dispatchTurnChild({
         delivery,
         parentWritable,
-        sampleId: input.sampleId,
         serializedContext: currentContext,
         sessionId,
         sessionState,
@@ -73,11 +70,6 @@ export async function workflowBenchmarkSession(
 
       assertSupportedPark(result);
       await deliveryHook.rekey(result.sessionState.continuationToken);
-      await recordWorkflowBenchmarkParkAcceptedStep({
-        sampleId: input.sampleId,
-        sessionId,
-        turnOrdinal,
-      });
       const nextDelivery = await receiveNextDelivery(deliveryHook, bufferedDeliveries);
       if (nextDelivery === null) return;
       delivery = nextDelivery;
@@ -105,7 +97,6 @@ export async function workflowBenchmarkTurn(
       const result = await executeWorkflowBenchmarkTurnStep({
         input: stepInput,
         parentWritable: input.parentWritable,
-        sampleId: input.sampleId,
         serializedContext,
         sessionState,
         stepOrdinal,
@@ -153,7 +144,6 @@ export async function startWorkflowBenchmarkTurnStep(
 async function dispatchTurnChild(input: {
   readonly delivery: HookPayload;
   readonly parentWritable: WritableStream<Uint8Array>;
-  readonly sampleId?: string;
   readonly serializedContext: Record<string, unknown>;
   readonly sessionId: string;
   readonly sessionState: DurableSessionState;
@@ -170,7 +160,6 @@ async function dispatchTurnChild(input: {
     const { runId } = await startWorkflowBenchmarkTurnStep({
       initialInput: input.delivery,
       parentWritable: input.parentWritable,
-      sampleId: input.sampleId,
       serializedContext: input.serializedContext,
       sessionState: input.sessionState,
       settledToken: token,

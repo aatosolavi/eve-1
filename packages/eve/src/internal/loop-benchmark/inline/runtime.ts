@@ -18,12 +18,6 @@ import {
   type DurableStepResult,
 } from "#execution/turn-step-operation.js";
 import { InMemoryBenchmarkEventLog } from "#internal/loop-benchmark/event-log.js";
-import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
-import {
-  createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush,
-} from "#internal/loop-benchmark/runtime-telemetry.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
@@ -48,12 +42,11 @@ interface InlineSession {
   readonly id: string;
   readonly pendingDeliveries: DeliverHookPayload[];
   phase: InlineSessionPhase;
-  readonly telemetry: LoopBenchmarkRecorder | undefined;
 }
 
 const globalContainer = globalThis as typeof globalThis & InlineRuntimeGlobalContainer;
 
-/** Creates the process-local direct runtime used by the loop benchmark. */
+/** Creates the process-local direct loop runtime. */
 export function createInlineBenchmarkRuntime(config: {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
 }): Runtime {
@@ -65,14 +58,6 @@ export function createInlineBenchmarkRuntime(config: {
 
       const sessionId = createSessionId(state);
       const continuationToken = input.continuationToken ?? sessionId;
-      const telemetry = createLoopBenchmarkRecorder({
-        actor: "controller",
-        attempt: `${sessionId}:inline`,
-        hostRole: "controller",
-        runtime: "inline",
-        sampleId: input.requestId,
-      });
-      telemetry?.engine({ controllerId: sessionId, kind: "inline.controller" });
       const session: InlineSession = {
         continuationToken,
         deliveryWaiter: undefined,
@@ -80,25 +65,16 @@ export function createInlineBenchmarkRuntime(config: {
         id: sessionId,
         pendingDeliveries: [],
         phase: "initializing",
-        telemetry,
       };
 
       claimContinuationToken(state, session);
       state.sessionsById.set(sessionId, session);
-      const initialization = {
+      startSessionInitialization({
         compiledArtifactsSource: config.compiledArtifactsSource,
         runInput: input,
         session,
         state,
-      };
-      if (telemetry === undefined) {
-        startSessionInitialization(initialization);
-      } else {
-        await recordLoopBenchmarkInterval(telemetry, "engine.dispatch", async () => {
-          startSessionInitialization(initialization);
-        });
-        scheduleLoopBenchmarkRecorderFlush(telemetry);
-      }
+      });
 
       let events: ReadableStream<HandleMessageStreamEvent> | undefined;
       return {
@@ -197,7 +173,6 @@ function startSessionInitialization(input: {
     const { session, state } = input;
     session.phase = "failed";
     releaseContinuationToken(state, session);
-    scheduleLoopBenchmarkRecorderFlush(session.telemetry);
     session.eventLog.fail(error);
   });
 }
@@ -214,17 +189,12 @@ async function initializeAndDriveSession(input: {
   ctx.set(ContinuationTokenKey, session.continuationToken);
   ctx.set(SessionIdKey, session.id);
   const serializedContext = serializeContext(ctx);
-  const { state: sessionState } = await recordLoopBenchmarkInterval(
-    session.telemetry,
-    "session.create.operation",
-    async () =>
-      await createSessionOperation({
-        compiledArtifactsSource,
-        continuationToken: session.continuationToken,
-        outputSchema: runInput.input.outputSchema,
-        sessionId: session.id,
-      }),
-  );
+  const { state: sessionState } = await createSessionOperation({
+    compiledArtifactsSource,
+    continuationToken: session.continuationToken,
+    outputSchema: runInput.input.outputSchema,
+    sessionId: session.id,
+  });
 
   session.phase = "running";
   await driveSession({
@@ -251,37 +221,29 @@ async function driveSession(input: {
   while (true) {
     const durableSession = readSnapshot(sessionState);
     const emissionState = sessionState.emissionState;
-    const result = await recordLoopBenchmarkInterval(
-      session.telemetry,
-      "turn.step.operation",
-      async () =>
-        await executeTurnStepOperation({
-          callbackBaseUrl: undefined,
-          createEventSink: () => ({
-            async write(publication) {
-              await recordLoopBenchmarkInterval(session.telemetry, "event.publish", async () => {
-                session.eventLog.append({
-                  encoded: publication.encoded,
-                  event: publication.event,
-                  publicationKey: JSON.stringify([
-                    session.id,
-                    emissionState.sequence,
-                    emissionState.turnId,
-                    emissionState.stepIndex,
-                    publication.emissionOrdinal,
-                  ]),
-                });
-              });
-            },
-          }),
-          durableSession,
-          input: nextInput,
-          serializedContext,
-          sessionState,
-          writeEveAttributes: undefined,
-        }),
-    );
-    scheduleLoopBenchmarkRecorderFlush(session.telemetry);
+    const result = await executeTurnStepOperation({
+      callbackBaseUrl: undefined,
+      createEventSink: () => ({
+        async write(publication) {
+          session.eventLog.append({
+            encoded: publication.encoded,
+            event: publication.event,
+            publicationKey: JSON.stringify([
+              session.id,
+              emissionState.sequence,
+              emissionState.turnId,
+              emissionState.stepIndex,
+              publication.emissionOrdinal,
+            ]),
+          });
+        },
+      }),
+      durableSession,
+      input: nextInput,
+      serializedContext,
+      sessionState,
+      writeEveAttributes: undefined,
+    });
 
     serializedContext = result.serializedContext;
     sessionState = result.sessionState;
@@ -305,13 +267,8 @@ async function driveSession(input: {
       throw new Error(`Inline benchmark runtime received unexpected action "${result.action}".`);
     }
     assertSupportedWait(result);
-    await recordLoopBenchmarkInterval(session.telemetry, "session.rekey", async () => {
-      rekeyContinuationToken(state, session, result.sessionState.continuationToken);
-    });
+    rekeyContinuationToken(state, session, result.sessionState.continuationToken);
     session.phase = "parked";
-    session.telemetry?.mark("session.rekey.accepted");
-    session.telemetry?.mark("runtime.park.accepted");
-    scheduleLoopBenchmarkRecorderFlush(session.telemetry);
     nextInput = await waitForDelivery(session);
     session.phase = "running";
   }

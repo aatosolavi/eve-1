@@ -22,13 +22,8 @@ import { createInlineBenchmarkRuntime } from "./runtime.js";
 
 const mocks = vi.hoisted(() => ({
   createSessionOperation: vi.fn(),
-  createLoopBenchmarkRecorder: vi.fn(),
   executeTurnStepOperation: vi.fn(),
   getCompiledRuntimeAgentBundle: vi.fn(),
-  recordLoopBenchmarkInterval: vi.fn(
-    async (_recorder: unknown, _name: string, run: () => Promise<unknown>) => await run(),
-  ),
-  scheduleLoopBenchmarkRecorderFlush: vi.fn(),
 }));
 
 vi.mock("#execution/session-operation.js", () => ({
@@ -43,74 +38,16 @@ vi.mock("#runtime/sessions/compiled-agent-cache.js", () => ({
   getCompiledRuntimeAgentBundle: mocks.getCompiledRuntimeAgentBundle,
 }));
 
-vi.mock("#internal/loop-benchmark/runtime-telemetry.js", () => ({
-  createLoopBenchmarkRecorder: mocks.createLoopBenchmarkRecorder,
-  recordLoopBenchmarkInterval: mocks.recordLoopBenchmarkInterval,
-  scheduleLoopBenchmarkRecorderFlush: mocks.scheduleLoopBenchmarkRecorderFlush,
-}));
-
 const SOURCE = createBundledRuntimeCompiledArtifactsSource();
 const ADAPTER: ChannelAdapter = { kind: "http" };
 
 afterEach(() => {
   mocks.createSessionOperation.mockReset();
-  mocks.createLoopBenchmarkRecorder.mockReset();
   mocks.executeTurnStepOperation.mockReset();
   mocks.getCompiledRuntimeAgentBundle.mockReset();
-  mocks.recordLoopBenchmarkInterval.mockClear();
-  mocks.scheduleLoopBenchmarkRecorderFlush.mockReset();
 });
 
 describe("createInlineBenchmarkRuntime", () => {
-  it("records the common inline layers and marks the accepted park after rekey", async () => {
-    const recorder = {
-      engine: vi.fn(),
-      mark: vi.fn(),
-    };
-    mocks.createLoopBenchmarkRecorder.mockReturnValue(recorder);
-    mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({ compiledArtifactsSource: SOURCE });
-    mocks.createSessionOperation.mockImplementation(
-      async (input: { readonly continuationToken: string; readonly sessionId: string }) => ({
-        state: createSessionState({
-          continuationToken: input.continuationToken,
-          sessionId: input.sessionId,
-        }),
-      }),
-    );
-    mocks.executeTurnStepOperation.mockImplementation(async (input: TurnStepOperationInput) => {
-      await publish(input, createSessionWaitingEvent());
-      return createParkResult(
-        { ...input.sessionState, continuationToken: "http:accepted" },
-        input.serializedContext,
-      );
-    });
-
-    const handle = await createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE }).run(
-      createRunInput({ continuationToken: "http:initial", requestId: "sample-telemetry" }),
-    );
-    const reader = handle.events.getReader();
-    await expect(reader.read()).resolves.toMatchObject({
-      done: false,
-      value: { type: "session.waiting" },
-    });
-    await reader.cancel();
-    await waitForMark(recorder.mark, "runtime.park.accepted");
-
-    expect(mocks.recordLoopBenchmarkInterval.mock.calls.map((call) => call[1])).toEqual(
-      expect.arrayContaining([
-        "engine.dispatch",
-        "session.create.operation",
-        "turn.step.operation",
-        "event.publish",
-        "session.rekey",
-      ]),
-    );
-    expect(recorder.mark.mock.calls.map((call) => call[0])).toEqual([
-      "session.rekey.accepted",
-      "runtime.park.accepted",
-    ]);
-  });
-
   it("returns a handle before session creation and keeps the sample id in context", async () => {
     mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({
       compiledArtifactsSource: SOURCE,
@@ -457,17 +394,6 @@ async function waitForCallCount(
   throw new Error(
     `Expected ${String(expected)} calls, received ${String(mock.mock.calls.length)}.`,
   );
-}
-
-async function waitForMark(
-  mock: { readonly mock: { readonly calls: readonly unknown[][] } },
-  name: string,
-): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (mock.mock.calls.some((call) => call[0] === name)) return;
-    await Promise.resolve();
-  }
-  throw new Error(`Expected benchmark mark "${name}".`);
 }
 
 async function waitForDelivery(
