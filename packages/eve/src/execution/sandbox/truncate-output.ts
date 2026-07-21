@@ -5,8 +5,13 @@
  * grep, glob, read_file, web_fetch) uses these helpers to enforce
  * consistent size limits inside its executor before the result enters
  * conversation history. Authored tools are expected to do the same —
- * bounding at the source keeps the contract simple: whatever `execute`
- * returns is what the model sees.
+ * bounding at the source keeps single results small and their truncation
+ * tool-aware.
+ *
+ * These caps bound one result. The harness additionally bounds each step's
+ * combined tool output relative to the compaction threshold
+ * (`harness/step-tool-budget.ts`), so several maximum-size results in one
+ * step cannot fill the context window in a handful of steps.
  */
 
 /**

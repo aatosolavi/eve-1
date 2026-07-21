@@ -12,3 +12,12 @@ export const TASK_PRESERVED_MARKER = "TASK_PRESERVED_AFTER_COMPACTION";
 
 /** Checkpoint marker the harness inserts when compaction summarizes. */
 export const COMPACTION_CHECKPOINT_TEXT = "Summary of our conversation so far:";
+
+/**
+ * Reported by the mock task model only after it has seen the harness
+ * per-step truncation annotation in its request messages.
+ */
+export const OVERSIZED_TRUNCATION_MARKER = "OVERSIZED_OUTPUT_TRUNCATION_OBSERVED";
+
+/** Prefix of the harness annotation on truncated per-step tool results. */
+export const TRUNCATION_ANNOTATION_PREFIX = "[Truncated by eve:";

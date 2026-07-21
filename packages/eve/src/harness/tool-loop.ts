@@ -74,6 +74,7 @@ import {
   resolveCompactionModel,
   shouldCompact,
 } from "#harness/compaction.js";
+import { applyStepToolBudget, resolveStepToolBudget } from "#harness/step-tool-budget.js";
 import {
   accumulateTurnUsage,
   getTurnUsageState,
@@ -1824,7 +1825,13 @@ async function handleStepResult(input: {
     messages: rawResponseMessages,
     providerExecutedOutcomeIds,
   });
-  const responseMessages = normalizedProviderHistory.messages;
+  // Bound the step's combined tool-result size before it enters durable
+  // history and compaction accounting. Stream events already emitted carry
+  // the full outputs; only what the model sees on later steps is bounded.
+  const responseMessages = applyStepToolBudget(
+    normalizedProviderHistory.messages,
+    resolveStepToolBudget(session.compaction.threshold),
+  );
 
   const baseSession: HarnessSession = {
     ...session,

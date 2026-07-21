@@ -3,15 +3,21 @@ import { mockModel, type MockModelRequest } from "eve/evals";
 
 import {
   COMPACTION_CHECKPOINT_TEXT,
+  OVERSIZED_TRUNCATION_MARKER,
   SECOND_CHECKPOINT_MARKER,
   TASK_PRESERVED_MARKER,
   TASK_TAIL_SENTINEL,
+  TRUNCATION_ANNOTATION_PREFIX,
 } from "../constants";
 
 const TEST_CONTEXT_WINDOW_TOKENS = 32_000;
 const MAX_TOOL_CALLS = 10;
 
-type RegressionCase = "redundant-tool-calls" | "stale-todo-work" | "task-survival";
+type RegressionCase =
+  | "redundant-tool-calls"
+  | "stale-todo-work"
+  | "task-survival"
+  | "oversized-step-truncation";
 
 let activeCase: RegressionCase | undefined;
 const checkpointAdvanceCallCounts = new Map<RegressionCase, number>();
@@ -77,15 +83,41 @@ const taskModel = mockModel({
       };
     }
 
+    if (regressionCase === "oversized-step-truncation") {
+      // The harness truncates the oversized result at attach time, so the
+      // annotation must be visible in the request — whether the result is
+      // still verbatim in recent history or reduced during compaction —
+      // before the model reports success.
+      if (request.messages.some((message) => message.text.includes(TRUNCATION_ANNOTATION_PREFIX))) {
+        return `Observed harness truncation: ${OVERSIZED_TRUNCATION_MARKER}`;
+      }
+
+      const emitCalls = toolCallCounts.get(regressionCase) ?? 0;
+      if (emitCalls >= MAX_TOOL_CALLS) {
+        return `Hard stop after ${MAX_TOOL_CALLS} calls: TRUNCATION_ANNOTATION_MISSING`;
+      }
+
+      toolCallCounts.set(regressionCase, emitCalls + 1);
+      return {
+        toolCalls: [
+          {
+            id: `emit-oversized-output-${emitCalls + 1}`,
+            input: {},
+            name: "emit-oversized-output",
+          },
+        ],
+      };
+    }
+
     const marker = completionMarker(regressionCase);
 
     // These are fixture markers, not compaction protocol fields. `marker` records the
     // regression work tool; `SECOND_CHECKPOINT_MARKER` records the test-only tool
     // whose output makes the harness cross the compaction threshold a second time.
     // Completion evidence is detected in any assistant message: compaction may
-    // leave it as a summarization checkpoint or as an eviction trail line, and
-    // the model must not repeat work in either case. User messages are
-    // excluded because the eval instructions themselves quote the markers.
+    // leave it as a summarization checkpoint or as a capped result, and the
+    // model must not repeat work in either case. User messages are excluded
+    // because the eval instructions themselves quote the markers.
     if (assistantEvidenceContains(request.messages, marker)) {
       if (assistantEvidenceContains(request.messages, SECOND_CHECKPOINT_MARKER)) {
         return `Done: ${marker}; ${SECOND_CHECKPOINT_MARKER}`;
@@ -164,10 +196,13 @@ function regressionCaseFromText(text: string): RegressionCase | undefined {
   if (text.includes("[case: redundant-tool-calls]")) return "redundant-tool-calls";
   if (text.includes("[case: stale-todo-work]")) return "stale-todo-work";
   if (text.includes("[case: task-survival]")) return "task-survival";
+  if (text.includes("[case: oversized-step-truncation]")) return "oversized-step-truncation";
   return undefined;
 }
 
-function completionMarker(regressionCase: Exclude<RegressionCase, "task-survival">): string {
+function completionMarker(
+  regressionCase: Exclude<RegressionCase, "oversized-step-truncation" | "task-survival">,
+): string {
   return regressionCase === "redundant-tool-calls"
     ? "REPOSITORY_INSPECTION_COMPLETE"
     : "SOURCE_ANALYSIS_COMPLETE";

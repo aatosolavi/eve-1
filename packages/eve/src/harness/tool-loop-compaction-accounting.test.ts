@@ -362,4 +362,67 @@ describe("tool-loop structured compaction accounting", () => {
       )?.output,
     ).toEqual(largeOutput);
   });
+
+  it("truncates a step's oversized tool results at attach time with an annotation", async () => {
+    // ~50k estimated tokens against a threshold of 100k: the per-step budget
+    // (threshold / 20 = 5k tokens) binds, so the result enters history already
+    // truncated. History stays append-only — the truncated form is what was
+    // attached, nothing rewrites it later.
+    const largeOutput = { value: "x".repeat(200_000) };
+
+    setupMockAgentSequence([
+      {
+        finishReason: "tool-calls",
+        response: {
+          messages: [
+            {
+              content: [{ input: {}, toolCallId: "call-1", toolName: "add", type: "tool-call" }],
+              role: "assistant",
+            },
+            {
+              content: [
+                { output: largeOutput, toolCallId: "call-1", toolName: "add", type: "tool-result" },
+              ],
+              role: "tool",
+            },
+          ],
+        },
+        text: "",
+        toolCalls: [{ input: {}, toolCallId: "call-1", toolName: "add", type: "tool-call" }],
+        toolResults: [
+          { output: largeOutput, toolCallId: "call-1", toolName: "add", type: "tool-result" },
+        ],
+        usage: { inputTokens: 100 },
+      },
+      {
+        finishReason: "stop",
+        response: { messages: [{ content: "Done.", role: "assistant" }] },
+        text: "Done.",
+        toolCalls: [],
+        toolResults: [],
+      },
+    ]);
+
+    const runStep = createToolLoopHarness(createTestConfig());
+    const first = await runStep(
+      createTestSession({ compaction: { recentWindowSize: 10, threshold: 100_000 } }),
+      { message: "Read a big file" },
+    );
+
+    const toolResult = first.session.history.find(
+      (m) =>
+        m.role === "tool" &&
+        Array.isArray(m.content) &&
+        (m.content[0] as { toolCallId?: string }).toolCallId === "call-1",
+    );
+    expect(toolResult).toBeDefined();
+    const output = (
+      Array.isArray(toolResult?.content)
+        ? (toolResult.content[0] as { output?: unknown })
+        : undefined
+    )?.output as { type?: string; value?: string };
+    expect(output?.type).toBe("text");
+    expect(output?.value).toContain("Truncated by eve");
+    expect(output?.value?.length ?? 0).toBeLessThan(50_000);
+  });
 });
