@@ -46,25 +46,28 @@ Braintrust needs its SDK installed in the app and credentials in the environment
 
 ## Datadog
 
-`Datadog(...)` sends eval results to [Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/). Each eval is a workflow span, and every assertion is submitted as a score evaluation associated with that span:
+`Datadog(...)` sends eval assertions to [Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/). It attaches every score to the runtime OpenTelemetry span returned for the eval's primary session, rather than creating a separate eval trace:
 
 ```ts title="evals/evals.config.ts"
 import { defineEvalConfig } from "eve/evals";
 import { Datadog } from "eve/evals/reporters";
 
+import { readRuntimeTraceContext } from "./runtime-trace-context";
+
 export default defineEvalConfig({
   reporters: [
     Datadog({
-      apiKey: process.env.DD_API_KEY!,
+      apiKey: process.env.DATADOG_API_KEY!,
       projectName: "weather-agent",
+      resolveTraceContext: readRuntimeTraceContext,
     }),
   ],
 });
 ```
 
-Install the `dd-trace` package before running the eval.
+`resolveTraceContext(sessionId)` must return the runtime span's OpenTelemetry trace ID and span ID for that session. The trace ID is a 32-character hexadecimal string and the span ID is a 16-character hexadecimal string. The reporter submits them in Datadog's required format and uses only the Datadog API key—no application key or `dd-trace` install is needed.
 
-The span records the eval's description, output, metadata, derived action counts, and verdict. Each assertion carries its score, pass/fail assessment, threshold, severity, and failure message when present. Use `--skip-report` to run without sending data.
+Each assertion carries its score, pass/fail assessment, severity, and failure message when present. Use `--skip-report` to run without sending data.
 
 ## JUnit
 

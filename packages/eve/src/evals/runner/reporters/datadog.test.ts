@@ -1,34 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { Datadog, type DatadogReporterConfig } from "#evals/reporters/index.js";
 import type { EveEval, EveEvalResult, EveEvalTarget } from "#evals/types.js";
 
-const mocks = vi.hoisted(() => {
-  const span = {};
-  const llmobs = {
-    enabled: true,
-    annotate: vi.fn(),
-    exportSpan: vi.fn(() => ({ spanId: "span-123", traceId: "trace-123" })),
-    flush: vi.fn(),
-    submitEvaluation: vi.fn(),
-    trace: vi.fn((_options: unknown, fn: (activeSpan: object) => unknown) => fn(span)),
-  };
-  const tracer = {
-    init: vi.fn(),
-    llmobs,
-  };
-  tracer.init.mockReturnValue(tracer);
+const fetchMock = vi.fn();
 
-  return { llmobs, span, tracer };
-});
-
-vi.mock("dd-trace", () => ({ default: mocks.tracer, llmobs: mocks.llmobs }));
-
-function makeTarget(kind: "local" | "remote" = "local"): EveEvalTarget {
-  const url = kind === "local" ? "http://127.0.0.1:3000" : "https://test.vercel.app";
+function makeTarget(): EveEvalTarget {
   return {
-    capabilities: { devRoutes: kind === "local" },
-    kind,
-    url,
+    capabilities: { devRoutes: true },
+    kind: "local",
+    url: "http://127.0.0.1:3000",
   };
 }
 
@@ -36,6 +17,10 @@ function makeConfig(overrides: Partial<DatadogReporterConfig> = {}): DatadogRepo
   return {
     apiKey: "api-key",
     projectName: "test-project",
+    resolveTraceContext: () => ({
+      spanId: "00000000000000ff",
+      traceId: "0123456789abcdef0123456789abcdef",
+    }),
     ...overrides,
   };
 }
@@ -43,10 +28,7 @@ function makeConfig(overrides: Partial<DatadogReporterConfig> = {}): DatadogRepo
 function makeEvaluation(): EveEval {
   return {
     _tag: "EveEval",
-    description: "Checks the weather response.",
     id: "weather",
-    metadata: { city: "Brooklyn" },
-    tags: ["smoke"],
     test() {},
   };
 }
@@ -60,17 +42,8 @@ function makeEvalResult(overrides: Partial<EveEvalResult> = {}): EveEvalResult {
       status: "completed",
       events: [],
       derived: {
-        toolCalls: [
-          {
-            name: "search",
-            input: { query: "test" },
-            output: null,
-            status: "completed",
-            turnIndex: 0,
-            sessionId: "session-123",
-          },
-        ],
-        toolCallCount: 1,
+        toolCalls: [],
+        toolCallCount: 0,
         subagentCalls: [],
         subagentCallCount: 0,
         inputRequests: [],
@@ -82,7 +55,14 @@ function makeEvalResult(overrides: Partial<EveEvalResult> = {}): EveEvalResult {
     },
     assertions: [
       { name: "succeeded", score: 1, severity: "gate", passed: true },
-      { name: "similarity", score: 0.4, severity: "soft", threshold: 0.6, passed: false },
+      {
+        name: "similarity score",
+        score: 0.4,
+        severity: "soft",
+        threshold: 0.6,
+        passed: false,
+        message: "Response was too dissimilar.",
+      },
     ],
     verdict: "failed",
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -92,13 +72,13 @@ function makeEvalResult(overrides: Partial<EveEvalResult> = {}): EveEvalResult {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  vi.stubEnv("DD_API_KEY", "");
-  mocks.llmobs.enabled = true;
+  fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("Datadog", () => {
@@ -111,108 +91,112 @@ describe("Datadog", () => {
     expect(reporter.onRunComplete).toBeTypeOf("function");
   });
 
-  it("submits every assertion on an eval workflow span", async () => {
-    const reporter = Datadog(makeConfig());
+  it("attaches every assertion to the resolved OTel runtime span", async () => {
+    const resolveTraceContext = vi.fn(makeConfig().resolveTraceContext);
+    const reporter = Datadog(makeConfig({ resolveTraceContext }));
     const result = makeEvalResult();
 
     await reporter.onRunStart([makeEvaluation()], makeTarget());
     await reporter.onEvalComplete(result);
-    await reporter.onRunComplete({
-      target: makeTarget(),
-      results: [result],
-      startedAt: result.startedAt,
-      completedAt: result.completedAt,
-      passed: 0,
-      failed: 1,
-      scored: 0,
-      skipped: 0,
-      errored: 0,
-    });
 
-    expect(mocks.llmobs.trace).toHaveBeenCalledWith(
-      {
-        kind: "workflow",
-        name: "eve.eval",
-        sessionId: "session-123",
-        mlApp: "test-project",
-      },
-      expect.any(Function),
+    expect(resolveTraceContext).toHaveBeenCalledWith("session-123");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.datadoghq.com/api/intake/llm-obs/v2/eval-metric",
+      expect.objectContaining({
+        headers: {
+          "content-type": "application/json",
+          "DD-API-KEY": "api-key",
+        },
+        method: "POST",
+      }),
     );
-    expect(mocks.tracer.init).toHaveBeenCalledWith({
-      llmobs: {
-        agentlessEnabled: true,
-        mlApp: "test-project",
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({
+      data: {
+        type: "evaluation_metric",
+        attributes: {
+          metrics: [
+            expect.objectContaining({
+              assessment: "pass",
+              join_on: {
+                span: {
+                  span_id: "255",
+                  trace_id: "0123456789abcdef0123456789abcdef",
+                },
+              },
+              label: "succeeded",
+              metric_type: "score",
+              ml_app: "test-project",
+              score_value: 1,
+              tags: expect.arrayContaining(["source:otel", "eve_eval_id:weather"]),
+              timestamp_ms: 1_767_225_601_000,
+            }),
+            expect.objectContaining({
+              assessment: "fail",
+              label: "similarity_score",
+              reasoning: "Response was too dissimilar.",
+              score_value: 0.4,
+            }),
+          ],
+        },
       },
     });
-    expect(process.env.DD_API_KEY).toBe("api-key");
-    expect(mocks.llmobs.annotate).toHaveBeenCalledWith(
-      mocks.span,
-      expect.objectContaining({
-        inputData: { description: "Checks the weather response.", id: "weather" },
-        metrics: expect.objectContaining({ durationMs: 1_000, toolCallCount: 1 }),
-        outputData: { error: undefined, output: "actual output" },
-      }),
-    );
-    expect(mocks.llmobs.submitEvaluation).toHaveBeenNthCalledWith(
-      1,
-      { spanId: "span-123", traceId: "trace-123" },
-      expect.objectContaining({
-        assessment: "pass",
-        label: "succeeded",
-        mlApp: "test-project",
-        metricType: "score",
-        value: 1,
-      }),
-    );
-    expect(mocks.llmobs.submitEvaluation).toHaveBeenNthCalledWith(
-      2,
-      { spanId: "span-123", traceId: "trace-123" },
-      expect.objectContaining({
-        assessment: "fail",
-        label: "similarity",
-        mlApp: "test-project",
-        metricType: "score",
-        value: 0.4,
-      }),
-    );
-    expect(mocks.llmobs.flush).toHaveBeenCalledOnce();
   });
 
-  it("requires Datadog LLM Observability to be enabled", async () => {
-    mocks.llmobs.enabled = false;
+  it("requires a trace context for the primary eval session", async () => {
+    const reporter = Datadog(makeConfig({ resolveTraceContext: () => undefined }));
+
+    await reporter.onRunStart([makeEvaluation()], makeTarget());
+    await expect(reporter.onEvalComplete(makeEvalResult())).rejects.toThrow(
+      'could not resolve an OTel trace context for eval "weather" session "session-123"',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("validates the OTel trace context", async () => {
+    const reporter = Datadog(
+      makeConfig({
+        resolveTraceContext: () => ({ spanId: "not-a-span-id", traceId: "not-a-trace-id" }),
+      }),
+    );
+
+    await reporter.onRunStart([makeEvaluation()], makeTarget());
+    await expect(reporter.onEvalComplete(makeEvalResult())).rejects.toThrow(
+      "Datadog reporting needs a 32-character hexadecimal OTel trace ID.",
+    );
+  });
+
+  it("surfaces Datadog intake failures", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("Unknown span", { status: 404 }));
     const reporter = Datadog(makeConfig());
 
-    await expect(reporter.onRunStart([makeEvaluation()], makeTarget())).rejects.toThrow(
-      "Datadog LLM Observability is not enabled.",
+    await reporter.onRunStart([makeEvaluation()], makeTarget());
+    await expect(reporter.onEvalComplete(makeEvalResult())).rejects.toThrow(
+      "Datadog evaluation intake failed (404): Unknown span",
     );
   });
 
-  it("requires explicit projectName and apiKey", async () => {
-    vi.stubEnv("DD_API_KEY", "env-api-key");
-    vi.stubEnv("DD_LLMOBS_ML_APP", "env-project");
-
-    await expect(
-      Datadog({ apiKey: "api-key", projectName: "" }).onRunStart([makeEvaluation()], makeTarget()),
-    ).rejects.toThrow("Datadog reporting needs a projectName.");
-    await expect(
-      Datadog({ apiKey: "", projectName: "evals-ci" }).onRunStart([makeEvaluation()], makeTarget()),
-    ).rejects.toThrow("Datadog reporting needs an apiKey.");
+  it("requires explicit projectName, apiKey, and trace-context resolver", () => {
+    expect(() =>
+      Datadog(makeConfig({ projectName: "" })).onRunStart([makeEvaluation()], makeTarget()),
+    ).toThrow("Datadog reporting needs a projectName.");
+    expect(() =>
+      Datadog(makeConfig({ apiKey: "" })).onRunStart([makeEvaluation()], makeTarget()),
+    ).toThrow("Datadog reporting needs an apiKey.");
+    expect(() =>
+      Datadog({
+        apiKey: "api-key",
+        projectName: "test-project",
+      } as DatadogReporterConfig).onRunStart([makeEvaluation()], makeTarget()),
+    ).toThrow("Datadog reporting needs a resolveTraceContext function.");
   });
 
   it("is a no-op before the run starts", async () => {
     const reporter = Datadog(makeConfig());
 
     await reporter.onEvalComplete(makeEvalResult());
-    await reporter.onRunComplete({
-      target: makeTarget(),
-      results: [],
-      startedAt: "2026-01-01T00:00:00.000Z",
-      completedAt: "2026-01-01T00:01:00.000Z",
-      passed: 0,
-      failed: 0,
-      scored: 0,
-      skipped: 0,
-      errored: 0,
-    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
