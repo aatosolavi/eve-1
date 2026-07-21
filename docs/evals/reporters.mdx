@@ -56,7 +56,6 @@ export default defineEvalConfig({
   reporters: [
     Datadog({
       apiKey: process.env.DD_API_KEY!,
-      appKey: process.env.DD_APP_KEY,
       projectName: "weather-agent",
     }),
   ],

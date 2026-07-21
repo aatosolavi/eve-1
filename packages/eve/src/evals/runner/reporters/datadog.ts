@@ -9,11 +9,6 @@ export interface DatadogReporterConfig {
    */
   readonly apiKey: string;
   /**
-   * Datadog application key to make available before the tracer initializes.
-   * LLM Observability ingestion uses the API key.
-   */
-  readonly appKey?: string;
-  /**
    * Datadog LLM Observability project name. This is sent as the tracer's ML
    * application name and is used for both workflow spans and evaluations.
    */
@@ -22,7 +17,6 @@ export interface DatadogReporterConfig {
 
 interface ResolvedDatadogReporterConfig {
   readonly apiKey: string;
-  readonly appKey?: string;
   readonly projectName: string;
 }
 
@@ -176,14 +170,12 @@ function resolveDatadogReporterConfig(
 
   return {
     apiKey: config.apiKey,
-    appKey: config.appKey,
     projectName: config.projectName,
   };
 }
 
 function configureDatadogEnvironment(config: ResolvedDatadogReporterConfig): void {
   process.env.DD_API_KEY = config.apiKey;
-  if (config.appKey) process.env.DD_APP_KEY = config.appKey;
 }
 
 function resolveSpanAnnotation(

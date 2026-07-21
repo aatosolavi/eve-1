@@ -35,7 +35,6 @@ function makeTarget(kind: "local" | "remote" = "local"): EveEvalTarget {
 function makeConfig(overrides: Partial<DatadogReporterConfig> = {}): DatadogReporterConfig {
   return {
     apiKey: "api-key",
-    appKey: "app-key",
     projectName: "test-project",
     ...overrides,
   };
@@ -95,7 +94,6 @@ function makeEvalResult(overrides: Partial<EveEvalResult> = {}): EveEvalResult {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("DD_API_KEY", "");
-  vi.stubEnv("DD_APP_KEY", "");
   mocks.llmobs.enabled = true;
 });
 
@@ -147,7 +145,6 @@ describe("Datadog", () => {
       },
     });
     expect(process.env.DD_API_KEY).toBe("api-key");
-    expect(process.env.DD_APP_KEY).toBe("app-key");
     expect(mocks.llmobs.annotate).toHaveBeenCalledWith(
       mocks.span,
       expect.objectContaining({
