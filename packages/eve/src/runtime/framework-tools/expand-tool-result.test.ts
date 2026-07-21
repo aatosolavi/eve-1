@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contextStorage, ContextContainer } from "#context/container.js";
 import { SessionIdKey } from "#context/keys.js";
-import { EXPAND_TOOL_RESULT_TOOL_DEFINITION } from "#runtime/framework-tools/expand-tool-result.js";
+import {
+  EXPAND_TOOL_RESULT_TOOL_DEFINITION,
+  recordToolResultStreamPosition,
+  ToolResultStreamPositionsKey,
+} from "#runtime/framework-tools/expand-tool-result.js";
 
 const getReadableMock = vi.fn();
 
@@ -37,11 +41,16 @@ function actionResultLine(callId: string, output: unknown): string {
   });
 }
 
-async function execute(input: unknown, sessionRunId?: string): Promise<unknown> {
+async function execute(
+  input: unknown,
+  sessionRunId?: string,
+  seed?: (ctx: ContextContainer) => void,
+): Promise<unknown> {
   const ctx = new ContextContainer();
   if (sessionRunId !== undefined) {
     ctx.set(SessionIdKey, sessionRunId);
   }
+  seed?.(ctx);
   const exec = EXPAND_TOOL_RESULT_TOOL_DEFINITION.execute;
   if (exec === undefined) {
     throw new Error("expand_tool_result must define execute.");
@@ -102,5 +111,58 @@ describe("expand_tool_result", () => {
 
     expect(result.found).toBe(false);
     expect(getReadableMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordToolResultStreamPosition", () => {
+  it("records positions and prunes oldest entries past the cap", () => {
+    const ctx = new ContextContainer();
+    for (let index = 0; index < 600; index += 1) {
+      recordToolResultStreamPosition(ctx, `call-${index}`, index);
+    }
+
+    const state = ctx.require(ToolResultStreamPositionsKey);
+    expect(state.order).toHaveLength(512);
+    expect(state.positions["call-0"]).toBeUndefined();
+    expect(state.positions["call-599"]).toBe(599);
+  });
+
+  it("re-recording a call id keeps one entry with the latest index", () => {
+    const ctx = new ContextContainer();
+    recordToolResultStreamPosition(ctx, "call-1", 3);
+    recordToolResultStreamPosition(ctx, "call-1", 9);
+
+    const state = ctx.require(ToolResultStreamPositionsKey);
+    expect(state.order).toEqual(["call-1"]);
+    expect(state.positions["call-1"]).toBe(9);
+  });
+});
+
+describe("expand_tool_result with position hints", () => {
+  it("seeks to the recorded hint instead of scanning windows", async () => {
+    getReadableMock.mockImplementation(() =>
+      streamOfEvents([actionResultLine("call-7", "payload")]),
+    );
+
+    const result = (await execute({ toolCallId: "call-7" }, "wrun_session", (ctx) => {
+      recordToolResultStreamPosition(ctx, "call-7", 41);
+    })) as Record<string, unknown>;
+
+    expect(result.found).toBe(true);
+    expect(getReadableMock).toHaveBeenCalledTimes(1);
+    expect(getReadableMock).toHaveBeenCalledWith({ startIndex: 41 });
+  });
+
+  it("falls back to window scanning when the hint window misses", async () => {
+    getReadableMock
+      .mockImplementationOnce(() => streamOfEvents([actionResultLine("call-other", "x")]))
+      .mockImplementation(() => streamOfEvents([actionResultLine("call-7", "found late")]));
+
+    const result = (await execute({ toolCallId: "call-7" }, "wrun_session", (ctx) => {
+      recordToolResultStreamPosition(ctx, "call-7", 41);
+    })) as Record<string, unknown>;
+
+    expect(result.found).toBe(true);
+    expect(getReadableMock.mock.calls.length).toBeGreaterThan(1);
   });
 });

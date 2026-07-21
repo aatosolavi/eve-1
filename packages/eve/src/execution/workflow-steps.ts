@@ -6,13 +6,14 @@ import { dispatchDynamicInstructionEvent } from "#context/dynamic-instruction-li
 import { dispatchDynamicModelEvent } from "#context/dynamic-model-lifecycle.js";
 import { dispatchDynamicSkillEvent } from "#context/dynamic-skill-lifecycle.js";
 import { dispatchDynamicToolEvent } from "#context/dynamic-tool-lifecycle.js";
-import { AuthKey, CapabilitiesKey, ModeKey } from "#context/keys.js";
+import { AuthKey, CapabilitiesKey, ModeKey, SessionIdKey } from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { getHarnessEmissionState } from "#harness/emission.js";
 import { isTurnCancellation, throwIfTurnAborted } from "#harness/turn-cancellation.js";
 import { setChannelContext } from "#execution/channel-context.js";
+import { recordToolResultStreamPosition } from "#runtime/framework-tools/expand-tool-result.js";
 import { hasPendingInputBatch } from "#harness/input-requests.js";
 import { coalesceTurnInputs } from "#harness/messages.js";
 import {
@@ -115,6 +116,29 @@ export type { TurnStepInput };
 /**
  * Runs one atomic harness step inside a durable `"use step"` boundary.
  */
+/**
+ * Tail chunk index of the session run's "user" stream, or `undefined` when it
+ * cannot be resolved. Only used to seed stream-position hints; failures must
+ * never affect the turn.
+ */
+async function resolveSessionStreamTail(
+  sessionRunId: string | undefined,
+): Promise<number | undefined> {
+  if (sessionRunId === undefined) {
+    return undefined;
+  }
+  try {
+    const { getWorld } = await import("#internal/workflow/runtime.js");
+    const world = getWorld() as {
+      streams?: { getInfo?: (runId: string, name: string) => Promise<{ tailIndex: number }> };
+    };
+    const info = await world.streams?.getInfo?.(sessionRunId, "user");
+    return info?.tailIndex;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResult> {
   "use step";
 
@@ -251,6 +275,13 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
   }
 
   const writer = input.parentWritable.getWriter();
+  // Baseline for stream position hints: the session stream's tail before this
+  // turn writes. Indices recorded per action.result are lower bounds on the
+  // true chunk index (interleaved writers only push events later), letting
+  // expand_tool_result seek instead of scanning. Failure to resolve the
+  // baseline only disables hints; retrieval falls back to scanning.
+  const streamPositionBaseline = await resolveSessionStreamTail(ctx.get(SessionIdKey));
+  let streamWrites = 0;
   const hookRegistry = bundle.hookRegistry;
   const dynamicInstructionsResolvers = bundle.resolvedAgent.dynamicInstructionsResolvers ?? [];
   const dynamicSkillResolvers = bundle.resolvedAgent.dynamicSkillResolvers ?? [];
@@ -260,6 +291,14 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
     const toEmit = await callAdapterEventHandler(adapter, event, adapterCtx);
     setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
     await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(toEmit)));
+    if (streamPositionBaseline !== undefined && toEmit.type === "action.result") {
+      recordToolResultStreamPosition(
+        ctx,
+        toEmit.data.result.callId,
+        streamPositionBaseline + 1 + streamWrites,
+      );
+    }
+    streamWrites += 1;
     return toEmit;
   };
 
