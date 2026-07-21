@@ -83,7 +83,6 @@ import {
   applySessionLimitContinuation,
   enforceSessionTokenLimit,
 } from "#harness/session-limit-enforcement.js";
-import { setEveAttributes } from "#runtime/attributes/emit.js";
 import {
   advanceStep,
   emitFailedStep,
@@ -1255,8 +1254,8 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     // runtime's last-write-wins per-key semantics mean only the running
     // total — not the per-step delta — should reach the dashboard.
     //
-    // Best-effort: `setEveAttributes` swallows runtime failures so a
-    // broken tag emit can never break the agent loop.
+    // Best-effort: the runtime-injected writer swallows runtime failures
+    // so a broken tag emit can never break the agent loop.
     const nextTurnUsage = accumulateTurnUsage({
       previous: getTurnUsageState(session.state),
       turnId: emissionState.turnId,
@@ -1268,7 +1267,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     session = setTurnUsageState(session, nextTurnUsage);
     // `formatLanguageModelGatewayId` requires `model.provider` to be a string;
     // mock models in tests omit it, so guard the lookup so a missing field
-    // becomes `undefined` and is dropped by `setEveAttributes` instead of
+    // becomes `undefined` and is dropped by the attribute writer instead of
     // throwing into the tool loop.
     let modelTag: string | undefined;
     try {
@@ -1276,7 +1275,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     } catch {
       modelTag = undefined;
     }
-    await setEveAttributes({
+    await config.writeEveAttributes?.({
       "$eve.model": modelTag,
       "$eve.input_tokens": nextTurnUsage.inputTokens,
       "$eve.output_tokens": nextTurnUsage.outputTokens,
