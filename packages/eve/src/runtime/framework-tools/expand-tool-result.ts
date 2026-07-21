@@ -2,52 +2,13 @@ import { getRun } from "#internal/workflow/runtime.js";
 import { z } from "#compiled/zod/index.js";
 
 import { getContext } from "#context/accessors.js";
-import type { AlsContext } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
 import { SessionIdKey } from "#context/keys.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 
-/**
- * Durable per-session map from tool call id to the chunk index of its
- * `action.result` event in the session stream. Recorded at emit time so
- * retrieval seeks instead of scanning; entries are pruned oldest-first.
- */
-export interface ToolResultStreamPositions {
-  readonly order: readonly string[];
-  readonly positions: Readonly<Record<string, number>>;
-}
-
-export const ToolResultStreamPositionsKey = new ContextKey<ToolResultStreamPositions>(
-  "eve.toolResultStreamPositions",
-);
-
-const MAX_TRACKED_POSITIONS = 512;
-
-/**
- * Records the stream chunk index of a tool result's `action.result` event.
- * The recorded index is a lower bound on the true index: concurrent writers
- * (subagent event proxies) can only push the event later, so a reader seeks
- * to the hint and scans forward a bounded window.
- */
-export function recordToolResultStreamPosition(
-  ctx: AlsContext,
-  callId: string,
-  chunkIndex: number,
-): void {
-  const state = ctx.get(ToolResultStreamPositionsKey) ?? { order: [], positions: {} };
-  const order = [...state.order.filter((id) => id !== callId), callId];
-  const positions: Record<string, number> = { ...state.positions, [callId]: chunkIndex };
-  while (order.length > MAX_TRACKED_POSITIONS) {
-    const evicted = order.shift();
-    if (evicted !== undefined) {
-      delete positions[evicted];
-    }
-  }
-  ctx.set(ToolResultStreamPositionsKey, { order, positions });
-}
-
-// Forward window scanned from a recorded hint. Covers the drift a hint can
-// accumulate from interleaved writers between the baseline and the write.
+// Seek window around an annotation-provided index. The index is the position
+// of the step's last result, so the target sits at or shortly before it;
+// interleaved writers can only have pushed it later.
+const HINT_BACK_MARGIN = 64;
 const HINT_SCAN_CHUNKS = 256;
 
 export const EXPAND_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
@@ -55,6 +16,12 @@ export const EXPAND_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
     .string()
     .min(1)
     .describe("The tool call id named in a [Truncated by eve: …] annotation."),
+  nearStreamIndex: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("The stream index noted in the truncation annotation, when present."),
   offsetChars: z
     .number()
     .int()
@@ -105,18 +72,17 @@ interface StoredActionResult {
  * stored separately.
  */
 async function expandToolResult(input: unknown): Promise<unknown> {
-  const { limitChars, offsetChars, toolCallId } = EXPAND_TOOL_RESULT_INPUT_SCHEMA.parse(input);
+  const { limitChars, nearStreamIndex, offsetChars, toolCallId } =
+    EXPAND_TOOL_RESULT_INPUT_SCHEMA.parse(input);
 
   const sessionRunId = getContext(SessionIdKey);
   if (sessionRunId === undefined) {
     return miss("This session does not expose a durable event stream.");
   }
 
-  const hint = getContext(ToolResultStreamPositionsKey)?.positions[toolCallId];
-
   let stored: StoredActionResult | undefined;
   try {
-    stored = await findActionResult(sessionRunId, toolCallId, hint);
+    stored = await findActionResult(sessionRunId, toolCallId, nearStreamIndex);
   } catch (error) {
     return miss(
       `Reading the session stream failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -158,13 +124,14 @@ async function findActionResult(
   hint: number | undefined,
 ): Promise<StoredActionResult | undefined> {
   if (hint !== undefined) {
-    const readable = getRun(sessionRunId).getReadable<string | Uint8Array>({ startIndex: hint });
+    const startIndex = Math.max(0, hint - HINT_BACK_MARGIN);
+    const readable = getRun(sessionRunId).getReadable<string | Uint8Array>({ startIndex });
     const found = await scanChunks(readable, HINT_SCAN_CHUNKS, toolCallId);
     if (found !== undefined) {
       return found;
     }
-    // A hint miss (buffered write lost, drift beyond the window) falls back
-    // to the unhinted scan rather than reporting the result missing.
+    // A hint miss (stale annotation, drift beyond the window) falls back to
+    // the unhinted scan rather than reporting the result missing.
   }
 
   for (const window of SCAN_WINDOWS) {

@@ -93,22 +93,32 @@ const responders: Record<RegressionCase, CaseResponder> = {
       return `Expanded truncated output: ${EXPANSION_MARKER}`;
     }
 
-    // A truncation annotation names the call id to expand.
+    // A truncation annotation names the call id to expand, plus the stream
+    // index when the harness recorded one — pass both through so the eval
+    // exercises the seek path.
     const annotated = request.messages
-      .map((message) => /expand_tool_result\("([^"]+)"\)/.exec(message.text)?.[1])
-      .find((callId) => callId !== undefined);
-    if (annotated !== undefined) {
+      .map((message) =>
+        /expand_tool_result\("([^"]+)"(?:, \{ nearStreamIndex: (\d+) \})?\)/.exec(message.text),
+      )
+      .find((match) => match !== null);
+    if (annotated?.[1] !== undefined) {
       if (state.advanceCalls >= MAX_TOOL_CALLS) {
         return `Hard stop after ${MAX_TOOL_CALLS} expansions: EXPANSION_TAIL_MISSING`;
       }
       state.advanceCalls += 1;
+      const nearStreamIndex = annotated[2] === undefined ? undefined : Number(annotated[2]);
       return {
         toolCalls: [
           {
             id: `expand-tool-result-${state.advanceCalls}`,
             // The payload is ~30k chars; page an 8k window over its tail so
             // the sentinel survives even if this result is truncated again.
-            input: { limitChars: 8_000, offsetChars: 26_000, toolCallId: annotated },
+            input: {
+              limitChars: 8_000,
+              offsetChars: 26_000,
+              toolCallId: annotated[1],
+              ...(nearStreamIndex === undefined ? {} : { nearStreamIndex }),
+            },
             name: "expand_tool_result",
           },
         ],

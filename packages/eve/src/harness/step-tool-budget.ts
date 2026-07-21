@@ -22,8 +22,12 @@ const DEGENERATE_THRESHOLD_GUARD_TOKENS = 2_000;
 // on the estimateTokens ruler, not a hard cap.
 const MIN_KEPT_CHARS = 400;
 
-function truncationAnnotation(toolCallId: string): string {
-  return `[Truncated by eve: this step's tool results exceeded the per-step context budget. Retrieve the full output with expand_tool_result("${toolCallId}"), or use narrower queries.]`;
+function truncationAnnotation(toolCallId: string, nearStreamIndex: number | undefined): string {
+  const reference =
+    nearStreamIndex === undefined
+      ? `expand_tool_result("${toolCallId}")`
+      : `expand_tool_result("${toolCallId}", { nearStreamIndex: ${nearStreamIndex} })`;
+  return `[Truncated by eve: this step's tool results exceeded the per-step context budget. Retrieve the full output with ${reference}, or use narrower queries.]`;
 }
 
 /** Per-step tool-output budget (tokens) for a given compaction threshold. */
@@ -44,6 +48,7 @@ export function resolveStepToolBudget(threshold: number): number {
 export function applyStepToolBudget(
   messages: readonly ModelMessage[],
   budgetTokens: number,
+  lastResultStreamIndex?: number,
 ): readonly ModelMessage[] {
   const parts: { estimate: number; part: ToolResultPart }[] = [];
   for (const message of messages) {
@@ -76,7 +81,7 @@ export function applyStepToolBudget(
 
   return truncateToolResults(
     messages,
-    (part) => truncationAnnotation(part.toolCallId),
+    (part) => truncationAnnotation(part.toolCallId, lastResultStreamIndex),
     (part) => keptCharsByPart.get(part),
   );
 }

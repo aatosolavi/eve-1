@@ -2,11 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contextStorage, ContextContainer } from "#context/container.js";
 import { SessionIdKey } from "#context/keys.js";
-import {
-  EXPAND_TOOL_RESULT_TOOL_DEFINITION,
-  recordToolResultStreamPosition,
-  ToolResultStreamPositionsKey,
-} from "#runtime/framework-tools/expand-tool-result.js";
+import { EXPAND_TOOL_RESULT_TOOL_DEFINITION } from "#runtime/framework-tools/expand-tool-result.js";
 
 const getReadableMock = vi.fn();
 
@@ -114,53 +110,32 @@ describe("expand_tool_result", () => {
   });
 });
 
-describe("recordToolResultStreamPosition", () => {
-  it("records positions and prunes oldest entries past the cap", () => {
-    const ctx = new ContextContainer();
-    for (let index = 0; index < 600; index += 1) {
-      recordToolResultStreamPosition(ctx, `call-${index}`, index);
-    }
-
-    const state = ctx.require(ToolResultStreamPositionsKey);
-    expect(state.order).toHaveLength(512);
-    expect(state.positions["call-0"]).toBeUndefined();
-    expect(state.positions["call-599"]).toBe(599);
-  });
-
-  it("re-recording a call id keeps one entry with the latest index", () => {
-    const ctx = new ContextContainer();
-    recordToolResultStreamPosition(ctx, "call-1", 3);
-    recordToolResultStreamPosition(ctx, "call-1", 9);
-
-    const state = ctx.require(ToolResultStreamPositionsKey);
-    expect(state.order).toEqual(["call-1"]);
-    expect(state.positions["call-1"]).toBe(9);
-  });
-});
-
-describe("expand_tool_result with position hints", () => {
-  it("seeks to the recorded hint instead of scanning windows", async () => {
+describe("expand_tool_result with an annotation stream index", () => {
+  it("seeks near the provided index instead of scanning windows", async () => {
     getReadableMock.mockImplementation(() =>
       streamOfEvents([actionResultLine("call-7", "payload")]),
     );
 
-    const result = (await execute({ toolCallId: "call-7" }, "wrun_session", (ctx) => {
-      recordToolResultStreamPosition(ctx, "call-7", 41);
-    })) as Record<string, unknown>;
+    const result = (await execute(
+      { nearStreamIndex: 100, toolCallId: "call-7" },
+      "wrun_session",
+    )) as Record<string, unknown>;
 
     expect(result.found).toBe(true);
     expect(getReadableMock).toHaveBeenCalledTimes(1);
-    expect(getReadableMock).toHaveBeenCalledWith({ startIndex: 41 });
+    // Seeks a margin before the index: the target is at or before it.
+    expect(getReadableMock).toHaveBeenCalledWith({ startIndex: 36 });
   });
 
-  it("falls back to window scanning when the hint window misses", async () => {
+  it("falls back to window scanning when the indexed window misses", async () => {
     getReadableMock
       .mockImplementationOnce(() => streamOfEvents([actionResultLine("call-other", "x")]))
       .mockImplementation(() => streamOfEvents([actionResultLine("call-7", "found late")]));
 
-    const result = (await execute({ toolCallId: "call-7" }, "wrun_session", (ctx) => {
-      recordToolResultStreamPosition(ctx, "call-7", 41);
-    })) as Record<string, unknown>;
+    const result = (await execute(
+      { nearStreamIndex: 100, toolCallId: "call-7" },
+      "wrun_session",
+    )) as Record<string, unknown>;
 
     expect(result.found).toBe(true);
     expect(getReadableMock.mock.calls.length).toBeGreaterThan(1);

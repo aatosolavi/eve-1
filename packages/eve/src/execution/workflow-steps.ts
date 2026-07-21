@@ -6,14 +6,19 @@ import { dispatchDynamicInstructionEvent } from "#context/dynamic-instruction-li
 import { dispatchDynamicModelEvent } from "#context/dynamic-model-lifecycle.js";
 import { dispatchDynamicSkillEvent } from "#context/dynamic-skill-lifecycle.js";
 import { dispatchDynamicToolEvent } from "#context/dynamic-tool-lifecycle.js";
-import { AuthKey, CapabilitiesKey, ModeKey, SessionIdKey } from "#context/keys.js";
+import {
+  AuthKey,
+  CapabilitiesKey,
+  LastActionResultStreamIndexKey,
+  ModeKey,
+  SessionIdKey,
+} from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { getHarnessEmissionState } from "#harness/emission.js";
 import { isTurnCancellation, throwIfTurnAborted } from "#harness/turn-cancellation.js";
 import { setChannelContext } from "#execution/channel-context.js";
-import { recordToolResultStreamPosition } from "#runtime/framework-tools/expand-tool-result.js";
 import { hasPendingInputBatch } from "#harness/input-requests.js";
 import { coalesceTurnInputs } from "#harness/messages.js";
 import {
@@ -292,11 +297,7 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
     setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
     await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(toEmit)));
     if (streamPositionBaseline !== undefined && toEmit.type === "action.result") {
-      recordToolResultStreamPosition(
-        ctx,
-        toEmit.data.result.callId,
-        streamPositionBaseline + 1 + streamWrites,
-      );
+      ctx.set(LastActionResultStreamIndexKey, streamPositionBaseline + 1 + streamWrites);
     }
     streamWrites += 1;
     return toEmit;

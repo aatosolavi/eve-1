@@ -74,6 +74,7 @@ import {
   resolveCompactionModel,
   shouldCompact,
 } from "#harness/compaction.js";
+import { LastActionResultStreamIndexKey } from "#context/keys.js";
 import { applyStepToolBudget, resolveStepToolBudget } from "#harness/step-tool-budget.js";
 import {
   accumulateTurnUsage,
@@ -1831,6 +1832,11 @@ async function handleStepResult(input: {
   const responseMessages = applyStepToolBudget(
     normalizedProviderHistory.messages,
     resolveStepToolBudget(session.compaction.threshold),
+    // Position of this step's last result event, when the execution layer
+    // recorded one; annotations embed it so retrieval seeks, not scans. The
+    // harness may run without an active context (unit tests, embeddings) —
+    // no context simply means no hint.
+    contextStorage.getStore()?.get(LastActionResultStreamIndexKey),
   );
 
   const baseSession: HarnessSession = {

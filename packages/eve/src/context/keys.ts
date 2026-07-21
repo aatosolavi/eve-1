@@ -60,6 +60,15 @@ export interface Session {
 export const AuthKey = new ContextKey<SessionAuthContext | null>("eve.auth");
 export const InitiatorAuthKey = new ContextKey<SessionAuthContext | null>("eve.initiatorAuth");
 export const SessionIdKey = new ContextKey<string>("eve.sessionId");
+
+/**
+ * Stream chunk index of the most recent `action.result` event written to the
+ * session stream. A lower bound for any earlier result's position; truncation
+ * annotations embed it so retrieval can seek instead of scanning.
+ */
+export const LastActionResultStreamIndexKey = new ContextKey<number>(
+  "eve.lastActionResultStreamIndex",
+);
 export const ContinuationTokenKey = new ContextKey<string>("eve.continuationToken");
 export const ChannelRequestIdKey = new ContextKey<string>("eve.channelRequestId");
 export const ChannelInstrumentationKey = new ContextKey<ChannelInstrumentationProjection>(
