@@ -21,8 +21,8 @@ script.
 experiments:
 
 - `baseline` installs the local package without agent-specific guidance.
-- `agents-md` additionally writes an `AGENTS.md` that points the coding agent
-  at the version-matched docs in `node_modules/eve/docs/`.
+- `agents-md` writes the same `AGENTS.md` and `CLAUDE.md` guidance as `eve init`,
+  pointing the coding agent at the version-matched package docs.
 - `eve-skill` installs the repository's `skills/eve/SKILL.md` at Claude Code's
   project skill path, mirroring the skill selected by
   `npx skills add https://github.com/vercel/eve --skill eve`.

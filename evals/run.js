@@ -53,7 +53,7 @@ function writeExperiments(evalName) {
   fs.rmSync(experimentsDir, { recursive: true, force: true });
   fs.mkdirSync(experimentsDir, { recursive: true });
 
-  const evalsField = evalName === null ? "" : `\n  evals: '${evalName}',`;
+  const evalsField = evalName === null ? "" : `\n  evals: ${JSON.stringify(evalName)},`;
   for (const variant of variants) {
     const source = `import type { ExperimentConfig } from '@vercel/agent-eval'
 ${variant.imports}
@@ -249,7 +249,7 @@ function main() {
     process.exit(1);
   }
 
-  if (process.env.EVE_SKIP_PACK && fs.existsSync(tarballPath)) {
+  if (process.env.EVE_SKIP_PACK === "1" && fs.existsSync(tarballPath)) {
     console.log("> Reusing existing tarball (EVE_SKIP_PACK=1)");
   } else {
     console.log("> Packing eve...");
@@ -258,7 +258,8 @@ function main() {
     console.log(`  ${tarballPath} (${megabytes} MB)`);
   }
 
-  for (const envFile of [".env", ".env.local"]) {
+  // loadEnvFile preserves existing values, so load the more specific file first.
+  for (const envFile of [".env.local", ".env"]) {
     const source = path.join(root, envFile);
     if (fs.existsSync(source)) {
       process.loadEnvFile(source);
