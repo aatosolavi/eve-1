@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 
 import { estimateTokens } from "#harness/token-estimate.js";
+import { truncateToolResults, type ToolResultPart } from "#harness/tool-result-truncation.js";
 
 /**
  * Target minimum number of model steps between compactions. The per-step
@@ -16,7 +17,10 @@ export const MIN_STEPS_BETWEEN_COMPACTIONS = 20;
 const DEGENERATE_THRESHOLD_GUARD_TOKENS = 2_000;
 
 // Truncated results keep at least this much content so the model can see what
-// the tool returned and refine its next call instead of flying blind.
+// the tool returned and refine its next call instead of flying blind. With
+// many results in one step, these floors (plus annotations) can leave the
+// step somewhat above budget — the budget is a soft cadence target measured
+// on the estimateTokens ruler, not a hard cap.
 const MIN_KEPT_CHARS = 400;
 
 const TRUNCATION_ANNOTATION =
@@ -34,72 +38,41 @@ export function resolveStepToolBudget(threshold: number): number {
  * Bounds the combined size of one step's tool results to `budgetTokens`.
  *
  * Returns the input array unchanged (reference-equal) when the step is within
- * budget. Otherwise the largest results are truncated first, each replaced by
- * a text output carrying a content prefix plus an annotation steering the
- * model toward narrower queries. Results are never dropped, so every tool_use
- * keeps its paired tool_result.
+ * budget. Otherwise the largest results are truncated first, each keeping an
+ * annotated content prefix that steers the model toward narrower queries.
  */
 export function applyStepToolBudget(
   messages: readonly ModelMessage[],
   budgetTokens: number,
 ): readonly ModelMessage[] {
-  const parts: { estimate: number; messageIndex: number; partIndex: number }[] = [];
-  for (const [messageIndex, message] of messages.entries()) {
+  const parts: { estimate: number; part: ToolResultPart }[] = [];
+  for (const message of messages) {
     if (message.role !== "tool" || typeof message.content === "string") {
       continue;
     }
-    for (const [partIndex, part] of message.content.entries()) {
+    for (const part of message.content) {
       if (part.type === "tool-result") {
-        parts.push({ estimate: estimateTokens(part.output), messageIndex, partIndex });
+        parts.push({ estimate: estimateTokens(part.output), part });
       }
     }
   }
 
-  let total = parts.reduce((sum, part) => sum + part.estimate, 0);
+  let total = parts.reduce((sum, entry) => sum + entry.estimate, 0);
   if (total <= budgetTokens) {
     return messages;
   }
 
-  const truncations = new Map<string, number>();
-  for (const part of parts.toSorted((a, b) => b.estimate - a.estimate)) {
+  const keptCharsByPart = new Map<ToolResultPart, number>();
+  for (const entry of parts.toSorted((a, b) => b.estimate - a.estimate)) {
     if (total <= budgetTokens) {
       break;
     }
 
-    const allowedTokens = Math.max(budgetTokens - (total - part.estimate), 0);
+    const allowedTokens = Math.max(budgetTokens - (total - entry.estimate), 0);
     const keptChars = Math.max(Math.floor(allowedTokens * 4), MIN_KEPT_CHARS);
-    truncations.set(`${part.messageIndex}:${part.partIndex}`, keptChars);
-    total -= part.estimate - keptChars / 4;
+    keptCharsByPart.set(entry.part, keptChars);
+    total -= entry.estimate - keptChars / 4;
   }
 
-  return messages.map((message, messageIndex) => {
-    if (message.role !== "tool" || typeof message.content === "string") {
-      return message;
-    }
-
-    let changed = false;
-    const content = message.content.map((part, partIndex) => {
-      const keptChars = truncations.get(`${messageIndex}:${partIndex}`);
-      if (keptChars === undefined || part.type !== "tool-result") {
-        return part;
-      }
-
-      changed = true;
-      const serialized =
-        typeof part.output === "object" && part.output !== null
-          ? JSON.stringify(part.output)
-          : String(part.output);
-      // Annotation leads so the model reads the caveat before the content and
-      // so it survives prefix-capped renderings (compaction trail lines).
-      return {
-        ...part,
-        output: {
-          type: "text" as const,
-          value: `${TRUNCATION_ANNOTATION}\n\n${serialized.slice(0, keptChars)}`,
-        },
-      };
-    });
-
-    return changed ? { ...message, content } : message;
-  }) as readonly ModelMessage[];
+  return truncateToolResults(messages, TRUNCATION_ANNOTATION, (part) => keptCharsByPart.get(part));
 }

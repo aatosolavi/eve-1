@@ -9,6 +9,7 @@ import {
   TRANSCRIPT_PAYLOAD_LIMIT,
 } from "#harness/compaction-prompt.js";
 import { estimateTokens } from "#harness/token-estimate.js";
+import { truncateToolResults } from "#harness/tool-result-truncation.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import type { CompactionConfig, ToolLoopHarnessConfig } from "#harness/types.js";
 
@@ -254,37 +255,12 @@ const CAPPED_RESULT_ANNOTATION =
  * tool_use/tool_result pairing untouched. The cap matches the transcript
  * payload clip, so a later summarization sees the same content the model
  * kept — capping never destroys material the summarizer would need, unlike
- * dropping results outright. The annotation leads the value so it survives
- * prefix-capped renderings.
+ * dropping results outright.
  */
-function capToolResults(messages: readonly ModelMessage[]): ModelMessage[] {
-  return messages.map((message) => {
-    if (message.role !== "tool" || typeof message.content === "string") {
-      return message;
-    }
-
-    let changed = false;
-    const content = message.content.map((part) => {
-      if (part.type !== "tool-result") {
-        return part;
-      }
-      const serialized = JSON.stringify(part.output) ?? "";
-      if (serialized.length <= TRANSCRIPT_PAYLOAD_LIMIT) {
-        return part;
-      }
-
-      changed = true;
-      return {
-        ...part,
-        output: {
-          type: "text" as const,
-          value: `${CAPPED_RESULT_ANNOTATION}\n\n${serialized.slice(0, TRANSCRIPT_PAYLOAD_LIMIT)}`,
-        },
-      };
-    });
-
-    return changed ? { ...message, content } : message;
-  });
+function capToolResults(messages: readonly ModelMessage[]): readonly ModelMessage[] {
+  return truncateToolResults(messages, CAPPED_RESULT_ANNOTATION, (_part, serialized) =>
+    serialized.length > TRANSCRIPT_PAYLOAD_LIMIT ? TRANSCRIPT_PAYLOAD_LIMIT : undefined,
+  );
 }
 
 /**
