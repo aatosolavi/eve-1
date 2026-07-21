@@ -1,6 +1,6 @@
 import type { Runtime } from "#channel/types.js";
 import { createWorkflowRuntime } from "#execution/workflow-runtime.js";
-import { readLoopBenchmarkRuntime } from "#internal/loop-benchmark/config.js";
+import { readSelectedLoop } from "#internal/loops/config.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import {
   getRuntimeCompiledArtifactsCacheKey,
@@ -12,9 +12,9 @@ import {
   resolveNitroCompiledArtifactsSource,
 } from "#internal/nitro/routes/runtime-artifacts.js";
 
-const TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY = Symbol.for("eve.loop-benchmark.temporal-runtime");
+const TEMPORAL_LOOP_RUNTIME_GLOBAL_KEY = Symbol.for("eve.loops.temporal-runtime");
 
-interface TemporalBenchmarkRuntimeCache {
+interface TemporalLoopRuntimeCache {
   readonly runtime: Promise<Runtime>;
   readonly sourceKey: string;
 }
@@ -36,10 +36,10 @@ export interface NitroChannelRuntimeBundle {
 /**
  * Resolves the per-request channel bundle: the agent's resolved channels
  * (already merged with framework defaults by `resolve-agent-graph.ts`)
- * and the selected runtime. With no benchmark override, this remains the
+ * and the selected runtime. With no loop selection, this remains the
  * existing per-request Workflow runtime.
  *
- * The local Temporal benchmark owns one process-wide server and Worker.
+ * The local Temporal loop runtime owns one process-wide server and Worker.
  */
 export async function resolveNitroChannelRuntimeBundle(
   config: NitroArtifactsConfig,
@@ -58,38 +58,36 @@ export async function resolveNitroChannelRuntimeBundle(
 async function resolveSelectedRuntime(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<Runtime> {
-  const selected = readLoopBenchmarkRuntime();
+  const selected = readSelectedLoop();
   if (selected === undefined) {
     return createWorkflowRuntime({ compiledArtifactsSource });
   }
 
   if (selected === "workflow") {
-    const { createWorkflowBenchmarkRuntime } =
-      await import("#internal/loop-benchmark/workflow/runtime.js");
-    return createWorkflowBenchmarkRuntime({ compiledArtifactsSource });
+    const { createWorkflowLoopRuntime } = await import("#internal/loops/workflow/runtime.js");
+    return createWorkflowLoopRuntime({ compiledArtifactsSource });
   }
 
   if (selected === "inline") {
     if (process.env.VERCEL_ENV !== undefined) {
       throw new Error(
-        'EVE_LOOP_BENCHMARK_RUNTIME="inline" cannot run in a Vercel Function because its session and event stores are process-local.',
+        'EVE_LOOP="inline" cannot run in a Vercel Function because its session and event stores are process-local.',
       );
     }
-    const { createInlineBenchmarkRuntime } =
-      await import("#internal/loop-benchmark/inline/runtime.js");
-    return createInlineBenchmarkRuntime({ compiledArtifactsSource });
+    const { createInlineLoopRuntime } = await import("#internal/loops/inline/runtime.js");
+    return createInlineLoopRuntime({ compiledArtifactsSource });
   }
 
   if (process.env.VERCEL_ENV !== undefined) {
     throw new Error(
-      'EVE_LOOP_BENCHMARK_RUNTIME="temporal" is local-only. A Vercel Function cannot host the required long-lived Temporal Worker.',
+      'EVE_LOOP="temporal" is local-only. A Vercel Function cannot host the required long-lived Temporal Worker.',
     );
   }
 
-  return await getLocalTemporalBenchmarkRuntime(compiledArtifactsSource);
+  return await getTemporalLoopRuntime(compiledArtifactsSource);
 }
 
-async function getLocalTemporalBenchmarkRuntime(
+async function getTemporalLoopRuntime(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<Runtime> {
   const sourceKey = getRuntimeCompiledArtifactsCacheKey(compiledArtifactsSource);
@@ -102,16 +100,16 @@ async function getLocalTemporalBenchmarkRuntime(
     // cached runtime. Its Worker polls a runtime-unique task queue, so the
     // replacement cannot receive work routed to the retired instance; the
     // retired one shuts down in the background.
-    Reflect.deleteProperty(globalThis, TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY);
+    Reflect.deleteProperty(globalThis, TEMPORAL_LOOP_RUNTIME_GLOBAL_KEY);
     void closeRetiredTemporalRuntime(existing.runtime);
   }
 
   const runtime = createLocalTemporalRuntime(compiledArtifactsSource);
-  const cache: TemporalBenchmarkRuntimeCache = { runtime, sourceKey };
-  Reflect.set(globalThis, TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY, cache);
+  const cache: TemporalLoopRuntimeCache = { runtime, sourceKey };
+  Reflect.set(globalThis, TEMPORAL_LOOP_RUNTIME_GLOBAL_KEY, cache);
   void runtime.catch(() => {
     if (readTemporalRuntimeCache()?.runtime === runtime) {
-      Reflect.deleteProperty(globalThis, TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY);
+      Reflect.deleteProperty(globalThis, TEMPORAL_LOOP_RUNTIME_GLOBAL_KEY);
     }
   });
   return await runtime;
@@ -132,13 +130,12 @@ async function closeRetiredTemporalRuntime(runtime: Promise<Runtime>): Promise<v
 async function createLocalTemporalRuntime(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<Runtime> {
-  const { createLocalTemporalBenchmarkRuntime } =
-    await import("#internal/loop-benchmark/temporal/runtime.js");
-  return await createLocalTemporalBenchmarkRuntime({ compiledArtifactsSource });
+  const { createTemporalLoopRuntime } = await import("#internal/loops/temporal/runtime.js");
+  return await createTemporalLoopRuntime({ compiledArtifactsSource });
 }
 
-function readTemporalRuntimeCache(): TemporalBenchmarkRuntimeCache | null {
-  const value: unknown = Reflect.get(globalThis, TEMPORAL_BENCHMARK_RUNTIME_GLOBAL_KEY);
+function readTemporalRuntimeCache(): TemporalLoopRuntimeCache | null {
+  const value: unknown = Reflect.get(globalThis, TEMPORAL_LOOP_RUNTIME_GLOBAL_KEY);
   if (!isRecord(value)) return null;
   if (typeof value["sourceKey"] !== "string" || !(value["runtime"] instanceof Promise)) {
     return null;

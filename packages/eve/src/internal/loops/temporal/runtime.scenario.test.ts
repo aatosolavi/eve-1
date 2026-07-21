@@ -7,19 +7,19 @@ import { createTestRuntime } from "#internal/testing/app-harness.js";
 import { mockTool } from "#internal/testing/mocks/mock-tool.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
-import { createLocalTemporalBenchmarkRuntime } from "./runtime.js";
+import { createTemporalLoopRuntime } from "./runtime.js";
 
 const ADAPTER: ChannelAdapter = { kind: "http" };
 
-describe("LocalTemporalBenchmarkRuntime", () => {
+describe("TemporalLoopRuntime", () => {
   it("runs the production one-tool loop through a child Workflow and rekeys after it completes", async () => {
     let toolExecutions = 0;
     const tool = mockTool({
-      description: "Echo the benchmark nonce for runtime overhead measurement.",
+      description: "Echo the nonce so the loop runs exactly one tool call.",
       execute(rawInput) {
         toolExecutions += 1;
         const nonce = readNonce(rawInput);
-        return `benchmark-verified:${nonce}`;
+        return `loop-verified:${nonce}`;
       },
       inputSchema: {
         additionalProperties: false,
@@ -27,20 +27,20 @@ describe("LocalTemporalBenchmarkRuntime", () => {
         required: ["nonce"],
         type: "object",
       },
-      name: "benchmark_echo",
+      name: "loop_echo",
     });
     const app = createTestRuntime({
-      agent: { name: "temporal-loop-benchmark" },
+      agent: { name: "temporal-loop" },
       tools: [tool],
     });
     const manifestTool = app.manifest.tools.find((candidate) => candidate.name === tool.name);
-    if (manifestTool === undefined) throw new Error("benchmark_echo is missing from the manifest.");
+    if (manifestTool === undefined) throw new Error("loop_echo is missing from the manifest.");
     app.moduleMap.nodes[ROOT_COMPILED_AGENT_NODE_ID]!.modules[manifestTool.sourceId] = {
       default: { execute: tool.execute },
     };
 
     await app.run(async () => {
-      const runtime = await createLocalTemporalBenchmarkRuntime({
+      const runtime = await createTemporalLoopRuntime({
         compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
       });
       try {
@@ -53,16 +53,16 @@ describe("LocalTemporalBenchmarkRuntime", () => {
         expect(requests).toHaveLength(1);
         expect(requests[0]?.data.actions).toEqual([
           {
-            callId: "call_benchmark_echo",
+            callId: "call_loop_echo",
             input: { nonce: "nonce-123" },
             kind: "tool-call",
-            toolName: "benchmark_echo",
+            toolName: "loop_echo",
           },
         ]);
         const messages = events.filter((event) => event.type === "message.appended");
         expect(messages).toHaveLength(1);
         expect(messages[0]?.data.messageSoFar).toBe(
-          'Used benchmark_echo for "Use benchmark_echo exactly once with nonce "nonce-123".": benchmark-verified:nonce-123',
+          'Used loop_echo for "Use loop_echo exactly once with nonce "nonce-123".": loop-verified:nonce-123',
         );
         expect(toolExecutions).toBe(1);
 
@@ -85,9 +85,9 @@ function createRunInput(): RunInput {
     adapter: ADAPTER,
     auth: null,
     capabilities: { requestInput: true },
-    continuationToken: "http:temporal-benchmark",
+    continuationToken: "http:temporal-loop",
     input: {
-      message: 'Use benchmark_echo exactly once with nonce "nonce-123".',
+      message: 'Use loop_echo exactly once with nonce "nonce-123".',
     },
     mode: "conversation",
     requestId: "temporal-scenario-sample",
@@ -101,7 +101,7 @@ function readNonce(value: unknown): string {
     !("nonce" in value) ||
     typeof value.nonce !== "string"
   ) {
-    throw new TypeError("benchmark_echo requires a string nonce.");
+    throw new TypeError("loop_echo requires a string nonce.");
   }
   return value.nonce;
 }
@@ -113,8 +113,8 @@ async function readThroughWaiting(
   const events: HandleMessageStreamEvent[] = [];
   try {
     while (true) {
-      const next = await withTimeout(reader.read(), "Temporal benchmark event stream");
-      if (next.done) throw new Error("Temporal benchmark stream closed before session.waiting.");
+      const next = await withTimeout(reader.read(), "Temporal loop runtime event stream");
+      if (next.done) throw new Error("Temporal loop runtime stream closed before session.waiting.");
       events.push(next.value);
       if (next.value.type === "session.waiting") return events;
     }
@@ -125,7 +125,7 @@ async function readThroughWaiting(
 }
 
 async function waitForRekeyHistory(
-  runtime: Awaited<ReturnType<typeof createLocalTemporalBenchmarkRuntime>>,
+  runtime: Awaited<ReturnType<typeof createTemporalLoopRuntime>>,
   sessionId: string,
 ): Promise<Awaited<ReturnType<typeof runtime.inspectHistory>>> {
   for (let attempt = 0; attempt < 200; attempt += 1) {

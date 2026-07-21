@@ -5,15 +5,15 @@ import {
   executeTurnStepOperation,
   type DurableStepResult,
 } from "#execution/turn-step-operation.js";
-import type { TemporalBenchmarkActivities, TemporalBenchmarkTurnStepInput } from "./contracts.js";
-import { LocalTemporalBenchmarkService } from "./service.js";
+import type { TemporalLoopActivities, TemporalLoopTurnStepInput } from "./contracts.js";
+import { TemporalLoopService } from "./service.js";
 
 /** Binds the production eve operations to Temporal Activity boundaries. */
-export function createTemporalBenchmarkActivities(input: {
+export function createTemporalLoopActivities(input: {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
   readonly nodeId?: string;
-  readonly service: LocalTemporalBenchmarkService;
-}): TemporalBenchmarkActivities {
+  readonly service: TemporalLoopService;
+}): TemporalLoopActivities {
   return {
     async createSession(activityInput): Promise<{ readonly state: DurableSessionState }> {
       try {
@@ -80,15 +80,12 @@ function requireSnapshot(
   state: DurableSessionState,
 ): NonNullable<DurableSessionState["snapshot"]>["session"] {
   if (state.snapshot === undefined) {
-    throw new Error("Temporal benchmark requires an embedded durable session snapshot.");
+    throw new Error("Temporal loop runtime requires an embedded durable session snapshot.");
   }
   return state.snapshot.session;
 }
 
-function createPublicationKey(
-  input: TemporalBenchmarkTurnStepInput,
-  emissionOrdinal: number,
-): string {
+function createPublicationKey(input: TemporalLoopTurnStepInput, emissionOrdinal: number): string {
   return [
     input.sessionId,
     "turn",

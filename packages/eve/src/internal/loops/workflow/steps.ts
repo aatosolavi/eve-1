@@ -14,15 +14,15 @@ import { getRun, resumeHook } from "#internal/workflow/runtime.js";
 import { setEveAttributes } from "#runtime/attributes/emit.js";
 
 import type {
-  CreateWorkflowBenchmarkSessionStepInput,
-  ExecuteWorkflowBenchmarkTurnStepInput,
-  WorkflowBenchmarkChildSettled,
-  WorkflowBenchmarkTurnResult,
+  CreateWorkflowLoopSessionStepInput,
+  ExecuteWorkflowLoopTurnStepInput,
+  WorkflowLoopChildSettled,
+  WorkflowLoopTurnResult,
 } from "./contracts.js";
 
 /** Creates the real eve session inside a Workflow step boundary. */
-export async function createWorkflowBenchmarkSessionStep(
-  input: CreateWorkflowBenchmarkSessionStepInput,
+export async function createWorkflowLoopSessionStep(
+  input: CreateWorkflowLoopSessionStepInput,
 ): Promise<CreateSessionOperationResult> {
   "use step";
 
@@ -30,8 +30,8 @@ export async function createWorkflowBenchmarkSessionStep(
 }
 
 /** Executes one real eve turn operation and publishes into the root Workflow stream. */
-export async function executeWorkflowBenchmarkTurnStep(
-  input: ExecuteWorkflowBenchmarkTurnStepInput,
+export async function executeWorkflowLoopTurnStep(
+  input: ExecuteWorkflowLoopTurnStepInput,
 ): Promise<DurableStepResult> {
   "use step";
 
@@ -68,17 +68,17 @@ export async function executeWorkflowBenchmarkTurnStep(
 }
 
 /** Reads the authoritative result after the child has announced settlement. */
-export async function awaitWorkflowBenchmarkTurnResultStep(input: {
+export async function awaitWorkflowLoopTurnResultStep(input: {
   readonly runId: string;
-}): Promise<WorkflowBenchmarkTurnResult> {
+}): Promise<WorkflowLoopTurnResult> {
   "use step";
 
-  return await getRun<WorkflowBenchmarkTurnResult>(input.runId).returnValue;
+  return await getRun<WorkflowLoopTurnResult>(input.runId).returnValue;
 }
 
 /** Wakes the parent after the child has reached its return boundary. */
-export async function sendWorkflowBenchmarkChildSettledStep(input: {
-  readonly notice: WorkflowBenchmarkChildSettled;
+export async function sendWorkflowLoopChildSettledStep(input: {
+  readonly notice: WorkflowLoopChildSettled;
   readonly token: string;
 }): Promise<void> {
   "use step";
@@ -93,7 +93,7 @@ export async function sendWorkflowBenchmarkChildSettledStep(input: {
 
 function requireSnapshot(state: DurableSessionState): DurableSession {
   if (state.snapshot === undefined) {
-    throw new Error("Workflow benchmark requires an embedded durable session snapshot.");
+    throw new Error("Workflow loop runtime requires an embedded durable session snapshot.");
   }
   return state.snapshot.session;
 }

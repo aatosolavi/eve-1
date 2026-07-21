@@ -12,23 +12,21 @@ import {
 import { start } from "#internal/workflow/runtime.js";
 
 import type {
-  WorkflowBenchmarkChildSettled,
-  WorkflowBenchmarkSessionInput,
-  StartWorkflowBenchmarkTurnStepResult,
-  WorkflowBenchmarkTurnInput,
-  WorkflowBenchmarkTurnResult,
+  WorkflowLoopChildSettled,
+  WorkflowLoopSessionInput,
+  StartWorkflowLoopTurnStepResult,
+  WorkflowLoopTurnInput,
+  WorkflowLoopTurnResult,
 } from "./contracts.js";
 import {
-  awaitWorkflowBenchmarkTurnResultStep,
-  createWorkflowBenchmarkSessionStep,
-  executeWorkflowBenchmarkTurnStep,
-  sendWorkflowBenchmarkChildSettledStep,
+  awaitWorkflowLoopTurnResultStep,
+  createWorkflowLoopSessionStep,
+  executeWorkflowLoopTurnStep,
+  sendWorkflowLoopChildSettledStep,
 } from "./steps.js";
 
-/** Long-lived benchmark session Workflow that owns delivery and stream lifetime. */
-export async function workflowBenchmarkSession(
-  input: WorkflowBenchmarkSessionInput,
-): Promise<void> {
+/** Long-lived loop session Workflow that owns delivery and stream lifetime. */
+export async function workflowLoopSession(input: WorkflowLoopSessionInput): Promise<void> {
   "use workflow";
 
   const sessionId = getWorkflowMetadata().workflowRunId;
@@ -42,7 +40,7 @@ export async function workflowBenchmarkSession(
 
   try {
     await deliveryHook.rekey(input.continuationToken);
-    const created = await createWorkflowBenchmarkSessionStep({
+    const created = await createWorkflowLoopSessionStep({
       compiledArtifactsSource: input.compiledArtifactsSource,
       continuationToken: input.continuationToken,
       nodeId: input.nodeId,
@@ -81,9 +79,9 @@ export async function workflowBenchmarkSession(
 }
 
 /** Child Workflow that owns one logical turn and returns only at a turn boundary. */
-export async function workflowBenchmarkTurn(
-  input: WorkflowBenchmarkTurnInput,
-): Promise<WorkflowBenchmarkTurnResult> {
+export async function workflowLoopTurn(
+  input: WorkflowLoopTurnInput,
+): Promise<WorkflowLoopTurnResult> {
   "use workflow";
 
   const runId = getWorkflowMetadata().workflowRunId;
@@ -94,7 +92,7 @@ export async function workflowBenchmarkTurn(
 
   try {
     while (true) {
-      const result = await executeWorkflowBenchmarkTurnStep({
+      const result = await executeWorkflowLoopTurnStep({
         input: stepInput,
         parentWritable: input.parentWritable,
         serializedContext,
@@ -116,7 +114,7 @@ export async function workflowBenchmarkTurn(
           assertSupportedPark(result);
           return result;
         case "dispatch-workflow-runtime-actions":
-          throw new Error("Workflow benchmark does not support workflow runtime actions.");
+          throw new Error("Workflow loop runtime does not support workflow runtime actions.");
         default: {
           const exhaustive: never = result;
           return exhaustive;
@@ -124,7 +122,7 @@ export async function workflowBenchmarkTurn(
       }
     }
   } finally {
-    await sendWorkflowBenchmarkChildSettledStep({
+    await sendWorkflowLoopChildSettledStep({
       notice: { kind: "turn-settled", runId, turnOrdinal: input.turnOrdinal },
       token: input.settledToken,
     });
@@ -132,12 +130,12 @@ export async function workflowBenchmarkTurn(
 }
 
 /** Starts the version-pinned child represented by this transformed Workflow function. */
-export async function startWorkflowBenchmarkTurnStep(
-  input: WorkflowBenchmarkTurnInput,
-): Promise<StartWorkflowBenchmarkTurnStepResult> {
+export async function startWorkflowLoopTurnStep(
+  input: WorkflowLoopTurnInput,
+): Promise<StartWorkflowLoopTurnStepResult> {
   "use step";
 
-  const run = await start(workflowBenchmarkTurn, [input]);
+  const run = await start(workflowLoopTurn, [input]);
   return { runId: run.runId };
 }
 
@@ -148,16 +146,16 @@ async function dispatchTurnChild(input: {
   readonly sessionId: string;
   readonly sessionState: DurableSessionState;
   readonly turnOrdinal: number;
-}): Promise<WorkflowBenchmarkTurnResult> {
-  const token = `${input.sessionId}:benchmark-turn:${String(input.turnOrdinal)}:settled`;
-  const settled = createHook<WorkflowBenchmarkChildSettled>({ token });
+}): Promise<WorkflowLoopTurnResult> {
+  const token = `${input.sessionId}:loop-turn:${String(input.turnOrdinal)}:settled`;
+  const settled = createHook<WorkflowLoopChildSettled>({ token });
   const iterator = settled[Symbol.asyncIterator]();
   let ownsHook = false;
 
   try {
     await claimHookOwnership(settled);
     ownsHook = true;
-    const { runId } = await startWorkflowBenchmarkTurnStep({
+    const { runId } = await startWorkflowLoopTurnStep({
       initialInput: input.delivery,
       parentWritable: input.parentWritable,
       serializedContext: input.serializedContext,
@@ -167,7 +165,7 @@ async function dispatchTurnChild(input: {
     });
     const notice = await iterator.next();
     requireMatchingSettledNotice(notice, runId, input.turnOrdinal);
-    return await awaitWorkflowBenchmarkTurnResultStep({ runId });
+    return await awaitWorkflowLoopTurnResultStep({ runId });
   } finally {
     await closeHookIterator(iterator);
     if (ownsHook) await disposeHook(settled);
@@ -196,29 +194,29 @@ function assertSupportedPark(
   >,
 ): void {
   if (result.hasPendingAuthorization) {
-    throw new Error("Workflow benchmark does not support authorization waits.");
+    throw new Error("Workflow loop runtime does not support authorization waits.");
   }
   if (result.hasPendingInputBatch) {
-    throw new Error("Workflow benchmark does not support input-request waits.");
+    throw new Error("Workflow loop runtime does not support input-request waits.");
   }
   if (result.pendingRuntimeActionKeys !== undefined) {
-    throw new Error("Workflow benchmark does not support runtime actions.");
+    throw new Error("Workflow loop runtime does not support runtime actions.");
   }
 }
 
 function requireMatchingSettledNotice(
-  notice: IteratorResult<WorkflowBenchmarkChildSettled>,
+  notice: IteratorResult<WorkflowLoopChildSettled>,
   runId: string,
   turnOrdinal: number,
 ): void {
   if (notice.done) {
-    throw new Error(`Workflow benchmark turn "${runId}" closed its settlement hook early.`);
+    throw new Error(`Workflow loop runtime turn "${runId}" closed its settlement hook early.`);
   }
   if (
     notice.value.kind !== "turn-settled" ||
     notice.value.runId !== runId ||
     notice.value.turnOrdinal !== turnOrdinal
   ) {
-    throw new Error(`Workflow benchmark turn "${runId}" sent mismatched settlement metadata.`);
+    throw new Error(`Workflow loop runtime turn "${runId}" sent mismatched settlement metadata.`);
   }
 }

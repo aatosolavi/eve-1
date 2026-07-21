@@ -4,21 +4,19 @@ import type { HookPayload, SessionAuthContext } from "#channel/types.js";
 import type { DurableSessionState } from "#execution/durable-session-state.js";
 import type { DurableStepResult } from "#execution/turn-step-operation.js";
 
-export const TEMPORAL_BENCHMARK_WORKFLOW = "temporalBenchmarkWorkflow";
-export const TEMPORAL_BENCHMARK_TURN_WORKFLOW = "temporalBenchmarkTurnWorkflow";
-export const TEMPORAL_BENCHMARK_DELIVERY_SIGNAL = "eve.benchmark.delivery";
+export const TEMPORAL_SESSION_WORKFLOW = "temporalSessionWorkflow";
+export const TEMPORAL_TURN_WORKFLOW = "temporalTurnWorkflow";
+export const TEMPORAL_LOOP_DELIVERY_SIGNAL = "eve.loop.delivery";
 
-export const temporalBenchmarkDeliverySignal = defineSignal<[unknown]>(
-  TEMPORAL_BENCHMARK_DELIVERY_SIGNAL,
-);
+export const temporalLoopDeliverySignal = defineSignal<[unknown]>(TEMPORAL_LOOP_DELIVERY_SIGNAL);
 
-export interface TemporalBenchmarkDelivery {
+export interface TemporalLoopDelivery {
   readonly auth?: SessionAuthContext | null;
   readonly message: string;
   readonly requestId?: string;
 }
 
-export interface TemporalBenchmarkWorkflowInput {
+export interface TemporalLoopWorkflowInput {
   readonly continuationToken: string;
   readonly initialMessage: string;
   readonly requestId?: string;
@@ -26,12 +24,12 @@ export interface TemporalBenchmarkWorkflowInput {
   readonly sessionId: string;
 }
 
-export interface TemporalBenchmarkCreateSessionInput {
+export interface TemporalLoopCreateSessionInput {
   readonly continuationToken: string;
   readonly sessionId: string;
 }
 
-export interface TemporalBenchmarkTurnStepInput {
+export interface TemporalLoopTurnStepInput {
   readonly input: HookPayload | undefined;
   readonly serializedContext: Record<string, unknown>;
   readonly sessionId: string;
@@ -40,7 +38,7 @@ export interface TemporalBenchmarkTurnStepInput {
   readonly turnOrdinal: number;
 }
 
-export interface TemporalBenchmarkTurnWorkflowInput {
+export interface TemporalLoopTurnWorkflowInput {
   readonly input: HookPayload;
   readonly serializedContext: Record<string, unknown>;
   readonly sessionId: string;
@@ -48,11 +46,11 @@ export interface TemporalBenchmarkTurnWorkflowInput {
   readonly turnOrdinal: number;
 }
 
-export interface TemporalBenchmarkActivities {
+export interface TemporalLoopActivities {
   createSession(
-    input: TemporalBenchmarkCreateSessionInput,
+    input: TemporalLoopCreateSessionInput,
   ): Promise<{ readonly state: DurableSessionState }>;
-  executeTurnStep(input: TemporalBenchmarkTurnStepInput): Promise<DurableStepResult>;
+  executeTurnStep(input: TemporalLoopTurnStepInput): Promise<DurableStepResult>;
   rekeySession(input: {
     readonly continuationToken: string;
     readonly sessionId: string;
@@ -60,8 +58,8 @@ export interface TemporalBenchmarkActivities {
   settleSession(input: { readonly sessionId: string }): Promise<void>;
 }
 
-export type TemporalBenchmarkWorkflow = (input: TemporalBenchmarkWorkflowInput) => Promise<void>;
+export type TemporalLoopWorkflow = (input: TemporalLoopWorkflowInput) => Promise<void>;
 
-export type TemporalBenchmarkTurnWorkflow = (
-  input: TemporalBenchmarkTurnWorkflowInput,
+export type TemporalLoopTurnWorkflow = (
+  input: TemporalLoopTurnWorkflowInput,
 ) => Promise<DurableStepResult>;

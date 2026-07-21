@@ -13,7 +13,7 @@ import {
 } from "#protocol/message.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
-import { createWorkflowBenchmarkSessionStep, executeWorkflowBenchmarkTurnStep } from "./steps.js";
+import { createWorkflowLoopSessionStep, executeWorkflowLoopTurnStep } from "./steps.js";
 
 const mocks = vi.hoisted(() => ({
   createSessionOperation: vi.fn(),
@@ -35,10 +35,10 @@ vi.mock("#execution/turn-step-operation.js", () => ({
 
 const SOURCE = createBundledRuntimeCompiledArtifactsSource();
 const SESSION: DurableSession = {
-  agent: { system: "benchmark" },
-  continuationToken: "benchmark-token",
+  agent: { system: "loop" },
+  continuationToken: "loop-token",
   history: [],
-  sessionId: "benchmark-session",
+  sessionId: "loop-session",
 };
 const STATE: DurableSessionState = {
   continuationToken: SESSION.continuationToken,
@@ -66,27 +66,27 @@ beforeEach(() => {
   mocks.getStepMetadata.mockReturnValue({
     attempt: 2,
     stepId: "step-1",
-    stepName: "benchmark-step",
+    stepName: "loop-step",
   });
   mocks.getWorkflowMetadata.mockReturnValue({ workflowRunId: "workflow-run" });
 });
 
-describe("Workflow benchmark operation steps", () => {
+describe("Workflow loop runtime operation steps", () => {
   it("binds session creation directly to the shared production operation", async () => {
     mocks.createSessionOperation.mockResolvedValue({ state: STATE });
 
     await expect(
-      createWorkflowBenchmarkSessionStep({
+      createWorkflowLoopSessionStep({
         compiledArtifactsSource: SOURCE,
-        continuationToken: "benchmark-token",
-        sessionId: "benchmark-session",
+        continuationToken: "loop-token",
+        sessionId: "loop-session",
       }),
     ).resolves.toEqual({ state: STATE });
 
     expect(mocks.createSessionOperation).toHaveBeenCalledWith({
       compiledArtifactsSource: SOURCE,
-      continuationToken: "benchmark-token",
-      sessionId: "benchmark-session",
+      continuationToken: "loop-token",
+      sessionId: "loop-session",
     });
   });
 
@@ -108,7 +108,7 @@ describe("Workflow benchmark operation steps", () => {
     });
 
     await expect(
-      executeWorkflowBenchmarkTurnStep({
+      executeWorkflowLoopTurnStep({
         input: undefined,
         parentWritable,
         serializedContext: {},
@@ -136,7 +136,7 @@ describe("Workflow benchmark operation steps", () => {
     };
 
     await expect(
-      executeWorkflowBenchmarkTurnStep({
+      executeWorkflowLoopTurnStep({
         input: undefined,
         parentWritable: new WritableStream<Uint8Array>(),
         serializedContext: {},

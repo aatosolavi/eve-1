@@ -18,8 +18,8 @@ import { parseDevelopmentServerUrl } from "#cli/dev/url.js";
 import { startCliLiveRow } from "#cli/ui/live-row.js";
 import { createCliTheme, renderCliTaggedLine } from "#cli/ui/output.js";
 import { createLogger } from "#internal/logging.js";
-import { LOOP_BENCHMARK_RUNTIME_ENV } from "#internal/loop-benchmark/config.js";
-import type { RuntimeKind } from "#internal/loop-benchmark/contract.js";
+import { LOOP_KIND_ENV } from "#internal/loops/config.js";
+import type { LoopKind } from "#internal/loops/contract.js";
 import type {
   DevelopmentServer,
   DevelopmentServerOptions,
@@ -46,7 +46,7 @@ interface DevelopmentCliOptions {
   host?: string;
   input?: string;
   logs?: LogDisplayMode;
-  loop?: RuntimeKind;
+  loop?: LoopKind;
   name?: string;
   port?: number;
   reasoning?: TerminalPartDisplayMode;
@@ -58,7 +58,7 @@ interface DevelopmentCliOptions {
 
 interface ProductionCliOptions {
   host?: string;
-  loop?: RuntimeKind;
+  loop?: LoopKind;
   port?: number;
 }
 
@@ -198,7 +198,7 @@ async function waitForProductionServer(input: ProductionServerHandle): Promise<v
   ]);
 }
 
-function parseLoopRuntimeOption(value: string): RuntimeKind {
+function parseLoopRuntimeOption(value: string): LoopKind {
   if (value === "inline" || value === "workflow" || value === "temporal") {
     return value;
   }
@@ -209,9 +209,9 @@ function parseLoopRuntimeOption(value: string): RuntimeKind {
 
 // The selection travels through the environment because the loop runtime is
 // resolved per request inside the server, not at CLI parse time.
-function applyLoopRuntimeSelection(loop: RuntimeKind | undefined): void {
+function applyLoopRuntimeSelection(loop: LoopKind | undefined): void {
   if (loop !== undefined) {
-    process.env[LOOP_BENCHMARK_RUNTIME_ENV] = loop;
+    process.env[LOOP_KIND_ENV] = loop;
   }
 }
 

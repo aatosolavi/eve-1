@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { TemporalBenchmarkAddressStore } from "./address-store.js";
+import { TemporalLoopAddressStore } from "./address-store.js";
 
-describe("TemporalBenchmarkAddressStore", () => {
+describe("TemporalLoopAddressStore", () => {
   it("rekeys one active session atomically and removes the prior token", () => {
-    const store = new TemporalBenchmarkAddressStore();
+    const store = new TemporalLoopAddressStore();
     store.begin({
       continuationToken: "initial-token",
       sessionId: "session-1",
@@ -24,7 +24,7 @@ describe("TemporalBenchmarkAddressStore", () => {
   });
 
   it("preserves a rekey that wins the race with client run attachment", () => {
-    const store = new TemporalBenchmarkAddressStore();
+    const store = new TemporalLoopAddressStore();
     store.begin({
       continuationToken: "initial-token",
       sessionId: "session-1",
@@ -39,7 +39,7 @@ describe("TemporalBenchmarkAddressStore", () => {
   });
 
   it("rejects a token already owned by another active session", () => {
-    const store = new TemporalBenchmarkAddressStore();
+    const store = new TemporalLoopAddressStore();
     store.begin({
       continuationToken: "token-1",
       sessionId: "session-1",
@@ -60,7 +60,7 @@ describe("TemporalBenchmarkAddressStore", () => {
   });
 
   it("settles idempotently and makes the token undeliverable", () => {
-    const store = new TemporalBenchmarkAddressStore();
+    const store = new TemporalLoopAddressStore();
     store.begin({
       continuationToken: "token-1",
       sessionId: "session-1",

@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 
-import { LocalTemporalBenchmarkRuntime } from "./runtime.js";
-import { LocalTemporalBenchmarkService } from "./service.js";
+import { TemporalLoopRuntime } from "./runtime.js";
+import { TemporalLoopService } from "./service.js";
 
-describe("LocalTemporalBenchmarkRuntime", () => {
+describe("TemporalLoopRuntime", () => {
   it("rejects new work after its Worker stops", async () => {
     const failure = new Error("worker failed");
     const worker = {
@@ -13,10 +13,10 @@ describe("LocalTemporalBenchmarkRuntime", () => {
       run: () => Promise.reject(failure),
       shutdown: vi.fn(),
     };
-    const runtime = new LocalTemporalBenchmarkRuntime({
+    const runtime = new TemporalLoopRuntime({
       compiledArtifactsSource: { kind: "bundled" },
       environment: {} as TestWorkflowEnvironment,
-      service: new LocalTemporalBenchmarkService(),
+      service: new TemporalLoopService(),
       worker,
     });
     await Promise.resolve();
@@ -26,6 +26,6 @@ describe("LocalTemporalBenchmarkRuntime", () => {
         continuationToken: "missing",
         payload: { message: "hello" },
       }),
-    ).rejects.toThrow("Local Temporal benchmark Worker stopped.");
+    ).rejects.toThrow("Local Temporal loop runtime Worker stopped.");
   });
 });

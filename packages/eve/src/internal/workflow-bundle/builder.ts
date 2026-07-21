@@ -65,7 +65,7 @@ export class WorkflowBundleBuilder {
   constructor(options: WorkflowBundleBuilderOptions) {
     const dirs = [
       resolvePackageSourceDirectoryPath("src/execution"),
-      resolvePackageSourceDirectoryPath("src/internal/loop-benchmark/workflow"),
+      resolvePackageSourceDirectoryPath("src/internal/loops/workflow"),
     ];
     if (options.includeTestFixtures === true) {
       dirs.push(resolvePackageSourceDirectoryPath("src/internal/testing"));

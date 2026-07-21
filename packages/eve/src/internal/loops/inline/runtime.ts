@@ -17,12 +17,12 @@ import {
   executeTurnStepOperation,
   type DurableStepResult,
 } from "#execution/turn-step-operation.js";
-import { InMemoryBenchmarkEventLog } from "#internal/loop-benchmark/event-log.js";
+import { InMemoryLoopEventLog } from "#internal/loops/event-log.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 
-const INLINE_RUNTIME_GLOBAL_KEY = Symbol.for("eve.loop-benchmark.inline-runtime");
+const INLINE_RUNTIME_GLOBAL_KEY = Symbol.for("eve.loops.inline-runtime");
 
 interface InlineRuntimeGlobal {
   readonly sessionIdByContinuationToken: Map<string, string>;
@@ -38,7 +38,7 @@ type InlineSessionPhase = "done" | "failed" | "initializing" | "parked" | "runni
 interface InlineSession {
   continuationToken: string;
   deliveryWaiter: ((delivery: DeliverHookPayload) => void) | undefined;
-  readonly eventLog: InMemoryBenchmarkEventLog;
+  readonly eventLog: InMemoryLoopEventLog;
   readonly id: string;
   readonly pendingDeliveries: DeliverHookPayload[];
   phase: InlineSessionPhase;
@@ -47,7 +47,7 @@ interface InlineSession {
 const globalContainer = globalThis as typeof globalThis & InlineRuntimeGlobalContainer;
 
 /** Creates the process-local direct loop runtime. */
-export function createInlineBenchmarkRuntime(config: {
+export function createInlineLoopRuntime(config: {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
 }): Runtime {
   const state = getInlineRuntimeGlobal();
@@ -61,7 +61,7 @@ export function createInlineBenchmarkRuntime(config: {
       const session: InlineSession = {
         continuationToken,
         deliveryWaiter: undefined,
-        eventLog: new InMemoryBenchmarkEventLog(),
+        eventLog: new InMemoryLoopEventLog(),
         id: sessionId,
         pendingDeliveries: [],
         phase: "initializing",
@@ -110,7 +110,7 @@ export function createInlineBenchmarkRuntime(config: {
     ): Promise<ReadableStream<HandleMessageStreamEvent>> {
       const session = state.sessionsById.get(sessionId);
       if (session === undefined) {
-        throw new Error(`Inline benchmark session "${sessionId}" was not found.`);
+        throw new Error(`Inline loop session "${sessionId}" was not found.`);
       }
       return session.eventLog.stream(options?.startIndex);
     },
@@ -127,17 +127,17 @@ function getInlineRuntimeGlobal(): InlineRuntimeGlobal {
 
 function assertSupportedRunInput(input: RunInput): void {
   if (input.mode !== "conversation") {
-    throw new Error("The inline benchmark runtime only supports conversation mode.");
+    throw new Error("The inline loop runtime only supports conversation mode.");
   }
   if (
     input.parent !== undefined ||
     input.subagentDepth !== undefined ||
     input.subagentMaxDepth !== undefined
   ) {
-    throw new Error("The inline benchmark runtime does not support delegated subagent runs.");
+    throw new Error("The inline loop runtime does not support delegated subagent runs.");
   }
   if (input.callback !== undefined) {
-    throw new Error("The inline benchmark runtime does not support session callbacks.");
+    throw new Error("The inline loop runtime does not support session callbacks.");
   }
 }
 
@@ -261,10 +261,10 @@ async function driveSession(input: {
     }
 
     if (result.action === "dispatch-workflow-runtime-actions") {
-      throw new Error("The inline benchmark runtime does not support workflow runtime actions.");
+      throw new Error("The inline loop runtime does not support workflow runtime actions.");
     }
     if (!isParkResult(result)) {
-      throw new Error(`Inline benchmark runtime received unexpected action "${result.action}".`);
+      throw new Error(`Inline loop runtime received unexpected action "${result.action}".`);
     }
     assertSupportedWait(result);
     rekeyContinuationToken(state, session, result.sessionState.continuationToken);
@@ -277,7 +277,7 @@ async function driveSession(input: {
 function readSnapshot(state: DurableSessionState): DurableSession {
   const snapshot = state.snapshot;
   if (snapshot === undefined) {
-    throw new Error("Inline benchmark session state did not include a durable snapshot.");
+    throw new Error("Inline loop session state did not include a durable snapshot.");
   }
   return snapshot.session;
 }
@@ -292,15 +292,13 @@ function assertSupportedWait(
   result: Extract<DurableStepResult, { readonly action: "park" }>,
 ): void {
   if (result.pendingRuntimeActionKeys !== undefined) {
-    throw new Error(
-      "The inline benchmark runtime does not support subagent or runtime-action waits.",
-    );
+    throw new Error("The inline loop runtime does not support subagent or runtime-action waits.");
   }
   if (result.hasPendingAuthorization || (result.authorizationNames?.length ?? 0) > 0) {
-    throw new Error("The inline benchmark runtime does not support authorization approvals.");
+    throw new Error("The inline loop runtime does not support authorization approvals.");
   }
   if (result.hasPendingInputBatch) {
-    throw new Error("The inline benchmark runtime does not support human input waits.");
+    throw new Error("The inline loop runtime does not support human input waits.");
   }
 }
 
@@ -320,14 +318,14 @@ function rekeyContinuationToken(
   nextToken: string,
 ): void {
   if (nextToken.length === 0) {
-    throw new Error("Cannot park an inline benchmark session without a continuation token.");
+    throw new Error("Cannot park an inline loop session without a continuation token.");
   }
 
   const previousToken = session.continuationToken;
   const previousOwner = state.sessionIdByContinuationToken.get(previousToken);
   if (previousOwner !== session.id) {
     throw new Error(
-      `Inline benchmark session "${session.id}" lost continuation token "${previousToken}".`,
+      `Inline loop session "${session.id}" lost continuation token "${previousToken}".`,
     );
   }
 

@@ -113,11 +113,11 @@ describe("WorkflowBundleBuilder", () => {
     expect(builder.snapshot.workingDir).toBe(rootDir);
     expect(builder.snapshot.dirs).toEqual([
       resolvePackageSourceDirectoryPath("src/execution"),
-      resolvePackageSourceDirectoryPath("src/internal/loop-benchmark/workflow"),
+      resolvePackageSourceDirectoryPath("src/internal/loops/workflow"),
     ]);
   });
 
-  it("discovers the benchmark Workflow adapter from its dedicated directory", async () => {
+  it("discovers the loop Workflow adapter from its dedicated directory", async () => {
     const rootDir = resolvePackageRoot();
     const builder = new InspectableWorkflowBundleBuilder({
       agentName: "test-agent",
@@ -127,10 +127,8 @@ describe("WorkflowBundleBuilder", () => {
       rootDir,
       watch: false,
     });
-    const workflowFile = resolvePackageSourceFilePath(
-      "src/internal/loop-benchmark/workflow/workflows.ts",
-    );
-    const stepsFile = resolvePackageSourceFilePath("src/internal/loop-benchmark/workflow/steps.ts");
+    const workflowFile = resolvePackageSourceFilePath("src/internal/loops/workflow/workflows.ts");
+    const stepsFile = resolvePackageSourceFilePath("src/internal/loops/workflow/steps.ts");
 
     const { discoveredEntries, inputFiles } = await builder.inspectDiscovery();
 

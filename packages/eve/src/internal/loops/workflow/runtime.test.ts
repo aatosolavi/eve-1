@@ -7,7 +7,7 @@ import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
-import { createWorkflowBenchmarkRuntime } from "./runtime.js";
+import { createWorkflowLoopRuntime } from "./runtime.js";
 
 const mocks = vi.hoisted(() => ({
   buildRunContext: vi.fn(),
@@ -38,43 +38,43 @@ beforeEach(() => {
   mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({ bundle: true });
   mocks.buildRunContext.mockReturnValue({ context: true });
   mocks.serializeContext.mockReturnValue({ serialized: true });
-  mocks.start.mockResolvedValue({ runId: "workflow-benchmark-run" });
+  mocks.start.mockResolvedValue({ runId: "workflow-loop-run" });
   mocks.getRun.mockReturnValue({
     getReadable: () => new ReadableStream<Uint8Array>(),
   });
 });
 
-describe("createWorkflowBenchmarkRuntime", () => {
-  it("starts the benchmark-owned pinned session through its bundled Workflow reference", async () => {
-    const runtime = createWorkflowBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+describe("createWorkflowLoopRuntime", () => {
+  it("starts the loop-owned pinned session through its bundled Workflow reference", async () => {
+    const runtime = createWorkflowLoopRuntime({ compiledArtifactsSource: SOURCE });
 
     await expect(
       runtime.run({
         adapter: ADAPTER,
         auth: null,
-        continuationToken: "benchmark-token",
+        continuationToken: "loop-token",
         input: { message: "hello" },
         mode: "conversation",
         requestId: "sample-workflow",
       }),
     ).resolves.toMatchObject({
-      continuationToken: "benchmark-token",
-      sessionId: "workflow-benchmark-run",
+      continuationToken: "loop-token",
+      sessionId: "workflow-loop-run",
     });
 
     expect(mocks.buildRunContext).toHaveBeenCalledWith({
       bundle: { bundle: true },
-      run: expect.objectContaining({ continuationToken: "benchmark-token" }),
+      run: expect.objectContaining({ continuationToken: "loop-token" }),
     });
     const packageInfo = resolveInstalledPackageInfo();
     expect(mocks.start).toHaveBeenCalledWith(
       {
-        workflowId: `workflow//${packageInfo.name}@${packageInfo.version}//workflowBenchmarkSession`,
+        workflowId: `workflow//${packageInfo.name}@${packageInfo.version}//workflowLoopSession`,
       },
       [
         {
           compiledArtifactsSource: SOURCE,
-          continuationToken: "benchmark-token",
+          continuationToken: "loop-token",
           initialDelivery: {
             kind: "deliver",
             payloads: [{ message: "hello" }],
@@ -99,7 +99,7 @@ describe("createWorkflowBenchmarkRuntime", () => {
     readonly mode: RunInput["mode"];
     readonly reason: string;
   }[])("rejects unsupported fixed-workload input: $reason", async ({ input, mode, reason }) => {
-    const runtime = createWorkflowBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const runtime = createWorkflowLoopRuntime({ compiledArtifactsSource: SOURCE });
 
     await expect(
       runtime.run({
@@ -112,20 +112,20 @@ describe("createWorkflowBenchmarkRuntime", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("delivers through the benchmark session's Workflow Hook", async () => {
-    mocks.resumeHook.mockResolvedValue({ runId: "workflow-benchmark-run" });
-    const runtime = createWorkflowBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+  it("delivers through the loop session's Workflow Hook", async () => {
+    mocks.resumeHook.mockResolvedValue({ runId: "workflow-loop-run" });
+    const runtime = createWorkflowLoopRuntime({ compiledArtifactsSource: SOURCE });
 
     await expect(
       runtime.deliver({
         auth: null,
-        continuationToken: "benchmark-token",
+        continuationToken: "loop-token",
         payload: { message: "again" },
         requestId: "sample-deliver",
       }),
-    ).resolves.toEqual({ sessionId: "workflow-benchmark-run" });
+    ).resolves.toEqual({ sessionId: "workflow-loop-run" });
 
-    expect(mocks.resumeHook).toHaveBeenCalledWith("benchmark-token", {
+    expect(mocks.resumeHook).toHaveBeenCalledWith("loop-token", {
       auth: null,
       kind: "deliver",
       payloads: [{ message: "again" }],
@@ -133,9 +133,9 @@ describe("createWorkflowBenchmarkRuntime", () => {
     });
   });
 
-  it("normalizes a missing benchmark Hook for a channel-shaped plain-text payload", async () => {
+  it("normalizes a missing loop Hook for a channel-shaped plain-text payload", async () => {
     mocks.resumeHook.mockRejectedValue(new HookNotFoundError("missing-token"));
-    const runtime = createWorkflowBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const runtime = createWorkflowLoopRuntime({ compiledArtifactsSource: SOURCE });
 
     await expect(
       runtime.deliver({

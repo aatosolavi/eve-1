@@ -1,14 +1,11 @@
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import {
-  InMemoryBenchmarkEventLog,
-  type BenchmarkEventPublication,
-} from "#internal/loop-benchmark/event-log.js";
-import { TemporalBenchmarkAddressStore, type TemporalBenchmarkAddress } from "./address-store.js";
+import { InMemoryLoopEventLog, type LoopEventPublication } from "#internal/loops/event-log.js";
+import { TemporalLoopAddressStore, type TemporalLoopAddress } from "./address-store.js";
 
 /** Shared process-local state used by the local Temporal client and Worker. */
-export class LocalTemporalBenchmarkService {
-  readonly #addresses = new TemporalBenchmarkAddressStore();
-  readonly #eventLogs = new Map<string, InMemoryBenchmarkEventLog>();
+export class TemporalLoopService {
+  readonly #addresses = new TemporalLoopAddressStore();
+  readonly #eventLogs = new Map<string, InMemoryLoopEventLog>();
 
   begin(input: {
     readonly continuationToken: string;
@@ -20,14 +17,14 @@ export class LocalTemporalBenchmarkService {
       sessionId: input.sessionId,
       workflowId: input.workflowId,
     });
-    this.#eventLogs.set(input.sessionId, new InMemoryBenchmarkEventLog());
+    this.#eventLogs.set(input.sessionId, new InMemoryLoopEventLog());
   }
 
   attachRun(input: { readonly runId: string; readonly sessionId: string }): void {
     this.#addresses.attachRun(input);
   }
 
-  appendEvent(sessionId: string, publication: BenchmarkEventPublication): void {
+  appendEvent(sessionId: string, publication: LoopEventPublication): void {
     this.#requireEventLog(sessionId).append(publication);
   }
 
@@ -35,7 +32,7 @@ export class LocalTemporalBenchmarkService {
     this.#addresses.rekey(input);
   }
 
-  resolve(continuationToken: string): TemporalBenchmarkAddress | null {
+  resolve(continuationToken: string): TemporalLoopAddress | null {
     return this.#addresses.resolve(continuationToken);
   }
 
@@ -53,10 +50,10 @@ export class LocalTemporalBenchmarkService {
     this.#requireEventLog(sessionId).fail(error);
   }
 
-  #requireEventLog(sessionId: string): InMemoryBenchmarkEventLog {
+  #requireEventLog(sessionId: string): InMemoryLoopEventLog {
     const eventLog = this.#eventLogs.get(sessionId);
     if (eventLog === undefined)
-      throw new Error(`Unknown Temporal benchmark session "${sessionId}".`);
+      throw new Error(`Unknown Temporal loop runtime session "${sessionId}".`);
     return eventLog;
   }
 }

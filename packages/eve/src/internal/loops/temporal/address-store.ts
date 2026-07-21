@@ -1,28 +1,28 @@
-export interface TemporalBenchmarkAddress {
+export interface TemporalLoopAddress {
   readonly continuationToken: string;
   readonly runId: string;
   readonly sessionId: string;
   readonly workflowId: string;
 }
 
-interface StartingTemporalBenchmarkAddress {
+interface StartingTemporalLoopAddress {
   continuationToken: string;
   readonly sessionId: string;
   readonly workflowId: string;
 }
 
-interface ActiveTemporalBenchmarkAddress extends StartingTemporalBenchmarkAddress {
+interface ActiveTemporalLoopAddress extends StartingTemporalLoopAddress {
   readonly runId: string;
 }
 
-type StoredTemporalBenchmarkAddress =
-  | { readonly kind: "starting"; readonly value: StartingTemporalBenchmarkAddress }
-  | { readonly kind: "active"; readonly value: ActiveTemporalBenchmarkAddress }
-  | { readonly kind: "settled"; readonly value: ActiveTemporalBenchmarkAddress };
+type StoredTemporalLoopAddress =
+  | { readonly kind: "starting"; readonly value: StartingTemporalLoopAddress }
+  | { readonly kind: "active"; readonly value: ActiveTemporalLoopAddress }
+  | { readonly kind: "settled"; readonly value: ActiveTemporalLoopAddress };
 
-/** Process-local continuation-token ownership for the local Temporal benchmark. */
-export class TemporalBenchmarkAddressStore {
-  readonly #bySession = new Map<string, StoredTemporalBenchmarkAddress>();
+/** Process-local continuation-token ownership for the local Temporal loop runtime. */
+export class TemporalLoopAddressStore {
+  readonly #bySession = new Map<string, StoredTemporalLoopAddress>();
   readonly #sessionByToken = new Map<string, string>();
 
   begin(input: {
@@ -74,7 +74,7 @@ export class TemporalBenchmarkAddressStore {
     stored.value.continuationToken = input.continuationToken;
   }
 
-  resolve(continuationToken: string): TemporalBenchmarkAddress | null {
+  resolve(continuationToken: string): TemporalLoopAddress | null {
     const sessionId = this.#sessionByToken.get(continuationToken);
     if (sessionId === undefined) return null;
     const stored = this.#bySession.get(sessionId);
@@ -105,7 +105,7 @@ export class TemporalBenchmarkAddressStore {
     this.#sessionByToken.set(continuationToken, sessionId);
   }
 
-  #requireSession(sessionId: string): StoredTemporalBenchmarkAddress {
+  #requireSession(sessionId: string): StoredTemporalLoopAddress {
     const stored = this.#bySession.get(sessionId);
     if (stored === undefined) throw new Error(`Unknown session "${sessionId}".`);
     return stored;

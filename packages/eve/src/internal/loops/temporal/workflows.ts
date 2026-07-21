@@ -8,24 +8,24 @@ import {
 
 import type { HookPayload, SessionAuthContext } from "#channel/types.js";
 import {
-  temporalBenchmarkDeliverySignal,
-  TEMPORAL_BENCHMARK_TURN_WORKFLOW,
-  type TemporalBenchmarkActivities,
-  type TemporalBenchmarkDelivery,
-  type TemporalBenchmarkTurnWorkflow,
-  type TemporalBenchmarkTurnWorkflowInput,
-  type TemporalBenchmarkWorkflowInput,
+  temporalLoopDeliverySignal,
+  TEMPORAL_TURN_WORKFLOW,
+  type TemporalLoopActivities,
+  type TemporalLoopDelivery,
+  type TemporalLoopTurnWorkflow,
+  type TemporalLoopTurnWorkflowInput,
+  type TemporalLoopWorkflowInput,
 } from "./contracts.js";
 
-const activities = proxyActivities<TemporalBenchmarkActivities>({
+const activities = proxyActivities<TemporalLoopActivities>({
   // Repeating a live model or authored-tool call would change the workload.
   // Failed attempts remain visible in telemetry instead of retrying side effects.
   retry: { maximumAttempts: 1 },
   startToCloseTimeout: "5 minutes",
 });
 
-/** Deterministic Temporal driver for the fixed loop benchmark workload. */
-export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void> {
+/** Deterministic Temporal driver for the loop workload. */
+export async function temporalSessionWorkflow(rawInput: unknown): Promise<void> {
   const input = parseWorkflowInput(rawInput);
   if (workflowInfo().workflowId !== input.sessionId) {
     throw new Error(
@@ -34,7 +34,7 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
   }
 
   const deliveries: HookPayload[] = [];
-  setHandler(temporalBenchmarkDeliverySignal, (rawDelivery) => {
+  setHandler(temporalLoopDeliverySignal, (rawDelivery) => {
     deliveries.push(toHookPayload(parseDelivery(rawDelivery)));
   });
 
@@ -53,7 +53,7 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
   let turnOrdinal = 0;
 
   while (true) {
-    const turn = await startChild<TemporalBenchmarkTurnWorkflow>(TEMPORAL_BENCHMARK_TURN_WORKFLOW, {
+    const turn = await startChild<TemporalLoopTurnWorkflow>(TEMPORAL_TURN_WORKFLOW, {
       args: [
         {
           input: turnInput,
@@ -83,17 +83,17 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
         await condition(() => deliveries.length > 0);
         const delivery = deliveries.shift();
         if (delivery === undefined) {
-          throw new Error("Temporal benchmark delivery disappeared after its wait resolved.");
+          throw new Error("Temporal loop runtime delivery disappeared after its wait resolved.");
         }
         turnInput = delivery;
         turnOrdinal += 1;
         break;
       }
       case "continue":
-        throw new Error('Temporal benchmark turn child returned unexpected action "continue".');
+        throw new Error('Temporal loop runtime turn child returned unexpected action "continue".');
       case "dispatch-workflow-runtime-actions":
         throw new Error(
-          'Temporal benchmark turn child returned unexpected action "dispatch-workflow-runtime-actions".',
+          'Temporal loop runtime turn child returned unexpected action "dispatch-workflow-runtime-actions".',
         );
       default: {
         const exhaustive: never = result;
@@ -104,8 +104,8 @@ export async function temporalBenchmarkWorkflow(rawInput: unknown): Promise<void
 }
 
 /** Child Workflow that owns all production step operations for one logical turn. */
-export async function temporalBenchmarkTurnWorkflow(
-  input: TemporalBenchmarkTurnWorkflowInput,
+export async function temporalTurnWorkflow(
+  input: TemporalLoopTurnWorkflowInput,
 ): Promise<import("#execution/turn-step-operation.js").DurableStepResult> {
   const info = workflowInfo();
   if (info.parent?.workflowId !== input.sessionId) {
@@ -140,18 +140,18 @@ export async function temporalBenchmarkTurnWorkflow(
         return result;
       case "park":
         if (result.hasPendingAuthorization) {
-          throw new Error("Temporal benchmark does not support authorization waits.");
+          throw new Error("Temporal loop runtime does not support authorization waits.");
         }
         if (result.hasPendingInputBatch) {
-          throw new Error("Temporal benchmark does not support input-request waits.");
+          throw new Error("Temporal loop runtime does not support input-request waits.");
         }
         if (result.pendingRuntimeActionKeys !== undefined) {
-          throw new Error("Temporal benchmark does not support runtime actions.");
+          throw new Error("Temporal loop runtime does not support runtime actions.");
         }
         return result;
       case "dispatch-workflow-runtime-actions":
         throw new Error(
-          'Temporal benchmark does not support action "dispatch-workflow-runtime-actions".',
+          'Temporal loop runtime does not support action "dispatch-workflow-runtime-actions".',
         );
       default: {
         const exhaustive: never = result;
@@ -161,8 +161,8 @@ export async function temporalBenchmarkTurnWorkflow(
   }
 }
 
-function parseWorkflowInput(value: unknown): TemporalBenchmarkWorkflowInput {
-  const record = requireRecord(value, "Temporal benchmark Workflow input");
+function parseWorkflowInput(value: unknown): TemporalLoopWorkflowInput {
+  const record = requireRecord(value, "Temporal loop runtime Workflow input");
   return {
     continuationToken: requireString(record["continuationToken"], "continuationToken"),
     initialMessage: requireString(record["initialMessage"], "initialMessage"),
@@ -172,8 +172,8 @@ function parseWorkflowInput(value: unknown): TemporalBenchmarkWorkflowInput {
   };
 }
 
-function parseDelivery(value: unknown): TemporalBenchmarkDelivery {
-  const record = requireRecord(value, "Temporal benchmark delivery");
+function parseDelivery(value: unknown): TemporalLoopDelivery {
+  const record = requireRecord(value, "Temporal loop runtime delivery");
   return {
     auth: parseAuth(record["auth"]),
     message: requireString(record["message"], "message"),
@@ -207,7 +207,7 @@ function parseAuth(value: unknown): SessionAuthContext | null | undefined {
   };
 }
 
-function toHookPayload(delivery: TemporalBenchmarkDelivery): HookPayload {
+function toHookPayload(delivery: TemporalLoopDelivery): HookPayload {
   return {
     auth: delivery.auth,
     kind: "deliver",

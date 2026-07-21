@@ -18,46 +18,46 @@ import { SessionIdKey } from "#context/keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
-import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
-import { readLoopBenchmarkTemporalDevServer } from "#internal/loop-benchmark/config.js";
+import { parseLoopDeliveryMessage } from "#internal/loops/delivery-message.js";
+import { readLoopTemporalDevServer } from "#internal/loops/config.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
-import { createTemporalBenchmarkActivities } from "./activities.js";
+import { createTemporalLoopActivities } from "./activities.js";
 import {
-  TEMPORAL_BENCHMARK_WORKFLOW,
-  temporalBenchmarkDeliverySignal,
-  type TemporalBenchmarkWorkflow,
-  type TemporalBenchmarkWorkflowInput,
+  TEMPORAL_SESSION_WORKFLOW,
+  temporalLoopDeliverySignal,
+  type TemporalLoopWorkflow,
+  type TemporalLoopWorkflowInput,
 } from "./contracts.js";
-import { LocalTemporalBenchmarkService } from "./service.js";
+import { TemporalLoopService } from "./service.js";
 
-const CLEANUP_TERMINATION_REASON = "eve local Temporal benchmark cleanup";
+const CLEANUP_TERMINATION_REASON = "eve local Temporal loop runtime cleanup";
 
-export interface LocalTemporalBenchmarkRuntimeConfig {
+export interface TemporalLoopRuntimeConfig {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
   readonly nodeId?: string;
 }
 
-export interface TemporalBenchmarkHistoryFacts {
+export interface TemporalLoopHistoryFacts {
   readonly childWorkflowsStarted: number;
   readonly rekeyScheduledAfterChildCompletion: boolean;
   readonly scheduledActivityTypes: readonly string[];
 }
 
-interface TemporalBenchmarkWorker {
+interface TemporalLoopWorker {
   readonly options: { readonly taskQueue: string };
   run(): Promise<void>;
   shutdown(): void;
 }
 
-/** Local Temporal implementation of eve's Runtime contract for the fixed benchmark workload. */
-export class LocalTemporalBenchmarkRuntime implements Runtime {
+/** Local Temporal implementation of eve's Runtime contract for the loop workload. */
+export class TemporalLoopRuntime implements Runtime {
   readonly #compiledArtifactsSource: RuntimeCompiledArtifactsSource;
   readonly #environment: TestWorkflowEnvironment;
-  readonly #handles = new Map<string, WorkflowHandleWithStartDetails<TemporalBenchmarkWorkflow>>();
+  readonly #handles = new Map<string, WorkflowHandleWithStartDetails<TemporalLoopWorkflow>>();
   readonly #nodeId: string | undefined;
-  readonly #service: LocalTemporalBenchmarkService;
-  readonly #worker: TemporalBenchmarkWorker;
+  readonly #service: TemporalLoopService;
+  readonly #worker: TemporalLoopWorker;
   readonly #workerRun: Promise<void>;
   #closed = false;
   #workerFailure: { readonly error: unknown } | null = null;
@@ -66,8 +66,8 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
     readonly environment: TestWorkflowEnvironment;
     readonly nodeId?: string;
-    readonly service: LocalTemporalBenchmarkService;
-    readonly worker: TemporalBenchmarkWorker;
+    readonly service: TemporalLoopService;
+    readonly worker: TemporalLoopWorker;
   }) {
     this.#compiledArtifactsSource = input.compiledArtifactsSource;
     this.#environment = input.environment;
@@ -85,14 +85,14 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
   async run(input: RunInput): Promise<RunHandle> {
     this.#assertOpen();
     const initialMessage = parseInitialMessage(input);
-    const sessionId = `eve-loop-benchmark-${randomUUID()}`;
+    const sessionId = `eve-loop-${randomUUID()}`;
     const continuationToken = input.continuationToken || sessionId;
     this.#service.begin({
       continuationToken,
       sessionId,
       workflowId: sessionId,
     });
-    let startedHandle: WorkflowHandleWithStartDetails<TemporalBenchmarkWorkflow> | undefined;
+    let startedHandle: WorkflowHandleWithStartDetails<TemporalLoopWorkflow> | undefined;
 
     try {
       const bundle = await getCompiledRuntimeAgentBundle({
@@ -105,15 +105,15 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
       });
       context.set(SessionIdKey, sessionId);
       const serializedContext = serializeContext(context);
-      const workflowInput: TemporalBenchmarkWorkflowInput = {
+      const workflowInput: TemporalLoopWorkflowInput = {
         continuationToken,
         initialMessage,
         requestId: input.requestId,
         serializedContext,
         sessionId,
       };
-      const handle = await this.#environment.client.workflow.start<TemporalBenchmarkWorkflow>(
-        TEMPORAL_BENCHMARK_WORKFLOW,
+      const handle = await this.#environment.client.workflow.start<TemporalLoopWorkflow>(
+        TEMPORAL_SESSION_WORKFLOW,
         {
           args: [workflowInput],
           taskQueue: this.#worker.options.taskQueue,
@@ -134,7 +134,7 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
       this.#service.fail(sessionId, error);
       if (startedHandle !== undefined) {
         await startedHandle
-          .terminate("eve local Temporal benchmark startup failed")
+          .terminate("eve local Temporal loop runtime startup failed")
           .catch(() => {});
         await startedHandle.result().catch(() => {});
         this.#handles.delete(sessionId);
@@ -147,14 +147,14 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     this.#assertOpen();
     const address = this.#service.resolve(input.continuationToken);
     if (address === null) throw new RuntimeNoActiveSessionError(input.continuationToken);
-    const message = parseLoopBenchmarkDeliveryMessage(input, "Temporal");
+    const message = parseLoopDeliveryMessage(input, "Temporal");
 
     try {
-      const handle = this.#environment.client.workflow.getHandle<TemporalBenchmarkWorkflow>(
+      const handle = this.#environment.client.workflow.getHandle<TemporalLoopWorkflow>(
         address.workflowId,
         address.runId,
       );
-      await handle.signal(temporalBenchmarkDeliverySignal, {
+      await handle.signal(temporalLoopDeliverySignal, {
         auth: input.auth,
         message,
         requestId: input.requestId,
@@ -175,7 +175,7 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
     return this.#service.stream(sessionId, options?.startIndex);
   }
 
-  async inspectHistory(sessionId: string): Promise<TemporalBenchmarkHistoryFacts> {
+  async inspectHistory(sessionId: string): Promise<TemporalLoopHistoryFacts> {
     const history = await this.#environment.client.workflow.getHandle(sessionId).fetchHistory();
     const events = history.events ?? [];
     const childCompletionIndex = events.findIndex(
@@ -225,14 +225,14 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
 
     if (cleanupErrors.length === 1) throw cleanupErrors[0];
     if (cleanupErrors.length > 1) {
-      throw new AggregateError(cleanupErrors, "Local Temporal benchmark cleanup failed.");
+      throw new AggregateError(cleanupErrors, "Local Temporal loop runtime cleanup failed.");
     }
   }
 
   #assertOpen(): void {
-    if (this.#closed) throw new Error("Local Temporal benchmark runtime is closed.");
+    if (this.#closed) throw new Error("Local Temporal loop runtime is closed.");
     if (this.#workerFailure !== null) {
-      throw new Error("Local Temporal benchmark Worker stopped.", {
+      throw new Error("Local Temporal loop runtime Worker stopped.", {
         cause: this.#workerFailure.error,
       });
     }
@@ -240,7 +240,7 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
 
   #observeResult(
     sessionId: string,
-    handle: WorkflowHandleWithStartDetails<TemporalBenchmarkWorkflow>,
+    handle: WorkflowHandleWithStartDetails<TemporalLoopWorkflow>,
   ): void {
     void handle.result().then(
       () => {
@@ -255,28 +255,28 @@ export class LocalTemporalBenchmarkRuntime implements Runtime {
   }
 }
 
-/** Starts a real local Temporal server and Worker for benchmark runs. */
-export async function createLocalTemporalBenchmarkRuntime(
-  config: LocalTemporalBenchmarkRuntimeConfig,
-): Promise<LocalTemporalBenchmarkRuntime> {
+/** Starts a real local Temporal server and Worker for loop runs. */
+export async function createTemporalLoopRuntime(
+  config: TemporalLoopRuntimeConfig,
+): Promise<TemporalLoopRuntime> {
   const [{ TestWorkflowEnvironment }, { Worker }] = await Promise.all([
     loadTemporalTesting(),
     loadTemporalWorker(),
   ]);
-  const devServer = readLoopBenchmarkTemporalDevServer();
+  const devServer = readLoopTemporalDevServer();
   const environment = await TestWorkflowEnvironment.createLocal(
     devServer.dbFilename === undefined && devServer.uiPort === undefined
       ? undefined
       : { server: devServer },
   );
   if (devServer.uiPort !== undefined) {
-    console.log(`[loop-benchmark] Temporal Web UI at http://127.0.0.1:${devServer.uiPort}`);
+    console.log(`[loops] Temporal Web UI at http://127.0.0.1:${devServer.uiPort}`);
   }
   try {
-    const service = new LocalTemporalBenchmarkService();
-    const taskQueue = `eve-loop-benchmark-${randomUUID()}`;
+    const service = new TemporalLoopService();
+    const taskQueue = `eve-loop-${randomUUID()}`;
     const worker = await Worker.create({
-      activities: createTemporalBenchmarkActivities({
+      activities: createTemporalLoopActivities({
         compiledArtifactsSource: config.compiledArtifactsSource,
         nodeId: config.nodeId,
         service,
@@ -286,7 +286,7 @@ export async function createLocalTemporalBenchmarkRuntime(
       taskQueue,
       workflowsPath: resolveWorkflowsPath(),
     });
-    return new LocalTemporalBenchmarkRuntime({
+    return new TemporalLoopRuntime({
       compiledArtifactsSource: config.compiledArtifactsSource,
       environment,
       nodeId: config.nodeId,
@@ -311,23 +311,23 @@ function loadTemporalWorker(): Promise<typeof import("@temporalio/worker")> {
 
 function parseInitialMessage(input: RunInput): string {
   if (input.mode !== "conversation") {
-    throw new Error('Temporal benchmark only supports mode "conversation".');
+    throw new Error('Temporal loop runtime only supports mode "conversation".');
   }
   if (typeof input.input.message !== "string") {
-    throw new Error("Temporal benchmark only supports plain-text messages.");
+    throw new Error("Temporal loop runtime only supports plain-text messages.");
   }
   if (input.input.message.trim().length === 0) {
-    throw new Error("Temporal benchmark requires a non-empty message.");
+    throw new Error("Temporal loop runtime requires a non-empty message.");
   }
   if (input.input.context !== undefined || input.input.outputSchema !== undefined) {
-    throw new Error("Temporal benchmark does not support context or output schemas.");
+    throw new Error("Temporal loop runtime does not support context or output schemas.");
   }
   if (
     input.callback !== undefined ||
     input.parent !== undefined ||
     input.subagentDepth !== undefined
   ) {
-    throw new Error("Temporal benchmark does not support callbacks or delegated sessions.");
+    throw new Error("Temporal loop runtime does not support callbacks or delegated sessions.");
   }
   return input.input.message;
 }
@@ -342,14 +342,14 @@ function resolveWorkflowsPath(): string {
   const require = createRequire(import.meta.url);
   const packageRoot = dirname(require.resolve("eve/package.json"));
   const packageCandidates = [
-    join(packageRoot, "src/internal/loop-benchmark/temporal/workflows.ts"),
-    join(packageRoot, "dist/src/internal/loop-benchmark/temporal/workflows.js"),
+    join(packageRoot, "src/internal/loops/temporal/workflows.ts"),
+    join(packageRoot, "dist/src/internal/loops/temporal/workflows.js"),
   ];
   for (const candidate of packageCandidates) {
     if (existsSync(candidate)) return candidate;
   }
 
-  throw new Error("Cannot find the Temporal benchmark workflow entrypoint.");
+  throw new Error("Cannot find the Temporal loop runtime workflow entrypoint.");
 }
 
 function collectRejected(

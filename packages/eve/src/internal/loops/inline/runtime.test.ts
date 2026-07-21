@@ -18,7 +18,7 @@ import {
 } from "#protocol/message.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
-import { createInlineBenchmarkRuntime } from "./runtime.js";
+import { createInlineLoopRuntime } from "./runtime.js";
 
 const mocks = vi.hoisted(() => ({
   createSessionOperation: vi.fn(),
@@ -47,7 +47,7 @@ afterEach(() => {
   mocks.getCompiledRuntimeAgentBundle.mockReset();
 });
 
-describe("createInlineBenchmarkRuntime", () => {
+describe("createInlineLoopRuntime", () => {
   it("returns a handle before session creation and keeps the sample id in context", async () => {
     mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({
       compiledArtifactsSource: SOURCE,
@@ -62,7 +62,7 @@ describe("createInlineBenchmarkRuntime", () => {
       return await step.promise;
     });
 
-    const runtime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const runtime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     const handle = await runtime.run(
       createRunInput({
         continuationToken: "http:nonblocking",
@@ -146,7 +146,7 @@ describe("createInlineBenchmarkRuntime", () => {
       return createParkResult(rekeyedState, input.serializedContext);
     });
 
-    const firstRuntime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const firstRuntime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     const handle = await firstRuntime.run(
       createRunInput({
         continuationToken: "http:initial",
@@ -173,7 +173,7 @@ describe("createInlineBenchmarkRuntime", () => {
     });
     await replayReader.cancel();
 
-    const secondRuntime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const secondRuntime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     await waitForDelivery(secondRuntime, {
       continuationToken: "http:rekeyed",
       requestId: "sample-follow-up",
@@ -189,7 +189,7 @@ describe("createInlineBenchmarkRuntime", () => {
     await waitForCallCount(mocks.executeTurnStepOperation, 3);
     expect(turnInputs[0]?.input).toEqual({
       kind: "deliver",
-      payloads: [{ context: undefined, message: "benchmark", outputSchema: undefined }],
+      payloads: [{ context: undefined, message: "hello-loop", outputSchema: undefined }],
       requestId: "sample-rekey",
     });
     expect(turnInputs[1]?.input).toBeUndefined();
@@ -204,7 +204,7 @@ describe("createInlineBenchmarkRuntime", () => {
   it("fails the stream and releases the continuation token when initialization fails", async () => {
     const failure = new Error("compiled bundle unavailable");
     mocks.getCompiledRuntimeAgentBundle.mockRejectedValue(failure);
-    const runtime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const runtime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     const runInput = createRunInput({ continuationToken: "http:init-failure" });
 
     const handle = await runtime.run(runInput);
@@ -273,7 +273,7 @@ describe("createInlineBenchmarkRuntime", () => {
       result(input.sessionState, input.serializedContext),
     );
 
-    const runtime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+    const runtime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     const handle = await runtime.run(
       createRunInput({ continuationToken: `http:unsupported-${expected}` }),
     );
@@ -281,8 +281,8 @@ describe("createInlineBenchmarkRuntime", () => {
     await expect(handle.events.getReader().read()).rejects.toThrow(expected);
   });
 
-  it("rejects task and delegated runs at the benchmark boundary", async () => {
-    const runtime = createInlineBenchmarkRuntime({ compiledArtifactsSource: SOURCE });
+  it("rejects task and delegated runs at the loop boundary", async () => {
+    const runtime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
 
     await expect(
       runtime.run({ ...createRunInput({ continuationToken: "http:task" }), mode: "task" }),
@@ -311,7 +311,7 @@ function createRunInput(input: {
     auth: null,
     capabilities: { requestInput: true },
     continuationToken: input.continuationToken,
-    input: { message: "benchmark" },
+    input: { message: "hello-loop" },
     mode: "conversation",
     requestId: input.requestId,
   };
@@ -328,7 +328,7 @@ function createSessionState(input: {
     sessionId: input.sessionId,
     snapshot: {
       session: {
-        agent: { system: "benchmark" },
+        agent: { system: "loop" },
         continuationToken: input.continuationToken,
         history: [],
         sessionId: input.sessionId,
@@ -397,7 +397,7 @@ async function waitForCallCount(
 }
 
 async function waitForDelivery(
-  runtime: ReturnType<typeof createInlineBenchmarkRuntime>,
+  runtime: ReturnType<typeof createInlineLoopRuntime>,
   input: { readonly continuationToken: string; readonly requestId: string },
 ): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {

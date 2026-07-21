@@ -154,8 +154,8 @@ describe("eve --loop runtime selection", () => {
   });
 
   it("exports the selection to the server environment before the host boots", async () => {
-    const previous = process.env.EVE_LOOP_BENCHMARK_RUNTIME;
-    delete process.env.EVE_LOOP_BENCHMARK_RUNTIME;
+    const previous = process.env.EVE_LOOP;
+    delete process.env.EVE_LOOP;
     const seen: (string | undefined)[] = [];
     try {
       await runCli(
@@ -163,7 +163,7 @@ describe("eve --loop runtime selection", () => {
         { error: () => {}, log: () => {} },
         {
           startProductionHost: async () => {
-            seen.push(process.env.EVE_LOOP_BENCHMARK_RUNTIME);
+            seen.push(process.env.EVE_LOOP);
             return {
               close: async () => {},
               url: "http://127.0.0.1:3000",
@@ -174,9 +174,9 @@ describe("eve --loop runtime selection", () => {
       );
     } finally {
       if (previous === undefined) {
-        delete process.env.EVE_LOOP_BENCHMARK_RUNTIME;
+        delete process.env.EVE_LOOP;
       } else {
-        process.env.EVE_LOOP_BENCHMARK_RUNTIME = previous;
+        process.env.EVE_LOOP = previous;
       }
     }
     expect(seen).toEqual(["inline"]);

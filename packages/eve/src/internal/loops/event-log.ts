@@ -1,6 +1,6 @@
 import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
 
-export interface BenchmarkEventPublication {
+export interface LoopEventPublication {
   readonly encoded: Uint8Array;
   readonly event: TimedHandleMessageStreamEvent;
   readonly publicationKey: string;
@@ -10,7 +10,7 @@ export type EventPublicationReceipt =
   | { readonly kind: "inserted"; readonly streamOrdinal: number }
   | { readonly kind: "duplicate"; readonly streamOrdinal: number };
 
-interface StoredPublication extends BenchmarkEventPublication {
+interface StoredPublication extends LoopEventPublication {
   readonly streamOrdinal: number;
 }
 
@@ -20,7 +20,7 @@ interface StreamReader {
 }
 
 /** Process-local replayable event log for inline and local Temporal runs. */
-export class InMemoryBenchmarkEventLog {
+export class InMemoryLoopEventLog {
   readonly #byKey = new Map<string, StoredPublication>();
   readonly #publications: StoredPublication[] = [];
   readonly #readers = new Set<StreamReader>();
@@ -29,7 +29,7 @@ export class InMemoryBenchmarkEventLog {
     | { readonly error: unknown; readonly kind: "failed" }
     | null = null;
 
-  append(publication: BenchmarkEventPublication): EventPublicationReceipt {
+  append(publication: LoopEventPublication): EventPublicationReceipt {
     this.#assertOpen();
     if (publication.publicationKey.trim().length === 0) {
       throw new TypeError("Event publication key must be a non-empty string.");

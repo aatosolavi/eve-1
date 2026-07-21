@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  InMemoryBenchmarkEventLog,
-  type BenchmarkEventPublication,
-} from "#internal/loop-benchmark/event-log.js";
+import { InMemoryLoopEventLog, type LoopEventPublication } from "#internal/loops/event-log.js";
 import {
   createSessionCompletedEvent,
   createSessionWaitingEvent,
@@ -17,7 +14,7 @@ function publication(input: {
   readonly at: string;
   readonly key: string;
   readonly type: "session.completed" | "session.waiting";
-}): BenchmarkEventPublication {
+}): LoopEventPublication {
   const event = timestampHandleMessageStreamEvent(
     input.type === "session.completed"
       ? createSessionCompletedEvent()
@@ -39,9 +36,9 @@ async function readAll(
   return events;
 }
 
-describe("InMemoryBenchmarkEventLog", () => {
+describe("InMemoryLoopEventLog", () => {
   it("replays existing events and then follows live appends", async () => {
-    const log = new InMemoryBenchmarkEventLog();
+    const log = new InMemoryLoopEventLog();
     const started = publication({
       at: "2026-07-10T10:00:00.000Z",
       key: "session-1:0",
@@ -62,7 +59,7 @@ describe("InMemoryBenchmarkEventLog", () => {
   });
 
   it("emits each live append once when pull reenters during enqueue", async () => {
-    const log = new InMemoryBenchmarkEventLog();
+    const log = new InMemoryLoopEventLog();
     const started = publication({
       at: "2026-07-10T10:00:00.000Z",
       key: "session-live:0",
@@ -85,7 +82,7 @@ describe("InMemoryBenchmarkEventLog", () => {
   });
 
   it("resumes at a zero-based stream index", async () => {
-    const log = new InMemoryBenchmarkEventLog();
+    const log = new InMemoryLoopEventLog();
     const started = publication({
       at: "2026-07-10T10:00:00.000Z",
       key: "session-1:0",
@@ -104,7 +101,7 @@ describe("InMemoryBenchmarkEventLog", () => {
   });
 
   it("deduplicates identical publications and rejects conflicting retries", () => {
-    const log = new InMemoryBenchmarkEventLog();
+    const log = new InMemoryLoopEventLog();
     const original = publication({
       at: "2026-07-10T10:00:00.000Z",
       key: "session-1:0",
@@ -122,7 +119,7 @@ describe("InMemoryBenchmarkEventLog", () => {
   });
 
   it("propagates terminal failures to active readers", async () => {
-    const log = new InMemoryBenchmarkEventLog();
+    const log = new InMemoryLoopEventLog();
     const events = readAll(log.stream());
     const failure = new Error("inline turn failed");
 

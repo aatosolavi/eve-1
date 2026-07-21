@@ -4,7 +4,7 @@ import type { CreateSessionOperationInput } from "#execution/session-operation.j
 import type { DurableStepResult, TurnStepOperationInput } from "#execution/turn-step-operation.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
-export interface WorkflowBenchmarkSessionInput {
+export interface WorkflowLoopSessionInput {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
   readonly continuationToken: string;
   readonly initialDelivery: DeliverHookPayload;
@@ -12,7 +12,7 @@ export interface WorkflowBenchmarkSessionInput {
   readonly serializedContext: Record<string, unknown>;
 }
 
-export interface WorkflowBenchmarkTurnInput {
+export interface WorkflowLoopTurnInput {
   readonly initialInput: HookPayload;
   readonly parentWritable: WritableStream<Uint8Array>;
   readonly serializedContext: Record<string, unknown>;
@@ -23,23 +23,23 @@ export interface WorkflowBenchmarkTurnInput {
 
 type ContinueOrDoneResult = Extract<DurableStepResult, { readonly action: "continue" | "done" }>;
 
-export type WorkflowBenchmarkDoneResult = Omit<ContinueOrDoneResult, "action"> & {
+export type WorkflowLoopDoneResult = Omit<ContinueOrDoneResult, "action"> & {
   readonly action: "done";
 };
 
-export type WorkflowBenchmarkParkResult = Extract<DurableStepResult, { readonly action: "park" }>;
+export type WorkflowLoopParkResult = Extract<DurableStepResult, { readonly action: "park" }>;
 
-export type WorkflowBenchmarkTurnResult = WorkflowBenchmarkDoneResult | WorkflowBenchmarkParkResult;
+export type WorkflowLoopTurnResult = WorkflowLoopDoneResult | WorkflowLoopParkResult;
 
-export interface WorkflowBenchmarkChildSettled {
+export interface WorkflowLoopChildSettled {
   readonly kind: "turn-settled";
   readonly runId: string;
   readonly turnOrdinal: number;
 }
 
-export interface CreateWorkflowBenchmarkSessionStepInput extends CreateSessionOperationInput {}
+export interface CreateWorkflowLoopSessionStepInput extends CreateSessionOperationInput {}
 
-export interface ExecuteWorkflowBenchmarkTurnStepInput extends Pick<
+export interface ExecuteWorkflowLoopTurnStepInput extends Pick<
   TurnStepOperationInput,
   "input" | "serializedContext" | "sessionState"
 > {
@@ -48,6 +48,6 @@ export interface ExecuteWorkflowBenchmarkTurnStepInput extends Pick<
   readonly turnOrdinal: number;
 }
 
-export interface StartWorkflowBenchmarkTurnStepResult {
+export interface StartWorkflowLoopTurnStepResult {
   readonly runId: string;
 }

@@ -13,31 +13,30 @@ import { parseNdjsonStream } from "#execution/ndjson-stream.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
-import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
+import { parseLoopDeliveryMessage } from "#internal/loops/delivery-message.js";
 import { getRun, resumeHook, start, type WorkflowMetadata } from "#internal/workflow/runtime.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 
-import type { WorkflowBenchmarkSessionInput } from "./contracts.js";
+import type { WorkflowLoopSessionInput } from "./contracts.js";
 
 const EVE_PACKAGE_INFO = resolveInstalledPackageInfo();
-const WORKFLOW_BENCHMARK_SESSION_REFERENCE = {
-  workflowId: `workflow//${EVE_PACKAGE_INFO.name}@${EVE_PACKAGE_INFO.version}//workflowBenchmarkSession`,
+const WORKFLOW_LOOP_SESSION_REFERENCE = {
+  workflowId: `workflow//${EVE_PACKAGE_INFO.name}@${EVE_PACKAGE_INFO.version}//workflowLoopSession`,
 } satisfies WorkflowMetadata;
 
-export interface WorkflowBenchmarkRuntimeConfig {
+export interface WorkflowLoopRuntimeConfig {
   readonly compiledArtifactsSource: RuntimeCompiledArtifactsSource;
   readonly nodeId?: string;
 }
 
 /** Creates the independently orchestrated Workflow DevKit loop runtime. */
-export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeConfig): Runtime {
+export function createWorkflowLoopRuntime(config: WorkflowLoopRuntimeConfig): Runtime {
   return {
     async run(input: RunInput): Promise<RunHandle> {
       const message = parseInitialMessage(input);
-      const continuationToken =
-        input.continuationToken ?? `workflow-benchmark:${crypto.randomUUID()}`;
+      const continuationToken = input.continuationToken ?? `workflow-loop:${crypto.randomUUID()}`;
 
       const bundle = await getCompiledRuntimeAgentBundle({
         compiledArtifactsSource: config.compiledArtifactsSource,
@@ -47,7 +46,7 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
         bundle,
         run: { ...input, continuationToken },
       });
-      const workflowInput: WorkflowBenchmarkSessionInput = {
+      const workflowInput: WorkflowLoopSessionInput = {
         compiledArtifactsSource: config.compiledArtifactsSource,
         continuationToken,
         initialDelivery: {
@@ -58,7 +57,7 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
         nodeId: config.nodeId,
         serializedContext: serializeContext(context),
       };
-      const run = await start(WORKFLOW_BENCHMARK_SESSION_REFERENCE, [workflowInput]);
+      const run = await start(WORKFLOW_LOOP_SESSION_REFERENCE, [workflowInput]);
 
       let events: ReadableStream<HandleMessageStreamEvent> | undefined;
       return {
@@ -74,7 +73,7 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
     },
 
     async deliver(input: DeliverInput): Promise<{ readonly sessionId: string }> {
-      parseLoopBenchmarkDeliveryMessage(input, "Workflow");
+      parseLoopDeliveryMessage(input, "Workflow");
       const payload: Extract<HookPayload, { readonly kind: "deliver" }> = {
         auth: input.auth,
         kind: "deliver",
@@ -106,16 +105,16 @@ export function createWorkflowBenchmarkRuntime(config: WorkflowBenchmarkRuntimeC
 
 function parseInitialMessage(input: RunInput): string {
   if (input.mode !== "conversation") {
-    throw new Error('Workflow benchmark only supports mode "conversation".');
+    throw new Error('Workflow loop runtime only supports mode "conversation".');
   }
   if (typeof input.input.message !== "string") {
-    throw new Error("Workflow benchmark only supports plain-text messages.");
+    throw new Error("Workflow loop runtime only supports plain-text messages.");
   }
   if (input.input.message.trim().length === 0) {
-    throw new Error("Workflow benchmark requires a non-empty message.");
+    throw new Error("Workflow loop runtime requires a non-empty message.");
   }
   if (input.input.context !== undefined || input.input.outputSchema !== undefined) {
-    throw new Error("Workflow benchmark does not support context or output schemas.");
+    throw new Error("Workflow loop runtime does not support context or output schemas.");
   }
   if (
     input.callback !== undefined ||
@@ -123,18 +122,18 @@ function parseInitialMessage(input: RunInput): string {
     input.subagentDepth !== undefined ||
     input.subagentMaxDepth !== undefined
   ) {
-    throw new Error("Workflow benchmark does not support callbacks or delegated sessions.");
+    throw new Error("Workflow loop runtime does not support callbacks or delegated sessions.");
   }
   return input.input.message;
 }
 
 function readRunId(value: unknown): string {
   if (typeof value !== "object" || value === null || !("runId" in value)) {
-    throw new Error("Workflow benchmark hook did not include a run id.");
+    throw new Error("Workflow loop runtime hook did not include a run id.");
   }
   const runId = value.runId;
   if (typeof runId !== "string" || runId.length === 0) {
-    throw new Error("Workflow benchmark hook did not include a run id.");
+    throw new Error("Workflow loop runtime hook did not include a run id.");
   }
   return runId;
 }

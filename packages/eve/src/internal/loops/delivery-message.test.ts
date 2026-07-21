@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { parseLoopBenchmarkDeliveryMessage } from "./delivery-message.js";
+import { parseLoopDeliveryMessage } from "./delivery-message.js";
 
-describe("parseLoopBenchmarkDeliveryMessage", () => {
+describe("parseLoopDeliveryMessage", () => {
   it("accepts the plain-text payload shape materialized by channel.send", () => {
     expect(
-      parseLoopBenchmarkDeliveryMessage(
+      parseLoopDeliveryMessage(
         {
-          continuationToken: "benchmark-token",
+          continuationToken: "loop-token",
           payload: {
             context: undefined,
             inputResponses: undefined,
@@ -22,13 +22,13 @@ describe("parseLoopBenchmarkDeliveryMessage", () => {
 
   it("rejects defined non-message input", () => {
     expect(() =>
-      parseLoopBenchmarkDeliveryMessage(
+      parseLoopDeliveryMessage(
         {
-          continuationToken: "benchmark-token",
+          continuationToken: "loop-token",
           payload: { context: ["hidden"], message: "again" },
         },
         "Temporal",
       ),
-    ).toThrow("Temporal benchmark only supports plain-text follow-up deliveries.");
+    ).toThrow("Temporal loop runtime only supports plain-text follow-up deliveries.");
   });
 });
