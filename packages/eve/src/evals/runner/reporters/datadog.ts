@@ -4,10 +4,26 @@ import type { EvalReporter } from "#evals/runner/reporters/types.js";
 /** Configuration for the Datadog LLM Observability reporter. */
 export interface DatadogReporterConfig {
   /**
-   * Datadog LLM Observability application name. Overrides `DD_LLMOBS_ML_APP`
-   * for the reporter's workflow spans and evaluations.
+   * Datadog API key for agentless reporting. Overrides `DD_API_KEY` for this
+   * process before the tracer initializes.
    */
-  readonly mlApp?: string;
+  readonly apiKey?: string;
+  /**
+   * Datadog application key. Overrides `DD_APP_KEY` for this process before
+   * the tracer initializes. LLM Observability ingestion uses the API key; an
+   * application key is only needed by other Datadog APIs in the same process.
+   */
+  readonly appKey?: string;
+  /**
+   * Datadog LLM Observability project name. This is sent as the tracer's ML
+   * application name and is used for both workflow spans and evaluations.
+   */
+  readonly projectName?: string;
+  /**
+   * Whether to send data directly to Datadog rather than through a Datadog
+   * Agent. Defaults to `true`, which is suitable for CI.
+   */
+  readonly agentless?: boolean;
 }
 
 interface DatadogLlmObs {
@@ -34,6 +50,23 @@ interface DatadogLlmObs {
   exportSpan(span: unknown): DatadogSpanContext;
   submitEvaluation(spanContext: DatadogSpanContext, options: DatadogEvaluationOptions): void;
   flush(): void | Promise<void>;
+}
+
+interface DatadogTracer {
+  readonly llmobs: DatadogLlmObs;
+  init(options: {
+    llmobs: {
+      agentlessEnabled: boolean;
+      mlApp: string;
+    };
+  }): DatadogTracer;
+}
+
+interface ResolvedDatadogReporterConfig {
+  readonly agentless: boolean;
+  readonly apiKey?: string;
+  readonly appKey?: string;
+  readonly projectName: string;
 }
 
 interface DatadogSpanContext {
@@ -66,6 +99,7 @@ export function Datadog(config: DatadogReporterConfig = {}): EvalReporter {
 class DatadogReporter implements EvalReporter {
   readonly #config: DatadogReporterConfig;
   #llmobs: DatadogLlmObs | undefined;
+  #projectName: string | undefined;
   #target: EveEvalTarget | undefined;
   readonly #evaluations = new Map<string, EveEval>();
 
@@ -74,18 +108,22 @@ class DatadogReporter implements EvalReporter {
   }
 
   async onRunStart(evaluations: readonly EveEval[], target: EveEvalTarget): Promise<void> {
-    const llmobs = await loadDatadogLlmObs();
+    const config = resolveDatadogReporterConfig(this.#config);
+    configureDatadogEnvironment(config);
+
+    const llmobs = await loadDatadogLlmObs(config);
     if (!llmobs.enabled) {
       throw new Error(
         [
           "Datadog LLM Observability is not enabled.",
           "",
-          "Set DD_LLMOBS_ENABLED=1 and initialize 'dd-trace' before running eve eval.",
+          "Do not initialize 'dd-trace' separately before the reporter starts.",
         ].join("\n"),
       );
     }
 
     this.#llmobs = llmobs;
+    this.#projectName = config.projectName;
     this.#target = target;
     this.#evaluations.clear();
     for (const evaluation of evaluations) {
@@ -95,7 +133,8 @@ class DatadogReporter implements EvalReporter {
 
   onEvalComplete(result: EveEvalResult): void | Promise<void> {
     const llmobs = this.#llmobs;
-    if (!llmobs) return;
+    const projectName = this.#projectName;
+    if (!llmobs || !projectName) return;
 
     const evaluation = this.#evaluations.get(result.id);
     const target = this.#target;
@@ -105,7 +144,7 @@ class DatadogReporter implements EvalReporter {
         kind: "workflow",
         name: "eve.eval",
         sessionId: result.result.sessionId,
-        mlApp: this.#config.mlApp,
+        mlApp: projectName,
       },
       (span) => {
         llmobs.annotate(span, resolveSpanAnnotation(result, evaluation, target));
@@ -123,7 +162,7 @@ class DatadogReporter implements EvalReporter {
               ...resolveTags(result, target),
               eveAssertionSeverity: assertion.severity,
             },
-            mlApp: this.#config.mlApp,
+            mlApp: projectName,
             ...(Number.isFinite(timestampMs) ? { timestampMs } : {}),
             metadata: {
               ...evaluation?.metadata,
@@ -147,6 +186,7 @@ class DatadogReporter implements EvalReporter {
       await llmobs.flush();
     } finally {
       this.#llmobs = undefined;
+      this.#projectName = undefined;
       this.#target = undefined;
       this.#evaluations.clear();
     }
@@ -155,7 +195,7 @@ class DatadogReporter implements EvalReporter {
 
 const DATADOG_PACKAGE = "dd-trace";
 
-async function loadDatadogLlmObs(): Promise<DatadogLlmObs> {
+async function loadDatadogLlmObs(config: ResolvedDatadogReporterConfig): Promise<DatadogLlmObs> {
   let sdk: unknown;
   try {
     sdk = await import(DATADOG_PACKAGE);
@@ -170,21 +210,35 @@ async function loadDatadogLlmObs(): Promise<DatadogLlmObs> {
     );
   }
 
-  const llmobs = resolveLlmObs(sdk);
-  if (!isDatadogLlmObs(llmobs)) {
+  const tracer = resolveDatadogTracer(sdk);
+  if (!isDatadogTracer(tracer)) {
     throw new Error(
       "The installed 'dd-trace' package does not expose the Datadog LLM Observability SDK. Install a current version of 'dd-trace'.",
     );
   }
 
-  return llmobs;
+  tracer.init({
+    llmobs: {
+      agentlessEnabled: config.agentless,
+      mlApp: config.projectName,
+    },
+  });
+
+  return tracer.llmobs;
 }
 
-function resolveLlmObs(sdk: unknown): unknown {
+function resolveDatadogTracer(sdk: unknown): unknown {
   if (typeof sdk !== "object" || sdk === null) return undefined;
 
-  const module = sdk as { default?: { llmobs?: unknown }; llmobs?: unknown };
-  return module.default?.llmobs ?? module.llmobs;
+  const module = sdk as { default?: unknown };
+  return module.default ?? module;
+}
+
+function isDatadogTracer(value: unknown): value is DatadogTracer {
+  if (typeof value !== "object" || value === null) return false;
+
+  const tracer = value as Partial<DatadogTracer>;
+  return typeof tracer.init === "function" && isDatadogLlmObs(tracer.llmobs);
 }
 
 function isDatadogLlmObs(value: unknown): value is DatadogLlmObs {
@@ -199,6 +253,34 @@ function isDatadogLlmObs(value: unknown): value is DatadogLlmObs {
     typeof llmobs.submitEvaluation === "function" &&
     typeof llmobs.flush === "function"
   );
+}
+
+function resolveDatadogReporterConfig(
+  config: DatadogReporterConfig,
+): ResolvedDatadogReporterConfig {
+  const agentless = config.agentless ?? true;
+  const apiKey = config.apiKey || process.env.DD_API_KEY;
+  const appKey = config.appKey || process.env.DD_APP_KEY;
+  const projectName = config.projectName || process.env.DD_LLMOBS_ML_APP || process.env.DD_SERVICE;
+
+  if (!projectName) {
+    throw new Error(
+      "Datadog reporting needs a project name. Set projectName, DD_LLMOBS_ML_APP, or DD_SERVICE.",
+    );
+  }
+
+  if (agentless && !apiKey) {
+    throw new Error(
+      "Datadog agentless reporting needs an API key. Set apiKey or DD_API_KEY, or set agentless: false to use a Datadog Agent.",
+    );
+  }
+
+  return { agentless, apiKey, appKey, projectName };
+}
+
+function configureDatadogEnvironment(config: ResolvedDatadogReporterConfig): void {
+  if (config.apiKey) process.env.DD_API_KEY = config.apiKey;
+  if (config.appKey) process.env.DD_APP_KEY = config.appKey;
 }
 
 function resolveSpanAnnotation(

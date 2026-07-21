@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Datadog, type DatadogReporterConfig } from "#evals/reporters/index.js";
 import type { EveEval, EveEvalResult, EveEvalTarget } from "#evals/types.js";
 
@@ -12,11 +12,16 @@ const mocks = vi.hoisted(() => {
     submitEvaluation: vi.fn(),
     trace: vi.fn((_options: unknown, fn: (activeSpan: object) => unknown) => fn(span)),
   };
+  const tracer = {
+    init: vi.fn(),
+    llmobs,
+  };
+  tracer.init.mockReturnValue(tracer);
 
-  return { llmobs, span };
+  return { llmobs, span, tracer };
 });
 
-vi.mock("dd-trace", () => ({ default: { llmobs: mocks.llmobs }, llmobs: mocks.llmobs }));
+vi.mock("dd-trace", () => ({ default: mocks.tracer, llmobs: mocks.llmobs }));
 
 function makeTarget(kind: "local" | "remote" = "local"): EveEvalTarget {
   const url = kind === "local" ? "http://127.0.0.1:3000" : "https://test.vercel.app";
@@ -29,7 +34,9 @@ function makeTarget(kind: "local" | "remote" = "local"): EveEvalTarget {
 
 function makeConfig(overrides: Partial<DatadogReporterConfig> = {}): DatadogReporterConfig {
   return {
-    mlApp: "test-app",
+    apiKey: "api-key",
+    appKey: "app-key",
+    projectName: "test-project",
     ...overrides,
   };
 }
@@ -87,7 +94,15 @@ function makeEvalResult(overrides: Partial<EveEvalResult> = {}): EveEvalResult {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("DD_API_KEY", "");
+  vi.stubEnv("DD_APP_KEY", "");
+  vi.stubEnv("DD_LLMOBS_ML_APP", "");
+  vi.stubEnv("DD_SERVICE", "");
   mocks.llmobs.enabled = true;
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("Datadog", () => {
@@ -123,10 +138,18 @@ describe("Datadog", () => {
         kind: "workflow",
         name: "eve.eval",
         sessionId: "session-123",
-        mlApp: "test-app",
+        mlApp: "test-project",
       },
       expect.any(Function),
     );
+    expect(mocks.tracer.init).toHaveBeenCalledWith({
+      llmobs: {
+        agentlessEnabled: true,
+        mlApp: "test-project",
+      },
+    });
+    expect(process.env.DD_API_KEY).toBe("api-key");
+    expect(process.env.DD_APP_KEY).toBe("app-key");
     expect(mocks.llmobs.annotate).toHaveBeenCalledWith(
       mocks.span,
       expect.objectContaining({
@@ -141,6 +164,7 @@ describe("Datadog", () => {
       expect.objectContaining({
         assessment: "pass",
         label: "succeeded",
+        mlApp: "test-project",
         metricType: "score",
         value: 1,
       }),
@@ -151,6 +175,7 @@ describe("Datadog", () => {
       expect.objectContaining({
         assessment: "fail",
         label: "similarity",
+        mlApp: "test-project",
         metricType: "score",
         value: 0.4,
       }),
@@ -165,6 +190,36 @@ describe("Datadog", () => {
     await expect(reporter.onRunStart([makeEvaluation()], makeTarget())).rejects.toThrow(
       "Datadog LLM Observability is not enabled.",
     );
+  });
+
+  it("uses DD_SERVICE as the project name when none is configured", async () => {
+    vi.stubEnv("DD_API_KEY", "env-api-key");
+    vi.stubEnv("DD_SERVICE", "evals-ci");
+    const reporter = Datadog();
+    const result = makeEvalResult();
+
+    await reporter.onRunStart([makeEvaluation()], makeTarget());
+    await reporter.onEvalComplete(result);
+
+    expect(mocks.tracer.init).toHaveBeenCalledWith({
+      llmobs: {
+        agentlessEnabled: true,
+        mlApp: "evals-ci",
+      },
+    });
+    expect(mocks.llmobs.submitEvaluation).toHaveBeenCalledWith(
+      { spanId: "span-123", traceId: "trace-123" },
+      expect.objectContaining({ mlApp: "evals-ci" }),
+    );
+  });
+
+  it("requires a project name and API key for agentless reporting", async () => {
+    await expect(
+      Datadog({ apiKey: "api-key" }).onRunStart([makeEvaluation()], makeTarget()),
+    ).rejects.toThrow("Datadog reporting needs a project name.");
+    await expect(
+      Datadog({ projectName: "evals-ci" }).onRunStart([makeEvaluation()], makeTarget()),
+    ).rejects.toThrow("Datadog agentless reporting needs an API key.");
   });
 
   it("is a no-op before the run starts", async () => {
