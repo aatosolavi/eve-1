@@ -190,7 +190,7 @@ describe("Datadog", () => {
     );
   });
 
-  it("requires explicit projectName and apiKey for agentless reporting", async () => {
+  it("requires explicit projectName and apiKey", async () => {
     vi.stubEnv("DD_API_KEY", "env-api-key");
     vi.stubEnv("DD_LLMOBS_ML_APP", "env-project");
 
@@ -199,7 +199,7 @@ describe("Datadog", () => {
     ).rejects.toThrow("Datadog reporting needs a projectName.");
     await expect(
       Datadog({ apiKey: "", projectName: "evals-ci" }).onRunStart([makeEvaluation()], makeTarget()),
-    ).rejects.toThrow("Datadog agentless reporting needs an apiKey.");
+    ).rejects.toThrow("Datadog reporting needs an apiKey.");
   });
 
   it("is a no-op before the run starts", async () => {

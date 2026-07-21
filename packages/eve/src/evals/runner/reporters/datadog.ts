@@ -18,11 +18,6 @@ export interface DatadogReporterConfig {
    * application name and is used for both workflow spans and evaluations.
    */
   readonly projectName: string;
-  /**
-   * Whether to send data directly to Datadog rather than through a Datadog
-   * Agent. Defaults to `true`, which is suitable for CI.
-   */
-  readonly agentless?: boolean;
 }
 
 interface DatadogLlmObs {
@@ -62,7 +57,6 @@ interface DatadogTracer {
 }
 
 interface ResolvedDatadogReporterConfig {
-  readonly agentless: boolean;
   readonly apiKey: string;
   readonly appKey?: string;
   readonly projectName: string;
@@ -218,7 +212,7 @@ async function loadDatadogLlmObs(config: ResolvedDatadogReporterConfig): Promise
 
   tracer.init({
     llmobs: {
-      agentlessEnabled: config.agentless,
+      agentlessEnabled: true,
       mlApp: config.projectName,
     },
   });
@@ -257,18 +251,15 @@ function isDatadogLlmObs(value: unknown): value is DatadogLlmObs {
 function resolveDatadogReporterConfig(
   config: DatadogReporterConfig,
 ): ResolvedDatadogReporterConfig {
-  const agentless = config.agentless ?? true;
-
   if (!config.projectName) {
     throw new Error("Datadog reporting needs a projectName.");
   }
 
-  if (agentless && !config.apiKey) {
-    throw new Error("Datadog agentless reporting needs an apiKey.");
+  if (!config.apiKey) {
+    throw new Error("Datadog reporting needs an apiKey.");
   }
 
   return {
-    agentless,
     apiKey: config.apiKey,
     appKey: config.appKey,
     projectName: config.projectName,

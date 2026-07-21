@@ -63,7 +63,7 @@ export default defineEvalConfig({
 });
 ```
 
-Install the `dd-trace` package before running the eval. The reporter initializes LLM Observability agentlessly for CI.
+Install the `dd-trace` package before running the eval. The reporter initializes LLM Observability for CI.
 
 The span records the eval's description, output, metadata, derived action counts, and verdict. Each assertion carries its score, pass/fail assessment, threshold, severity, and failure message when present. Use `--skip-report` to run without sending data.
 
