@@ -8,6 +8,7 @@ import type { HandleEventFn, HarnessToolMap, StepFn } from "#harness/types.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { createLogger } from "#internal/logging.js";
 import type { RuntimeIdentity } from "#protocol/message.js";
+import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 import { UNSPECIFIED_INPUT_SCHEMA, toInputSchema, toOutputSchema } from "#shared/tool-schema.js";
 import type { RunMode } from "#shared/run-mode.js";
 import {
@@ -60,6 +61,8 @@ export interface CreateExecutionNodeStepInput {
   readonly mode: RunMode;
   readonly modelResolutionScope: RuntimeModelResolutionScope;
   readonly node: ResolvedRuntimeAgentNode;
+  /** Runtime-owned writer for eve observability attributes. */
+  readonly writeEveAttributes?: EveAttributeWriter;
   /**
    * Effective `maxSubagents` cap configured by the experimental Workflow tool
    * definition and materialized on the session at creation.
@@ -93,6 +96,7 @@ export function createExecutionNodeStep(input: CreateExecutionNodeStepInput): St
     resolveModel,
     runtimeIdentity: buildRuntimeIdentity(input.node),
     tools,
+    writeEveAttributes: input.writeEveAttributes,
   });
 }
 

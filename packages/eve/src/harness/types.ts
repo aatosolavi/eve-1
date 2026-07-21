@@ -7,6 +7,7 @@ import type { RunMode } from "#shared/run-mode.js";
 import type { RuntimeActionResult } from "#runtime/actions/types.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import type { InputResponse } from "#runtime/input/types.js";
+import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 import type { SandboxState } from "#sandbox/state.js";
 import type { JsonObject } from "#shared/json.js";
 import type { InternalToolDefinition } from "#shared/tool-definition.js";
@@ -279,4 +280,10 @@ export interface ToolLoopHarnessConfig {
    * definitions directly.
    */
   readonly tools: HarnessToolMap;
+  /**
+   * Runtime-owned writer for eve observability attributes. Optional so
+   * engines without an attribute store (or direct harness tests) run the
+   * loop without one; the harness never imports an engine emitter itself.
+   */
+  readonly writeEveAttributes?: EveAttributeWriter;
 }
