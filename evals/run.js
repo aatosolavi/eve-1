@@ -14,6 +14,7 @@ const fixturesDir = path.join(evalsDir, "evals");
 const experimentsDir = path.join(evalsDir, "experiments");
 const tarballDir = path.join(evalsDir, ".tarballs");
 const tarballPath = path.join(tarballDir, "eve.tgz");
+const resultsDir = path.join(evalsDir, "results");
 
 const variants = [
   {
@@ -25,6 +26,11 @@ const variants = [
     suffix: "agents-md",
     imports: `import { installEve, writeAgentsMd } from '../lib/setup.js'`,
     setup: `await installEve(sandbox)\n    await writeAgentsMd(sandbox)`,
+  },
+  {
+    suffix: "eve-skill",
+    imports: `import { installEve, writeEveSkill } from '../lib/setup.js'`,
+    setup: `await installEve(sandbox)\n    await writeEveSkill(sandbox)`,
   },
 ];
 
@@ -51,6 +57,7 @@ function writeExperiments(evalName) {
   for (const variant of variants) {
     const source = `import type { ExperimentConfig } from '@vercel/agent-eval'
 ${variant.imports}
+import { recordTokenUsage } from '../lib/token-usage.js'
 
 const config: ExperimentConfig = {
   agent: 'vercel-ai-gateway/claude-code',
@@ -61,6 +68,7 @@ const config: ExperimentConfig = {
   earlyExit: true,
   timeout: 720,
   sandbox: 'auto',
+  onRunComplete: recordTokenUsage,
   setup: async (sandbox) => {
     ${variant.setup}
   },
@@ -78,6 +86,110 @@ function listEvals() {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
+}
+
+function listResultFiles() {
+  if (!fs.existsSync(resultsDir)) return [];
+  return fs
+    .globSync("**/result.json", { cwd: resultsDir })
+    .map((resultPath) => path.join(resultsDir, resultPath));
+}
+
+function mean(values) {
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function formatInteger(value) {
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function printTable(headers, rows) {
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => row[index].length)),
+  );
+  const formatRow = (row) =>
+    row
+      .map((cell, index) =>
+        index === 0 ? cell.padEnd(widths[index]) : cell.padStart(widths[index]),
+      )
+      .join("  ");
+
+  console.log(formatRow(headers));
+  console.log(widths.map((width) => "-".repeat(width)).join("  "));
+  for (const row of rows) console.log(formatRow(row));
+}
+
+function printResultSummary(resultFiles) {
+  if (resultFiles.length === 0) return;
+
+  const resultsByVariant = new Map();
+  for (const resultFile of resultFiles) {
+    const variant = path.relative(resultsDir, resultFile).split(path.sep)[0];
+    const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+    const results = resultsByVariant.get(variant) ?? [];
+    results.push(result);
+    resultsByVariant.set(variant, results);
+  }
+
+  const rows = [];
+  for (const variant of variants) {
+    const results = resultsByVariant.get(variant.suffix);
+    if (results === undefined) continue;
+
+    const passed = results.filter((result) => result.status === "passed").length;
+    const accuracy = `${passed}/${results.length} (${Math.round((passed / results.length) * 100)}%)`;
+    const duration = `${mean(results.map((result) => result.duration)).toFixed(1)}s`;
+    const usages = results
+      .map((result) => result.analysis?.tokenUsage)
+      .filter((usage) => usage !== undefined);
+
+    if (usages.length === 0) {
+      rows.push([
+        variant.suffix,
+        accuracy,
+        `0/${results.length}`,
+        "—",
+        "—",
+        "—",
+        "—",
+        "—",
+        "—",
+        duration,
+      ]);
+      continue;
+    }
+
+    const usage = (field) => formatInteger(mean(usages.map((entry) => entry[field])));
+    rows.push([
+      variant.suffix,
+      accuracy,
+      `${usages.length}/${results.length}`,
+      usage("totalTokens"),
+      usage("totalInputTokens"),
+      usage("inputTokens"),
+      usage("cacheCreationInputTokens"),
+      usage("cacheReadInputTokens"),
+      usage("outputTokens"),
+      duration,
+    ]);
+  }
+
+  console.log("\nEvaluation summary (token counts are means per reported run):");
+  printTable(
+    [
+      "Variant",
+      "Accuracy",
+      "Token runs",
+      "Total",
+      "Input",
+      "Uncached",
+      "Cache write",
+      "Cache read",
+      "Output",
+      "Duration",
+    ],
+    rows,
+  );
 }
 
 function printUsage(options = {}) {
@@ -154,17 +266,18 @@ function main() {
   }
 
   writeExperiments(evalName);
-  fs.mkdirSync(path.join(evalsDir, "results"), { recursive: true });
+  fs.mkdirSync(resultsDir, { recursive: true });
   console.log(
     evalName === null
-      ? "> Running all evals (baseline + agents-md)"
-      : `> Running ${evalName} (baseline + agents-md)`,
+      ? "> Running all evals (baseline + agents-md + eve-skill)"
+      : `> Running ${evalName} (baseline + agents-md + eve-skill)`,
   );
 
   const agentEvalArgs = argv.dry
     ? ["status"]
     : ["run", ...variants.map((variant) => variant.suffix), "--force"];
   const executable = path.join(evalsDir, "node_modules/.bin/agent-eval");
+  const existingResults = new Set(listResultFiles());
   const result = spawnSync(executable, agentEvalArgs, {
     cwd: evalsDir,
     stdio: "inherit",
@@ -178,6 +291,7 @@ function main() {
     }
     process.exit(1);
   }
+  printResultSummary(listResultFiles().filter((resultFile) => !existingResults.has(resultFile)));
   process.exit(result.status ?? 1);
 }
 

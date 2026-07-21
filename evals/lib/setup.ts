@@ -37,3 +37,13 @@ docs are the source of truth for this version of eve.
     "CLAUDE.md": "@AGENTS.md\n",
   });
 }
+
+/** Installs the repository's eve skill for the configured Claude Code agent. */
+export async function writeEveSkill(sandbox: Sandbox): Promise<void> {
+  await sandbox.writeFiles({
+    ".claude/skills/eve/SKILL.md": readFileSync(
+      new URL("../../skills/eve/SKILL.md", import.meta.url),
+      "utf8",
+    ),
+  });
+}

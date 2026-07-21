@@ -17,16 +17,19 @@ fixture into a Vercel or local Docker sandbox, gives `PROMPT.md` to the coding
 agent, withholds `EVAL.ts`, and then runs the grader and the fixture's `build`
 script.
 
-`evals/run.js` packs the locally built `eve` package and generates two
+`evals/run.js` packs the locally built `eve` package and generates three
 experiments:
 
 - `baseline` installs the local package without agent-specific guidance.
 - `agents-md` additionally writes an `AGENTS.md` that points the coding agent
   at the version-matched docs in `node_modules/eve/docs/`.
+- `eve-skill` installs the repository's `skills/eve/SKILL.md` at Claude Code's
+  project skill path, mirroring the skill selected by
+  `npx skills add https://github.com/vercel/eve --skill eve`.
 
 Everything else—the fixture, prompt, coding model, judge, and local eve build—is
-the same. A baseline failure that becomes an `agents-md` pass is evidence that
-the bundled documentation helped.
+the same. A baseline failure that becomes a treatment pass is evidence that its
+documentation delivery mechanism helped.
 
 ## Writing an eval
 
@@ -82,6 +85,12 @@ fixture. Do not use it after changing eve code or docs.
 Results and complete coding-agent transcripts are written under
 `evals/results/<variant>/<timestamp>/`. The generated `experiments/`,
 `.tarballs/`, and `results/` directories are ignored.
+
+After a run, the runner prints accuracy, duration, and mean coding-model token
+usage for each variant. It keeps uncached input, cache creation, cache reads,
+and output separate because they have different billing characteristics. The
+same counters are stored under `analysis.tokenUsage` in each `result.json`.
+Judge and failure-classifier usage is not part of these coding-agent totals.
 
 ## Credentials and sandboxes
 
