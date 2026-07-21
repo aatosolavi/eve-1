@@ -1,22 +1,33 @@
 import type { RouteHandlerArgs } from "#channel/routes.js";
+import type { AgentInvocationService } from "#internal/invocation/agent-invocation-service.js";
 import type { Agent } from "#public/definitions/channel.js";
 
 type AgentInfoRouteResponse = () => Promise<Response>;
 
 const agentInfoRouteResponseKey = "__eveAgentInfoRouteResponse";
 const routeAgentKey = "__eveRouteAgent";
+const agentInvocationServiceKey = "__eveAgentInvocationService";
 
 type InternalRouteArgs = RouteHandlerArgs & {
   [agentInfoRouteResponseKey]?: AgentInfoRouteResponse;
   [routeAgentKey]?: Agent;
+  [agentInvocationServiceKey]?: AgentInvocationService;
 };
 
-export function attachAgentInfoRouteResponse<TArgs extends RouteHandlerArgs>(
+export interface InternalRouteContext {
+  readonly agent: Agent;
+  readonly agentInfoRouteResponse: AgentInfoRouteResponse;
+  readonly agentInvocationService: AgentInvocationService;
+}
+
+export function attachInternalRouteContext<TArgs extends RouteHandlerArgs>(
   args: TArgs,
-  respond: AgentInfoRouteResponse,
+  context: InternalRouteContext,
 ): TArgs {
   const routeArgs: InternalRouteArgs = args;
-  routeArgs[agentInfoRouteResponseKey] = respond;
+  routeArgs[agentInfoRouteResponseKey] = context.agentInfoRouteResponse;
+  routeArgs[routeAgentKey] = context.agent;
+  routeArgs[agentInvocationServiceKey] = context.agentInvocationService;
   return args;
 }
 
@@ -33,7 +44,14 @@ export function attachRouteAgent<TArgs extends RouteHandlerArgs>(args: TArgs, ag
   return args;
 }
 
-export function readRouteAgent(args: RouteHandlerArgs): Agent | undefined {
+export function readRouteAgent(args: RouteHandlerArgs<any>): Agent | undefined {
   const routeArgs: InternalRouteArgs = args;
   return routeArgs[routeAgentKey];
+}
+
+export function readAgentInvocationService(
+  args: RouteHandlerArgs<any>,
+): AgentInvocationService | undefined {
+  const routeArgs: InternalRouteArgs = args;
+  return routeArgs[agentInvocationServiceKey];
 }

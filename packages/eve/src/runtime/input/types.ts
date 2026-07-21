@@ -69,11 +69,18 @@ export type InputResponse = z.infer<typeof inputResponseSchema>;
  */
 export const inputResponseSchema = z
   .object({
-    optionId: z.string().optional(),
-    requestId: z.string(),
-    text: z.string().optional(),
+    optionId: z
+      .string()
+      .describe("The selected option id. Use this for a listed option.")
+      .optional(),
+    requestId: z.string().describe("The exact requestId from the pending input request."),
+    text: z
+      .string()
+      .describe("A freeform answer. Use only when freeform input is allowed.")
+      .optional(),
   })
-  .strict();
+  .strict()
+  .describe("One answer to a pending input request.");
 
 /**
  * Returns true when a value matches the input request contract.

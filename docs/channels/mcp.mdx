@@ -1,0 +1,134 @@
+---
+title: "MCP"
+description: "Publish an eve agent as an authenticated MCP server with durable invocation tools."
+---
+
+The MCP channel publishes an eve agent as a stateless [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) MCP server. MCP clients receive tools for starting, inspecting, and updating durable agent invocations. Each invocation continues independently of the HTTP request that started it.
+
+Use an MCP **channel** when another agent or MCP client should delegate work to your eve agent. To let your eve agent call an external MCP server instead, configure an [MCP connection](../connections/mcp).
+
+```ts title="agent/channels/delegate.ts"
+import { localDev, oidc } from "eve/channels/auth";
+import { mcpChannel } from "eve/channels/mcp";
+
+const issuer = "https://auth.example.com";
+
+export default mcpChannel({
+  auth: [
+    oidc({
+      audiences: ["https://agents.example.com/mcp"],
+      issuer,
+    }),
+    localDev(),
+  ],
+  description: "Investigates incidents and returns a structured summary.",
+  oauth: {
+    authorizationServers: [issuer],
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      summary: { type: "string" },
+    },
+    required: ["summary"],
+    additionalProperties: false,
+  },
+});
+```
+
+The channel name still comes from its file path. The example above is the `delegate` channel.
+
+## Routes
+
+By default, the channel mounts:
+
+- `GET`, `POST`, and `DELETE /mcp` for Streamable HTTP
+- `GET /.well-known/oauth-protected-resource/mcp` when `oauth` is configured
+
+The transport is stateless: requests do not receive or require an `Mcp-Session-Id`. Durable invocation state lives in eve rather than in an MCP transport session.
+
+Use `route` to change the MCP endpoint:
+
+```ts
+mcpChannel({
+  auth: oidc({
+    audiences: ["agent"],
+    issuer: "https://auth.example.com",
+  }),
+  description: "Delegates research tasks.",
+  oauth: {
+    authorizationServers: ["https://auth.example.com"],
+    resource: "https://agents.example.com/delegate/mcp",
+  },
+  route: "/delegate/mcp",
+});
+```
+
+eve derives the protected-resource metadata route from the MCP route. For `/delegate/mcp`, it is `/.well-known/oauth-protected-resource/delegate/mcp`. When `oauth.resource` is set, its pathname must match `route`; if omitted, eve derives the resource URL from the incoming request.
+
+## Tools
+
+The server exposes three tools:
+
+| Tool            | Behavior                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------- |
+| `agent_start`   | Starts one invocation and immediately returns its initial snapshot. It is intentionally non-idempotent. |
+| `agent_get`     | Reads the current invocation snapshot without running a model.                                          |
+| `agent_respond` | Answers pending human-input or approval requests and resumes the invocation.                            |
+
+A typical client flow is:
+
+1. Call `agent_start` with the complete task.
+2. Retain the returned `invocationId`.
+3. Call `agent_get` until the status is terminal or becomes `input_required`.
+4. For `input_required`, answer the listed requests with `agent_respond`, then resume polling.
+5. Stop at `completed`, `failed`, or `cancelled`.
+
+`outputSchema` fixes the output schema for every invocation result created through this channel. It accepts Standard Schema values such as Zod schemas or plain JSON Schema. MCP clients cannot replace it per call.
+
+## Invocation handles
+
+`invocationId` is a durable capability handle. Any caller that passes the channel's authentication policy and obtains the handle can read or update that invocation, even if it authenticates as a different principal from the caller that started it. Keep handles confidential and choose an authorization boundary appropriate for that capability model.
+
+Invocations and their handles survive stateless requests and process restarts according to eve's configured workflow retention. An expired or unknown handle is returned as an `invocation_not_found` tool error.
+
+## Authentication
+
+`auth` is required and accepts any existing [`AuthFn`](../guides/auth-and-route-protection) or ordered list of auth functions. Each function remains fully responsible for validating and authorizing its credential type. This lets one channel accept production OIDC tokens, service credentials, and `localDev()` without imposing one provider's authorization model on the others.
+
+Configure `oauth` when credential-less MCP clients need OAuth protected-resource discovery. It advertises the authorization server and optional canonical resource URL, and adds the RFC 9728 `resource_metadata` parameter to unauthorized challenges. It does not alter how `auth` validates requests.
+
+```ts
+const issuer = "https://auth.example.com";
+
+mcpChannel({
+  auth: [
+    oidc({
+      audiences: ["agent-api"],
+      issuer,
+      subjects: ["trusted-client-*"],
+    }),
+    localDev(),
+  ],
+  description: "Runs delegated tasks.",
+  oauth: {
+    authorizationServers: [issuer],
+  },
+});
+```
+
+A bare production `AuthFn` remains secure when that function is secure, but clients must already know how to provide credentials. Without `oauth`, eve returns the normal bearer challenge and does not expose protected-resource metadata.
+
+For local-only development, omit `oauth` and use a plain strategy:
+
+```ts title="agent/channels/delegate.ts"
+import { localDev } from "eve/channels/auth";
+import { mcpChannel } from "eve/channels/mcp";
+
+export default mcpChannel({
+  auth: localDev(),
+  description: "Runs local delegation tasks.",
+});
+```
+
+Do not use `localDev()` as the only production policy. See [Auth & route protection](../guides/auth-and-route-protection) for custom authentication strategies.

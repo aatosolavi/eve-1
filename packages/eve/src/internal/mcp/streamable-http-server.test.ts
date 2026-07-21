@@ -135,6 +135,36 @@ describe("stateless MCP Streamable HTTP server", () => {
     });
   });
 
+  it("does not expose unexpected tool error messages", async () => {
+    const handle = createMcpStreamableHttpServer({
+      authenticate: async () => auth,
+      name: "test",
+      tools: [
+        {
+          async call() {
+            throw new Error("sensitive implementation detail");
+          },
+          definition: { inputSchema: { type: "object" }, name: "fail" },
+        },
+      ],
+      version: "0",
+    });
+
+    const response = await handle(
+      request({
+        id: 5,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: {}, name: "fail" },
+      }),
+    );
+    expect(await response.json()).toMatchObject({
+      result: {
+        structuredContent: { code: "internal_error", message: "Tool call failed." },
+      },
+    });
+  });
+
   it("returns JSON-RPC errors and acknowledges notifications", async () => {
     const { handle } = server();
     const unknown = await handle(request({ id: 3, jsonrpc: "2.0", method: "unknown" }));
@@ -169,6 +199,24 @@ describe("stateless MCP Streamable HTTP server", () => {
     const unauthorized = await handle(request("not relevant"));
     expect(unauthorized.status).toBe(401);
     expect(unauthorized.headers.get("www-authenticate")).toContain("resource_metadata=");
+
+    const streamed = await handle(new Request("https://agent.example/mcp"));
+    expect(streamed.status).toBe(401);
+
+    const deleted = await handle(new Request("https://agent.example/mcp", { method: "DELETE" }));
+    expect(deleted.status).toBe(401);
+  });
+
+  it("opens the SDK's stateless SSE stream for authenticated GET", async () => {
+    const response = await server().handle(
+      new Request("https://agent.example/mcp", {
+        headers: { accept: "text/event-stream" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    await response.body?.cancel();
   });
 
   it("enforces Streamable HTTP media types", async () => {

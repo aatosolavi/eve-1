@@ -30,27 +30,27 @@ export default defineTool({
 
 ## The define\* helpers
 
-| Helper                                                | Import from                                   | Authored at                          | Guide                                                  |
-| ----------------------------------------------------- | --------------------------------------------- | ------------------------------------ | ------------------------------------------------------ |
-| `defineAgent`                                         | `eve`                                         | `agent/agent.ts`                     | [agent.ts](../agent-config)                            |
-| `defineTool`                                          | `eve/tools`                                   | `agent/tools/<name>.ts`              | [Tools](../tools)                                      |
-| `defineDynamic`                                       | `eve/tools`, `eve/skills`, `eve/instructions` | `agent/{tools,skills,instructions}/` | [Dynamic capabilities](../guides/dynamic-capabilities) |
-| `defineMcpClientConnection`                           | `eve/connections`                             | `agent/connections/<name>.ts`        | [MCP connections](../connections/mcp)                  |
-| `defineOpenAPIConnection`                             | `eve/connections`                             | `agent/connections/<name>.ts`        | [OpenAPI connections](../connections/openapi)          |
-| `defineChannel`                                       | `eve/channels`                                | `agent/channels/<name>.ts`           | [Custom channels](../channels/custom)                  |
-| `eveChannel`, `slackChannel`, and the other platforms | `eve/channels/<platform>`                     | `agent/channels/<platform>.ts`       | [Channels](../channels/overview)                       |
-| `defineSkill`                                         | `eve/skills`                                  | `agent/skills/<name>.ts`             | [Skills](../skills)                                    |
-| `defineInstructions`                                  | `eve/instructions`                            | `agent/instructions.ts`              | [Instructions](../instructions)                        |
-| `defineHook`                                          | `eve/hooks`                                   | `agent/hooks/<slug>.ts`              | [Hooks](../guides/hooks)                               |
-| `defineSchedule`                                      | `eve/schedules`                               | `agent/schedules/<name>.ts`          | [Schedules](../schedules)                              |
-| `defineState`                                         | `eve/context`                                 | tools, hooks, lifecycle              | [Session context](../guides/session-context)           |
-| `defineSandbox`                                       | `eve/sandbox`                                 | `agent/sandbox.ts`                   | [Sandbox](../sandbox)                                  |
-| `defineInstrumentation`                               | `eve/instrumentation`                         | `agent/instrumentation.ts`           | [instrumentation.ts](../guides/instrumentation)        |
-| `defineRemoteAgent`                                   | `eve`                                         | `agent/subagents/<id>/agent.ts`      | [Remote agents](../guides/remote-agents)               |
-| `defineEval`                                          | `eve/evals`                                   | `evals/*.eval.ts`                    | [Evals](../evals/overview)                             |
-| `defineEvalConfig`                                    | `eve/evals`                                   | `evals/evals.config.ts`              | [Evals](../evals/overview)                             |
-| `mockModel`                                           | `eve/evals`                                   | Deterministic fixture agent models   | [Evals](../evals/overview)                             |
-| `useEveAgent`                                         | `eve/react`, `eve/vue`, `eve/svelte`          | frontend                             | [Frontend](../guides/frontend/overview)                |
+| Helper                                              | Import from                                   | Authored at                          | Guide                                                  |
+| --------------------------------------------------- | --------------------------------------------- | ------------------------------------ | ------------------------------------------------------ |
+| `defineAgent`                                       | `eve`                                         | `agent/agent.ts`                     | [agent.ts](../agent-config)                            |
+| `defineTool`                                        | `eve/tools`                                   | `agent/tools/<name>.ts`              | [Tools](../tools)                                      |
+| `defineDynamic`                                     | `eve/tools`, `eve/skills`, `eve/instructions` | `agent/{tools,skills,instructions}/` | [Dynamic capabilities](../guides/dynamic-capabilities) |
+| `defineMcpClientConnection`                         | `eve/connections`                             | `agent/connections/<name>.ts`        | [MCP connections](../connections/mcp)                  |
+| `defineOpenAPIConnection`                           | `eve/connections`                             | `agent/connections/<name>.ts`        | [OpenAPI connections](../connections/openapi)          |
+| `defineChannel`                                     | `eve/channels`                                | `agent/channels/<name>.ts`           | [Custom channels](../channels/custom)                  |
+| `eveChannel`, `mcpChannel`, and the other platforms | `eve/channels/<platform>`                     | `agent/channels/<platform>.ts`       | [Channels](../channels/overview)                       |
+| `defineSkill`                                       | `eve/skills`                                  | `agent/skills/<name>.ts`             | [Skills](../skills)                                    |
+| `defineInstructions`                                | `eve/instructions`                            | `agent/instructions.ts`              | [Instructions](../instructions)                        |
+| `defineHook`                                        | `eve/hooks`                                   | `agent/hooks/<slug>.ts`              | [Hooks](../guides/hooks)                               |
+| `defineSchedule`                                    | `eve/schedules`                               | `agent/schedules/<name>.ts`          | [Schedules](../schedules)                              |
+| `defineState`                                       | `eve/context`                                 | tools, hooks, lifecycle              | [Session context](../guides/session-context)           |
+| `defineSandbox`                                     | `eve/sandbox`                                 | `agent/sandbox.ts`                   | [Sandbox](../sandbox)                                  |
+| `defineInstrumentation`                             | `eve/instrumentation`                         | `agent/instrumentation.ts`           | [instrumentation.ts](../guides/instrumentation)        |
+| `defineRemoteAgent`                                 | `eve`                                         | `agent/subagents/<id>/agent.ts`      | [Remote agents](../guides/remote-agents)               |
+| `defineEval`                                        | `eve/evals`                                   | `evals/*.eval.ts`                    | [Evals](../evals/overview)                             |
+| `defineEvalConfig`                                  | `eve/evals`                                   | `evals/evals.config.ts`              | [Evals](../evals/overview)                             |
+| `mockModel`                                         | `eve/evals`                                   | Deterministic fixture agent models   | [Evals](../evals/overview)                             |
+| `useEveAgent`                                       | `eve/react`, `eve/vue`, `eve/svelte`          | frontend                             | [Frontend](../guides/frontend/overview)                |
 
 A few non-`define*` helpers round out the set: `disableTool` and `experimental_workflow` from `eve/tools` (see [Default harness](../concepts/default-harness)), the route verbs `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`WS` from `eve/channels`, the approval policies `always`/`once`/`never` from `eve/tools/approval`, and the channel auth helpers `localDev`/`vercelOidc`/`placeholderAuth` from `eve/channels/auth`. To wrap a built-in tool, import its default value from `eve/tools/defaults` (`bash`, `readFile`, `writeFile`, `glob`, `grep`, `webFetch`, `webSearch`, `todo`, `loadSkill`). `AgentReasoningDefinition` is exported from `eve` for the top-level `defineAgent({ reasoning })` setting. `AgentLimitsDefinition` is exported for `defineAgent({ limits })`. `AgentWorkflowDefinition` and `AgentWorkflowWorldDefinition` are exported from `eve` for the `defineAgent({ experimental: { workflow } })` config shape. `ExperimentalWorkflowToolInput` is exported from `eve/tools` for the `experimental_workflow(...)` config shape.
 
@@ -77,6 +77,7 @@ A few non-`define*` helpers round out the set: `disableTool` and `experimental_w
 | `eve/connections`                                           | `defineMcpClientConnection`, `defineOpenAPIConnection`                |
 | `eve/channels`                                              | `defineChannel`, route verbs                                          |
 | `eve/channels/eve`                                          | `eveChannel`                                                          |
+| `eve/channels/mcp`                                          | `mcpChannel`                                                          |
 | `eve/channels/auth`                                         | `localDev`, `vercelOidc`, `placeholderAuth`                           |
 | `eve/channels/{slack,discord,teams,telegram,twilio,github}` | platform channel factories                                            |
 | `eve/hooks`                                                 | `defineHook`                                                          |

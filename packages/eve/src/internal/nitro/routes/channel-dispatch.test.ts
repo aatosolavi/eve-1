@@ -12,6 +12,7 @@ import {
   dispatchChannelRequest,
   dispatchChannelWebSocketRequest,
 } from "#internal/nitro/routes/channel-dispatch.js";
+import { readAgentInvocationService } from "#internal/nitro/routes/channel-route-context.js";
 import { resolveNitroChannelRuntimeBundle } from "#internal/nitro/routes/runtime-stack.js";
 
 vi.mock("#internal/nitro/routes/runtime-stack.js", () => ({
@@ -274,6 +275,70 @@ describe("dispatchChannelRequest", () => {
     expect(response.status).toBe(200);
     expect(vi.mocked(runtimeForTest.deliver).mock.calls[0]?.[0].requestId).toBe(
       "iad1::abc123-1710000000000-deadbeef",
+    );
+  });
+
+  it("binds invocation execution to the matched channel", async () => {
+    const runtimeForTest: Runtime = {
+      cancelTurn: vi.fn(),
+      deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
+      resolveSession: vi.fn(),
+      getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
+      run: vi.fn().mockResolvedValue({
+        continuationToken: "delegate:invocation:token",
+        events: new ReadableStream(),
+        sessionId: "sess_invocation",
+      }),
+    };
+    const adapter = { kind: "mcp", state: { tenant: "test" } };
+
+    mockedResolveNitroChannelRuntimeBundle.mockResolvedValue({
+      channels: [
+        {
+          handler: async (_req, args) => {
+            const service = readAgentInvocationService(args);
+            if (service === undefined) throw new Error("missing invocation service");
+            const client = service.forCaller({
+              attributes: {},
+              authenticator: "test",
+              principalId: "alice",
+              principalType: "user",
+            });
+            await client.create({ message: "work" });
+            return new Response("ok");
+          },
+          fetch: async () => new Response("ok"),
+          adapter,
+          logicalPath: "agent/channels/delegate.ts",
+          method: "POST",
+          name: "delegate",
+          sourceId: "channel-delegate",
+          sourceKind: "module",
+          urlPath: "/mcp",
+        } satisfies ResolvedChannelDefinition,
+      ],
+      runtime: runtimeForTest,
+    });
+
+    const response = await dispatchChannelRequest(
+      createEvent({
+        headers: { "x-vercel-id": "iad1::invocation" },
+        waitUntil: vi.fn(),
+      }),
+      "POST /mcp",
+      {} as never,
+    );
+
+    expect(response.status).toBe(200);
+    expect(runtimeForTest.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter,
+        capabilities: { requestInput: true },
+        channelName: "delegate",
+        continuationToken: expect.stringMatching(/^delegate:invocation:/u),
+        mode: "task",
+        requestId: "iad1::invocation",
+      }),
     );
   });
 

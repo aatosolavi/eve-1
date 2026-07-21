@@ -8,15 +8,13 @@ import type { DeliverInput, RunInput, Runtime } from "#channel/types.js";
 import type { RouteHandlerArgs, WebSocketRouteHooks } from "#channel/routes.js";
 import { createCancelFn } from "#channel/cancel.js";
 import { createSendFn } from "#channel/send.js";
-import { createResolveActiveSessionFn } from "#channel/resolve-active-session.js";
 import { createGetSessionFn } from "#channel/session.js";
+import { createResolveActiveSessionFn } from "#channel/resolve-active-session.js";
 import { createLogger, logError } from "#internal/logging.js";
 import { readTrustedDevelopmentClientAddress } from "#internal/nitro/dev-client-address.js";
+import { createWorkflowAgentInvocationService } from "#internal/invocation/workflow-backend.js";
 import { DEVELOPMENT_WORKFLOW_SECRET_ENV } from "#internal/workflow/development-world-protocol.js";
-import {
-  attachAgentInfoRouteResponse,
-  attachRouteAgent,
-} from "#internal/nitro/routes/channel-route-context.js";
+import { attachInternalRouteContext } from "#internal/nitro/routes/channel-route-context.js";
 import type { NitroArtifactsConfig } from "#internal/nitro/routes/runtime-artifacts.js";
 import { resolveNitroChannelRuntimeBundle } from "#internal/nitro/routes/runtime-stack.js";
 import { readVercelProjectLink } from "#internal/vercel/project-link.js";
@@ -189,32 +187,38 @@ function buildRouteArgs(
   const adapter = channel?.adapter ?? { kind: "channel" };
   const agent = createRouteAgent(bundle.runtime, requestId);
   const send = createSendFn(bundle.runtime, adapter, channelName, { requestId });
-  const resolveActiveSession = createResolveActiveSessionFn(bundle.runtime, channelName);
   const cancel = createCancelFn(bundle.runtime, channelName);
   const getSession = createGetSessionFn(bundle.runtime);
+  const resolveActiveSession = createResolveActiveSessionFn(bundle.runtime, channelName);
   const receive = createCrossChannelReceiveFn(
     bundle.runtime,
     toCrossChannelTargets(bundle.channels),
   );
 
-  const args = attachRouteAgent(
-    attachAgentInfoRouteResponse(
-      {
-        send,
-        resolveActiveSession,
-        cancel,
-        getSession,
-        receive,
-        params,
-        waitUntil,
-        requestIp,
-      },
-      async () => {
+  const args = attachInternalRouteContext(
+    {
+      send,
+      cancel,
+      getSession,
+      resolveActiveSession,
+      receive,
+      params,
+      waitUntil,
+      requestIp,
+    },
+    {
+      agent,
+      agentInfoRouteResponse: async () => {
         const { handleAgentInfoRequest } = await import("#internal/nitro/routes/info.js");
         return await handleAgentInfoRequest(config);
       },
-    ),
-    agent,
+      agentInvocationService: createWorkflowAgentInvocationService({
+        adapter,
+        channelName,
+        requestId,
+        runtime: bundle.runtime,
+      }),
+    },
   );
 
   return {
