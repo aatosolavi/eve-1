@@ -13,6 +13,7 @@ describe("framework-tools/index", () => {
     expect(names.has("bash")).toBe(true);
     expect(names.has("read_file")).toBe(true);
     expect(names.has("write_file")).toBe(true);
+    expect(names.has("expand_tool_result")).toBe(true);
     expect(names.has("glob")).toBe(true);
     expect(names.has("grep")).toBe(true);
     expect(names.has("web_fetch")).toBe(true);

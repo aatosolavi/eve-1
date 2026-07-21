@@ -22,8 +22,9 @@ const DEGENERATE_THRESHOLD_GUARD_TOKENS = 2_000;
 // on the estimateTokens ruler, not a hard cap.
 const MIN_KEPT_CHARS = 400;
 
-const TRUNCATION_ANNOTATION =
-  "[Truncated by eve: this step's tool results exceeded the per-step context budget. Use narrower queries, smaller ranges, or offsets.]";
+function truncationAnnotation(toolCallId: string): string {
+  return `[Truncated by eve: this step's tool results exceeded the per-step context budget. Retrieve the full output with expand_tool_result("${toolCallId}"), or use narrower queries.]`;
+}
 
 /** Per-step tool-output budget (tokens) for a given compaction threshold. */
 export function resolveStepToolBudget(threshold: number): number {
@@ -73,5 +74,9 @@ export function applyStepToolBudget(
     total -= entry.estimate - keptChars / 4;
   }
 
-  return truncateToolResults(messages, TRUNCATION_ANNOTATION, (part) => keptCharsByPart.get(part));
+  return truncateToolResults(
+    messages,
+    (part) => truncationAnnotation(part.toolCallId),
+    (part) => keptCharsByPart.get(part),
+  );
 }

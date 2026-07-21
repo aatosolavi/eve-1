@@ -21,7 +21,13 @@ describe("truncateToolResults", () => {
   it("returns the input reference-equal when the decider declines every part", () => {
     const messages: ModelMessage[] = [{ content: "hi", role: "user" }, toolMessage("c1", "small")];
 
-    expect(truncateToolResults(messages, "[note]", () => undefined)).toBe(messages);
+    expect(
+      truncateToolResults(
+        messages,
+        () => "[note]",
+        () => undefined,
+      ),
+    ).toBe(messages);
   });
 
   it("rewrites decided parts to annotation-led truncated text and keeps others by identity", () => {
@@ -29,8 +35,10 @@ describe("truncateToolResults", () => {
     const oversized = toolMessage("c2", "x".repeat(5_000));
     const messages: ModelMessage[] = [untouched, oversized];
 
-    const result = truncateToolResults(messages, "[cut]", (_part, serialized) =>
-      serialized.length > 1_000 ? 100 : undefined,
+    const result = truncateToolResults(
+      messages,
+      () => "[cut]",
+      (_part, serialized) => (serialized.length > 1_000 ? 100 : undefined),
     );
 
     expect(result).not.toBe(messages);
@@ -50,6 +58,12 @@ describe("truncateToolResults", () => {
   it("leaves a part untouched when the decided budget already covers it", () => {
     const messages: ModelMessage[] = [toolMessage("c1", "tiny")];
 
-    expect(truncateToolResults(messages, "[cut]", () => 10_000)).toBe(messages);
+    expect(
+      truncateToolResults(
+        messages,
+        () => "[cut]",
+        () => 10_000,
+      ),
+    ).toBe(messages);
   });
 });

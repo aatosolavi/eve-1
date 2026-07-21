@@ -21,3 +21,12 @@ export const OVERSIZED_TRUNCATION_MARKER = "OVERSIZED_OUTPUT_TRUNCATION_OBSERVED
 
 /** Prefix of the harness annotation on truncated per-step tool results. */
 export const TRUNCATION_ANNOTATION_PREFIX = "[Truncated by eve:";
+
+/** Trailing sentinel of the oversized payload, beyond every truncation cut. */
+export const OVERSIZED_PAYLOAD_TAIL_SENTINEL = "OVERSIZED_PAYLOAD_TAIL_SENTINEL";
+
+/**
+ * Reported by the mock task model only after expand_tool_result returned the
+ * truncated-away tail of a previous oversized result.
+ */
+export const EXPANSION_MARKER = "TRUNCATED_OUTPUT_EXPANDED";

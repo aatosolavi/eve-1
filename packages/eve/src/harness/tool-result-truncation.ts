@@ -15,7 +15,8 @@ export function serializeToolResultOutput(part: ToolResultPart): string {
  *
  * `decideKeptChars` inspects each tool-result part (with its canonical
  * serialization) and returns how many characters to keep, or `undefined` to
- * leave the part untouched. Messages and untouched parts keep their identity,
+ * leave the part untouched. `annotate` renders the leading annotation for a
+ * truncated part, so it can name the part's tool call id. Messages and untouched parts keep their identity,
  * and the input array is returned reference-equal when nothing was truncated.
  * Results are never dropped, so every tool_use keeps its paired tool_result.
  *
@@ -24,7 +25,7 @@ export function serializeToolResultOutput(part: ToolResultPart): string {
  */
 export function truncateToolResults(
   messages: readonly ModelMessage[],
-  annotation: string,
+  annotate: (part: ToolResultPart) => string,
   decideKeptChars: (part: ToolResultPart, serialized: string) => number | undefined,
 ): readonly ModelMessage[] {
   let anyTruncated = false;
@@ -51,7 +52,7 @@ export function truncateToolResults(
         ...part,
         output: {
           type: "text" as const,
-          value: `${annotation}\n\n${serialized.slice(0, keptChars)}`,
+          value: `${annotate(part)}\n\n${serialized.slice(0, keptChars)}`,
         },
       };
     });

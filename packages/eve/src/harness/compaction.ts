@@ -247,8 +247,9 @@ export async function compactMessages(
   }
 }
 
-const CAPPED_RESULT_ANNOTATION =
-  "[Truncated by eve: tool result reduced during context compaction. Re-run the tool if you need the full output.]";
+function cappedResultAnnotation(toolCallId: string): string {
+  return `[Truncated by eve: tool result reduced during context compaction. Retrieve the full output with expand_tool_result("${toolCallId}").]`;
+}
 
 /**
  * Caps oversized tool-result outputs in place, keeping message structure and
@@ -258,8 +259,11 @@ const CAPPED_RESULT_ANNOTATION =
  * dropping results outright.
  */
 function capToolResults(messages: readonly ModelMessage[]): readonly ModelMessage[] {
-  return truncateToolResults(messages, CAPPED_RESULT_ANNOTATION, (_part, serialized) =>
-    serialized.length > TRANSCRIPT_PAYLOAD_LIMIT ? TRANSCRIPT_PAYLOAD_LIMIT : undefined,
+  return truncateToolResults(
+    messages,
+    (part) => cappedResultAnnotation(part.toolCallId),
+    (_part, serialized) =>
+      serialized.length > TRANSCRIPT_PAYLOAD_LIMIT ? TRANSCRIPT_PAYLOAD_LIMIT : undefined,
   );
 }
 

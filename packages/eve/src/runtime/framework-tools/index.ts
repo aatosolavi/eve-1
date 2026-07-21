@@ -1,6 +1,7 @@
 import { AGENT_TOOL_DEFINITION } from "#runtime/framework-tools/agent.js";
 import { ASK_QUESTION_TOOL_DEFINITION } from "#runtime/framework-tools/ask-question.js";
 import { BASH_TOOL_DEFINITION } from "#runtime/framework-tools/bash.js";
+import { EXPAND_TOOL_RESULT_TOOL_DEFINITION } from "#runtime/framework-tools/expand-tool-result.js";
 import { GLOB_TOOL_DEFINITION } from "#runtime/framework-tools/glob.js";
 import { GREP_TOOL_DEFINITION } from "#runtime/framework-tools/grep.js";
 import { READ_FILE_TOOL_DEFINITION } from "#runtime/framework-tools/read-file.js";
@@ -28,6 +29,7 @@ const REGISTERED_FRAMEWORK_TOOLS: readonly ResolvedToolDefinition[] = [
   GREP_TOOL_DEFINITION,
   READ_FILE_TOOL_DEFINITION,
   WRITE_FILE_TOOL_DEFINITION,
+  EXPAND_TOOL_RESULT_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   WEB_FETCH_TOOL_DEFINITION,
   WEB_SEARCH_TOOL_DEFINITION,

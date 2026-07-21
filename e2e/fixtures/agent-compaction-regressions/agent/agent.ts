@@ -3,6 +3,8 @@ import { mockModel, type MockModelRequest, type MockModelResponse } from "eve/ev
 
 import {
   COMPACTION_CHECKPOINT_TEXT,
+  EXPANSION_MARKER,
+  OVERSIZED_PAYLOAD_TAIL_SENTINEL,
   OVERSIZED_TRUNCATION_MARKER,
   SECOND_CHECKPOINT_MARKER,
   TASK_PRESERVED_MARKER,
@@ -17,7 +19,8 @@ type RegressionCase =
   | "redundant-tool-calls"
   | "stale-todo-work"
   | "task-survival"
-  | "oversized-step-truncation";
+  | "oversized-step-truncation"
+  | "expand-truncated-result";
 
 /** Per-case call bookkeeping shared by every responder. */
 interface CaseState {
@@ -73,6 +76,56 @@ const responders: Record<RegressionCase, CaseResponder> = {
           id: `inspect-repository-${state.toolCalls}`,
           input: { scope: "repository" },
           name: "inspect-repository",
+        },
+      ],
+    };
+  },
+
+  "expand-truncated-result": (request, state) => {
+    // Once the expanded page (containing the tail sentinel that truncation
+    // cut) is visible, the round trip through the session stream worked.
+    if (
+      request.messages.some(
+        (message) =>
+          message.role !== "user" && message.text.includes(OVERSIZED_PAYLOAD_TAIL_SENTINEL),
+      )
+    ) {
+      return `Expanded truncated output: ${EXPANSION_MARKER}`;
+    }
+
+    // A truncation annotation names the call id to expand.
+    const annotated = request.messages
+      .map((message) => /expand_tool_result\("([^"]+)"\)/.exec(message.text)?.[1])
+      .find((callId) => callId !== undefined);
+    if (annotated !== undefined) {
+      if (state.advanceCalls >= MAX_TOOL_CALLS) {
+        return `Hard stop after ${MAX_TOOL_CALLS} expansions: EXPANSION_TAIL_MISSING`;
+      }
+      state.advanceCalls += 1;
+      return {
+        toolCalls: [
+          {
+            id: `expand-tool-result-${state.advanceCalls}`,
+            // The payload is ~30k chars; page an 8k window over its tail so
+            // the sentinel survives even if this result is truncated again.
+            input: { limitChars: 8_000, offsetChars: 26_000, toolCallId: annotated },
+            name: "expand_tool_result",
+          },
+        ],
+      };
+    }
+
+    if (state.toolCalls >= MAX_TOOL_CALLS) {
+      return `Hard stop after ${MAX_TOOL_CALLS} calls: TRUNCATION_ANNOTATION_MISSING`;
+    }
+
+    state.toolCalls += 1;
+    return {
+      toolCalls: [
+        {
+          id: `emit-oversized-output-${state.toolCalls}`,
+          input: {},
+          name: "emit-oversized-output",
         },
       ],
     };
@@ -218,6 +271,7 @@ function regressionCaseFromText(text: string): RegressionCase | undefined {
   if (text.includes("[case: stale-todo-work]")) return "stale-todo-work";
   if (text.includes("[case: task-survival]")) return "task-survival";
   if (text.includes("[case: oversized-step-truncation]")) return "oversized-step-truncation";
+  if (text.includes("[case: expand-truncated-result]")) return "expand-truncated-result";
   return undefined;
 }
 

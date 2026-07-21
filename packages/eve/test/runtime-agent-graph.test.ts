@@ -313,6 +313,10 @@ describe("resolveRuntimeAgentGraph", () => {
       },
       {
         kind: "authored-tool",
+        name: "expand_tool_result",
+      },
+      {
+        kind: "authored-tool",
         name: "todo",
       },
       {
@@ -397,6 +401,10 @@ describe("resolveRuntimeAgentGraph", () => {
       {
         kind: "authored-tool",
         name: "write_file",
+      },
+      {
+        kind: "authored-tool",
+        name: "expand_tool_result",
       },
       {
         kind: "authored-tool",
@@ -699,6 +707,7 @@ describe("resolveRuntimeAgentGraph", () => {
       "grep",
       "read_file",
       "write_file",
+      "expand_tool_result",
       "todo",
       "web_fetch",
       "web_search",
@@ -739,6 +748,7 @@ describe("resolveRuntimeAgentGraph", () => {
       "grep",
       "read_file",
       "write_file",
+      "expand_tool_result",
       "todo",
       "web_search",
       "load_skill",
@@ -824,6 +834,7 @@ describe("resolveRuntimeAgentGraph", () => {
       "grep",
       "read_file",
       "write_file",
+      "expand_tool_result",
       "todo",
       "web_search",
       "load_skill",

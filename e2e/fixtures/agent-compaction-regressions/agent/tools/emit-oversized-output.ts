@@ -6,7 +6,9 @@ const invocationCount = defineState("compaction-regression.emit-oversized-output
 
 // Large relative to the fixture's per-step tool budget (the degenerate-guard
 // 2,000 tokens ≈ 8,000 chars), so the harness must truncate it at attach time.
-const OVERSIZED_PAYLOAD = "oversized step output padding ".repeat(1_000);
+// The tail sentinel sits past every truncation cut, so it is only ever
+// observable by retrieving the full output from the session stream.
+const OVERSIZED_PAYLOAD = `${"oversized step output padding ".repeat(1_000)}OVERSIZED_PAYLOAD_TAIL_SENTINEL`;
 
 export default defineTool({
   description:

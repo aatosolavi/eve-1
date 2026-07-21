@@ -123,6 +123,13 @@ const BUILTIN_TOOL_COPY: Readonly<Record<string, BuiltinToolCopy>> = {
     singularNoun: "file",
     pluralNoun: "files",
   },
+  expand_tool_result: {
+    verb: "Expand",
+    pastVerb: "Expanded",
+    argKey: "toolCallId",
+    singularNoun: "tool result",
+    pluralNoun: "tool results",
+  },
   web_fetch: {
     verb: "Fetch",
     pastVerb: "Fetched",
