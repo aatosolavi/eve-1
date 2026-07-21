@@ -79,6 +79,19 @@ experiments without executing a coding agent with:
 pnpm eval agent-000-create-greeting-tool --dry
 ```
 
+Compare the working tree's documentation against a Git ref with:
+
+```sh
+pnpm eval agent-000-create-greeting-tool --compare origin/main
+```
+
+Comparison runs use the current built eve runtime for both snapshots, changing
+only the package docs and installable eve skill. This isolates documentation
+changes from framework-code changes. The six resulting experiments are
+namespaced as `reference-*` and `current-*`; the summary prints both values and
+their signed deltas. Each `result.json` records the snapshot ref, SHA, dirty
+state, and treatment under `analysis.documentationEval`.
+
 Set `EVE_SKIP_PACK=1` to reuse `evals/.tarballs/eve.tgz` while iterating on a
 fixture. Do not use it after changing eve code or docs.
 
@@ -107,7 +120,7 @@ evals/
 ├── package.json        # private pnpm workspace package
 ├── run.js              # local package packer and experiment generator
 ├── evals/agent-*/     # committed starter projects, prompts, and graders
-├── lib/setup.ts       # installs local eve and writes treatment guidance
+├── lib/               # sandbox setup, comparison packaging, and reporting
 ├── experiments/       # generated per run, ignored
 ├── .tarballs/         # generated local package, ignored
 └── results/           # generated results and transcripts, ignored

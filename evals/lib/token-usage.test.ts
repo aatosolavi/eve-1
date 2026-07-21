@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { parseTokenUsage } from "./token-usage.js";
+import { createResultHook, parseTokenUsage } from "./token-usage.js";
 
 describe("parseTokenUsage", () => {
   test("aggregates usage across coding-agent turns", () => {
@@ -41,5 +41,25 @@ describe("parseTokenUsage", () => {
   test("returns undefined when the transcript has no usage", () => {
     expect(parseTokenUsage(undefined)).toBeUndefined();
     expect(parseTokenUsage(JSON.stringify({ type: "tool_result" }))).toBeUndefined();
+  });
+
+  test("records documentation snapshot metadata without token usage", async () => {
+    const metadata = {
+      treatment: "agents-md",
+      snapshot: "reference" as const,
+      gitRef: "origin/main",
+      gitSha: "abc123",
+      dirty: false,
+    };
+    const output = await createResultHook(metadata)({
+      runData: {
+        transcript: undefined,
+        result: { analysis: {}, status: "passed" },
+      },
+    } as never);
+
+    expect(output).toMatchObject({
+      result: { analysis: { documentationEval: metadata } },
+    });
   });
 });

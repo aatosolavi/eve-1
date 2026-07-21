@@ -10,6 +10,15 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+/** Documentation snapshot and treatment recorded with an eval result. */
+export interface EvalResultMetadata {
+  treatment: string;
+  snapshot: "current" | "reference";
+  gitRef: string;
+  gitSha: string;
+  dirty: boolean;
+}
+
 function tokenCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -55,19 +64,20 @@ export function parseTokenUsage(transcript: string | undefined): TokenUsage | un
   };
 }
 
-/** Persists coding-model token usage with each agent-eval run result. */
-export const recordTokenUsage: RunCompleteHook = ({ runData }) => {
-  const tokenUsage = parseTokenUsage(runData.transcript);
-  if (tokenUsage === undefined) return;
+/** Persists comparison metadata and coding-model usage with each result. */
+export function createResultHook(metadata?: EvalResultMetadata): RunCompleteHook {
+  return ({ runData }) => {
+    const tokenUsage = parseTokenUsage(runData.transcript);
+    const analysis: Record<string, unknown> = { ...runData.result.analysis };
+    if (metadata !== undefined) analysis.documentationEval = metadata;
+    if (tokenUsage !== undefined) analysis.tokenUsage = tokenUsage;
 
-  return {
-    ...runData,
-    result: {
-      ...runData.result,
-      analysis: {
-        ...runData.result.analysis,
-        tokenUsage,
+    return {
+      ...runData,
+      result: {
+        ...runData.result,
+        analysis,
       },
-    },
+    };
   };
-};
+}

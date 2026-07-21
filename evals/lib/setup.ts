@@ -2,16 +2,25 @@ import { readFileSync } from "node:fs";
 
 import type { Sandbox } from "@vercel/agent-eval";
 
-/** Installs the locally built eve package in an authoring-eval sandbox. */
-export async function installEve(sandbox: Sandbox): Promise<void> {
-  const tarballPath = process.env.EVE_EVAL_TARBALL;
-  if (tarballPath === undefined) {
-    throw new Error("EVE_EVAL_TARBALL is not set. Run evals with `pnpm eval`.");
-  }
+type EvalSnapshot = "current" | "reference";
 
+function snapshotPath(snapshot: EvalSnapshot, kind: "SKILL" | "TARBALL"): string {
+  const variable = snapshot === "reference" ? `EVE_EVAL_REFERENCE_${kind}` : `EVE_EVAL_${kind}`;
+  const value = process.env[variable];
+  if (value === undefined) {
+    throw new Error(`${variable} is not set. Run evals with \`pnpm eval\`.`);
+  }
+  return value;
+}
+
+/** Installs the locally built eve package in an authoring-eval sandbox. */
+export async function installEve(
+  sandbox: Sandbox,
+  snapshot: EvalSnapshot = "current",
+): Promise<void> {
   await sandbox.writeFiles({
     // @ts-expect-error The runtime accepts Buffer even though the upstream type only names string.
-    "eve.tgz": readFileSync(tarballPath),
+    "eve.tgz": readFileSync(snapshotPath(snapshot, "TARBALL")),
   });
   const result = await sandbox.runCommand("npm", ["install", "./eve.tgz"]);
   if (result.exitCode !== 0) {
@@ -37,11 +46,15 @@ package docs are unavailable, use https://eve.dev/docs as a fallback.
 }
 
 /** Installs the repository's eve skill for the configured Claude Code agent. */
-export async function writeEveSkill(sandbox: Sandbox): Promise<void> {
+export async function writeEveSkill(
+  sandbox: Sandbox,
+  snapshot: EvalSnapshot = "current",
+): Promise<void> {
+  const skillPath =
+    snapshot === "reference"
+      ? snapshotPath(snapshot, "SKILL")
+      : new URL("../../skills/eve/SKILL.md", import.meta.url);
   await sandbox.writeFiles({
-    ".claude/skills/eve/SKILL.md": readFileSync(
-      new URL("../../skills/eve/SKILL.md", import.meta.url),
-      "utf8",
-    ),
+    ".claude/skills/eve/SKILL.md": readFileSync(skillPath, "utf8"),
   });
 }
