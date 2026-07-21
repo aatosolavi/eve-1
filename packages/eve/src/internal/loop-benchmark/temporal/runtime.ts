@@ -20,7 +20,10 @@ import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { createSampleId, type RawRecord } from "#internal/loop-benchmark/contract.js";
 import { parseLoopBenchmarkDeliveryMessage } from "#internal/loop-benchmark/delivery-message.js";
-import { readLoopBenchmarkRecordPath } from "#internal/loop-benchmark/config.js";
+import {
+  readLoopBenchmarkRecordPath,
+  readLoopBenchmarkTemporalDevServer,
+} from "#internal/loop-benchmark/config.js";
 import { readLoopBenchmarkJsonlRecords } from "#internal/loop-benchmark/jsonl-records.js";
 import type { LoopBenchmarkRecorder } from "#internal/loop-benchmark/recorder.js";
 import {
@@ -331,7 +334,15 @@ export async function createLocalTemporalBenchmarkRuntime(
     loadTemporalTesting(),
     loadTemporalWorker(),
   ]);
-  const environment = await TestWorkflowEnvironment.createLocal();
+  const devServer = readLoopBenchmarkTemporalDevServer();
+  const environment = await TestWorkflowEnvironment.createLocal(
+    devServer.dbFilename === undefined && devServer.uiPort === undefined
+      ? undefined
+      : { server: devServer },
+  );
+  if (devServer.uiPort !== undefined) {
+    console.log(`[loop-benchmark] Temporal Web UI at http://127.0.0.1:${devServer.uiPort}`);
+  }
   try {
     const service = new LocalTemporalBenchmarkService();
     const taskQueue = `eve-loop-benchmark-${randomUUID()}`;

@@ -6,6 +6,7 @@ import {
   readLoopBenchmarkRuntime,
   readLoopBenchmarkSampleId,
   readLoopBenchmarkTarget,
+  readLoopBenchmarkTemporalDevServer,
 } from "#internal/loop-benchmark/config.js";
 
 describe("loop benchmark config", () => {
@@ -42,6 +43,25 @@ describe("loop benchmark config", () => {
     expect(() => readLoopBenchmarkTarget({ EVE_LOOP_BENCHMARK_TARGET: "edge" })).toThrow(
       'EVE_LOOP_BENCHMARK_TARGET must be "local" or "vercel"',
     );
+  });
+
+  it("reads optional Temporal dev-server observability settings", () => {
+    expect(
+      readLoopBenchmarkTemporalDevServer({
+        EVE_LOOP_BENCHMARK_TEMPORAL_DB: " /tmp/temporal.sqlite ",
+        EVE_LOOP_BENCHMARK_TEMPORAL_UI_PORT: " 8233 ",
+      }),
+    ).toEqual({ dbFilename: "/tmp/temporal.sqlite", uiPort: 8233 });
+    expect(readLoopBenchmarkTemporalDevServer({})).toEqual({});
+    expect(readLoopBenchmarkTemporalDevServer({ EVE_LOOP_BENCHMARK_TEMPORAL_DB: "  " })).toEqual(
+      {},
+    );
+  });
+
+  it("rejects a malformed Temporal UI port", () => {
+    expect(() =>
+      readLoopBenchmarkTemporalDevServer({ EVE_LOOP_BENCHMARK_TEMPORAL_UI_PORT: "portal" }),
+    ).toThrow('must be a port number; received "portal"');
   });
 
   it("reads an optional trimmed record path", () => {

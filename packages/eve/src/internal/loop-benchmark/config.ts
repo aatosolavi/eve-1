@@ -9,6 +9,40 @@ export const LOOP_BENCHMARK_RUNTIME_ENV = "EVE_LOOP_BENCHMARK_RUNTIME";
 export const LOOP_BENCHMARK_RECORD_PATH_ENV = "EVE_LOOP_BENCHMARK_RECORD_PATH";
 export const LOOP_BENCHMARK_SAMPLE_ID_HEADER = "x-eve-benchmark-sample-id";
 export const LOOP_BENCHMARK_TARGET_ENV = "EVE_LOOP_BENCHMARK_TARGET";
+export const LOOP_BENCHMARK_TEMPORAL_DB_ENV = "EVE_LOOP_BENCHMARK_TEMPORAL_DB";
+export const LOOP_BENCHMARK_TEMPORAL_UI_PORT_ENV = "EVE_LOOP_BENCHMARK_TEMPORAL_UI_PORT";
+
+export interface LoopBenchmarkTemporalDevServerOptions {
+  readonly dbFilename?: string;
+  readonly uiPort?: number;
+}
+
+/**
+ * Reads optional observability settings for the local Temporal dev server:
+ * a SQLite persistence file and a Web UI port. Both default to off, which
+ * keeps the server in-memory and headless.
+ */
+export function readLoopBenchmarkTemporalDevServer(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): LoopBenchmarkTemporalDevServerOptions {
+  const dbFilename = environment[LOOP_BENCHMARK_TEMPORAL_DB_ENV]?.trim();
+  const rawUiPort = environment[LOOP_BENCHMARK_TEMPORAL_UI_PORT_ENV]?.trim();
+
+  let uiPort: number | undefined;
+  if (rawUiPort !== undefined && rawUiPort !== "") {
+    uiPort = Number(rawUiPort);
+    if (!Number.isInteger(uiPort) || uiPort <= 0 || uiPort > 65_535) {
+      throw new TypeError(
+        `${LOOP_BENCHMARK_TEMPORAL_UI_PORT_ENV} must be a port number; received "${rawUiPort}".`,
+      );
+    }
+  }
+
+  return {
+    ...(dbFilename === undefined || dbFilename === "" ? {} : { dbFilename }),
+    ...(uiPort === undefined ? {} : { uiPort }),
+  };
+}
 
 /** Reads the optional append-only raw-record destination. */
 export function readLoopBenchmarkRecordPath(
