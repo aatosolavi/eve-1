@@ -96,8 +96,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("DD_API_KEY", "");
   vi.stubEnv("DD_APP_KEY", "");
-  vi.stubEnv("DD_LLMOBS_ML_APP", "");
-  vi.stubEnv("DD_SERVICE", "");
   mocks.llmobs.enabled = true;
 });
 
@@ -192,34 +190,16 @@ describe("Datadog", () => {
     );
   });
 
-  it("uses DD_SERVICE as the project name when none is configured", async () => {
+  it("requires explicit projectName and apiKey for agentless reporting", async () => {
     vi.stubEnv("DD_API_KEY", "env-api-key");
-    vi.stubEnv("DD_SERVICE", "evals-ci");
-    const reporter = Datadog();
-    const result = makeEvalResult();
+    vi.stubEnv("DD_LLMOBS_ML_APP", "env-project");
 
-    await reporter.onRunStart([makeEvaluation()], makeTarget());
-    await reporter.onEvalComplete(result);
-
-    expect(mocks.tracer.init).toHaveBeenCalledWith({
-      llmobs: {
-        agentlessEnabled: true,
-        mlApp: "evals-ci",
-      },
-    });
-    expect(mocks.llmobs.submitEvaluation).toHaveBeenCalledWith(
-      { spanId: "span-123", traceId: "trace-123" },
-      expect.objectContaining({ mlApp: "evals-ci" }),
-    );
-  });
-
-  it("requires a project name and API key for agentless reporting", async () => {
     await expect(
-      Datadog({ apiKey: "api-key" }).onRunStart([makeEvaluation()], makeTarget()),
-    ).rejects.toThrow("Datadog reporting needs a project name.");
+      Datadog({ apiKey: "api-key", projectName: "" }).onRunStart([makeEvaluation()], makeTarget()),
+    ).rejects.toThrow("Datadog reporting needs a projectName.");
     await expect(
-      Datadog({ projectName: "evals-ci" }).onRunStart([makeEvaluation()], makeTarget()),
-    ).rejects.toThrow("Datadog agentless reporting needs an API key.");
+      Datadog({ apiKey: "", projectName: "evals-ci" }).onRunStart([makeEvaluation()], makeTarget()),
+    ).rejects.toThrow("Datadog agentless reporting needs an apiKey.");
   });
 
   it("is a no-op before the run starts", async () => {

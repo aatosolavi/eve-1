@@ -55,7 +55,7 @@ import { Datadog } from "eve/evals/reporters";
 export default defineEvalConfig({
   reporters: [
     Datadog({
-      apiKey: process.env.DD_API_KEY,
+      apiKey: process.env.DD_API_KEY!,
       appKey: process.env.DD_APP_KEY,
       projectName: "weather-agent",
     }),
@@ -63,17 +63,7 @@ export default defineEvalConfig({
 });
 ```
 
-Install the Datadog tracer before running the eval. The reporter initializes LLM Observability agentlessly, which is the usual CI setup. `projectName` is the Datadog LLM Observability project (ML application); it overrides `DD_LLMOBS_ML_APP` and falls back to `DD_SERVICE`.
-
-```bash
-npm install dd-trace
-DD_API_KEY=<your-api-key> \
-DD_APP_KEY=<your-app-key> \
-DD_SITE=datadoghq.com \
-eve eval
-```
-
-Pass CI secrets through `apiKey` and `appKey` as shown, or leave them out of the config to use `DD_API_KEY` and `DD_APP_KEY`. Agentless LLM Observability ingestion authenticates with the API key; the application key is accepted for other Datadog APIs in the same process but is not required to send eval results. Set `agentless: false` only when a Datadog Agent is available.
+Install the `dd-trace` package before running the eval. The reporter initializes LLM Observability agentlessly for CI.
 
 The span records the eval's description, output, metadata, derived action counts, and verdict. Each assertion carries its score, pass/fail assessment, threshold, severity, and failure message when present. Use `--skip-report` to run without sending data.
 

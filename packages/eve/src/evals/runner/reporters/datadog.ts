@@ -4,21 +4,20 @@ import type { EvalReporter } from "#evals/runner/reporters/types.js";
 /** Configuration for the Datadog LLM Observability reporter. */
 export interface DatadogReporterConfig {
   /**
-   * Datadog API key for agentless reporting. Overrides `DD_API_KEY` for this
-   * process before the tracer initializes.
+   * Datadog API key for agentless reporting. The reporter makes it available
+   * to the tracer before initializing it.
    */
-  readonly apiKey?: string;
+  readonly apiKey: string;
   /**
-   * Datadog application key. Overrides `DD_APP_KEY` for this process before
-   * the tracer initializes. LLM Observability ingestion uses the API key; an
-   * application key is only needed by other Datadog APIs in the same process.
+   * Datadog application key to make available before the tracer initializes.
+   * LLM Observability ingestion uses the API key.
    */
   readonly appKey?: string;
   /**
    * Datadog LLM Observability project name. This is sent as the tracer's ML
    * application name and is used for both workflow spans and evaluations.
    */
-  readonly projectName?: string;
+  readonly projectName: string;
   /**
    * Whether to send data directly to Datadog rather than through a Datadog
    * Agent. Defaults to `true`, which is suitable for CI.
@@ -64,7 +63,7 @@ interface DatadogTracer {
 
 interface ResolvedDatadogReporterConfig {
   readonly agentless: boolean;
-  readonly apiKey?: string;
+  readonly apiKey: string;
   readonly appKey?: string;
   readonly projectName: string;
 }
@@ -92,7 +91,7 @@ interface DatadogEvaluationOptions {
  * a score evaluation attached to that span. Requires the optional `dd-trace`
  * peer package and enabled LLM Observability.
  */
-export function Datadog(config: DatadogReporterConfig = {}): EvalReporter {
+export function Datadog(config: DatadogReporterConfig): EvalReporter {
   return new DatadogReporter(config);
 }
 
@@ -259,27 +258,25 @@ function resolveDatadogReporterConfig(
   config: DatadogReporterConfig,
 ): ResolvedDatadogReporterConfig {
   const agentless = config.agentless ?? true;
-  const apiKey = config.apiKey || process.env.DD_API_KEY;
-  const appKey = config.appKey || process.env.DD_APP_KEY;
-  const projectName = config.projectName || process.env.DD_LLMOBS_ML_APP || process.env.DD_SERVICE;
 
-  if (!projectName) {
-    throw new Error(
-      "Datadog reporting needs a project name. Set projectName, DD_LLMOBS_ML_APP, or DD_SERVICE.",
-    );
+  if (!config.projectName) {
+    throw new Error("Datadog reporting needs a projectName.");
   }
 
-  if (agentless && !apiKey) {
-    throw new Error(
-      "Datadog agentless reporting needs an API key. Set apiKey or DD_API_KEY, or set agentless: false to use a Datadog Agent.",
-    );
+  if (agentless && !config.apiKey) {
+    throw new Error("Datadog agentless reporting needs an apiKey.");
   }
 
-  return { agentless, apiKey, appKey, projectName };
+  return {
+    agentless,
+    apiKey: config.apiKey,
+    appKey: config.appKey,
+    projectName: config.projectName,
+  };
 }
 
 function configureDatadogEnvironment(config: ResolvedDatadogReporterConfig): void {
-  if (config.apiKey) process.env.DD_API_KEY = config.apiKey;
+  process.env.DD_API_KEY = config.apiKey;
   if (config.appKey) process.env.DD_APP_KEY = config.appKey;
 }
 
