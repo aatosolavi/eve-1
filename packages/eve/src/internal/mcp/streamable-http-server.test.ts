@@ -136,6 +136,24 @@ describe("stateless MCP Streamable HTTP server", () => {
     const unauthorized = await handle(request("not relevant"));
     expect(unauthorized.status).toBe(401);
     expect(unauthorized.headers.get("www-authenticate")).toContain("resource_metadata=");
+
+    const streamed = await handle(new Request("https://agent.example/mcp"));
+    expect(streamed.status).toBe(401);
+
+    const deleted = await handle(new Request("https://agent.example/mcp", { method: "DELETE" }));
+    expect(deleted.status).toBe(401);
+  });
+
+  it("opens the SDK's stateless SSE stream for authenticated GET", async () => {
+    const response = await server().handle(
+      new Request("https://agent.example/mcp", {
+        headers: { accept: "text/event-stream" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    await response.body?.cancel();
   });
 
   it("enforces Streamable HTTP media types", async () => {
