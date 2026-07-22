@@ -11,7 +11,7 @@ import type { ResolvedToolDefinition } from "#runtime/types.js";
 const HINT_BACK_MARGIN = 64;
 const HINT_SCAN_CHUNKS = 256;
 
-export const EXPAND_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
+export const READ_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
   toolCallId: z
     .string()
     .min(1)
@@ -37,7 +37,7 @@ export const EXPAND_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
     .describe("Maximum characters to return. Defaults to 6000."),
 });
 
-export const EXPAND_TOOL_RESULT_OUTPUT_SCHEMA = z.strictObject({
+export const READ_TOOL_RESULT_OUTPUT_SCHEMA = z.strictObject({
   found: z.boolean(),
   content: z.string().optional(),
   moreAfter: z.boolean().optional(),
@@ -71,9 +71,9 @@ interface StoredActionResult {
  * the stream before truncation touches history, so nothing needs to be
  * stored separately.
  */
-async function expandToolResult(input: unknown): Promise<unknown> {
+async function readToolResult(input: unknown): Promise<unknown> {
   const { limitChars, nearStreamIndex, offsetChars, toolCallId } =
-    EXPAND_TOOL_RESULT_INPUT_SCHEMA.parse(input);
+    READ_TOOL_RESULT_INPUT_SCHEMA.parse(input);
 
   const sessionRunId = getContext(SessionIdKey);
   if (sessionRunId === undefined) {
@@ -213,17 +213,17 @@ function matchActionResult(line: string, toolCallId: string): StoredActionResult
   }
 }
 
-export const EXPAND_TOOL_RESULT_TOOL_DEFINITION: ResolvedToolDefinition = {
+export const READ_TOOL_RESULT_TOOL_DEFINITION: ResolvedToolDefinition = {
   description: [
     "Retrieve the full output of a previous tool call that eve truncated.",
     'Only useful when a tool result carries a "[Truncated by eve: …]" annotation naming a tool call id.',
     "Returns a page of the serialized output; pass offsetChars to continue where a page ended.",
   ].join("\n"),
-  execute: expandToolResult,
-  inputSchema: EXPAND_TOOL_RESULT_INPUT_SCHEMA,
-  logicalPath: "eve:framework/expand-tool-result",
-  name: "expand_tool_result",
-  outputSchema: EXPAND_TOOL_RESULT_OUTPUT_SCHEMA,
-  sourceId: "eve:expand-tool-result-tool",
+  execute: readToolResult,
+  inputSchema: READ_TOOL_RESULT_INPUT_SCHEMA,
+  logicalPath: "eve:framework/read-tool-result",
+  name: "read_tool_result",
+  outputSchema: READ_TOOL_RESULT_OUTPUT_SCHEMA,
+  sourceId: "eve:read-tool-result-tool",
   sourceKind: "module",
 };

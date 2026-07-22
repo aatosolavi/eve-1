@@ -248,7 +248,7 @@ export async function compactMessages(
 }
 
 function cappedResultAnnotation(toolCallId: string): string {
-  return `[Truncated by eve: tool result reduced during context compaction. Retrieve the full output with expand_tool_result("${toolCallId}").]`;
+  return `[Truncated by eve: tool result reduced during context compaction. Retrieve the full output with read_tool_result("${toolCallId}").]`;
 }
 
 /**

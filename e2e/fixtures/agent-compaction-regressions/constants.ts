@@ -26,7 +26,7 @@ export const TRUNCATION_ANNOTATION_PREFIX = "[Truncated by eve:";
 export const OVERSIZED_PAYLOAD_TAIL_SENTINEL = "OVERSIZED_PAYLOAD_TAIL_SENTINEL";
 
 /**
- * Reported by the mock task model only after expand_tool_result returned the
+ * Reported by the mock task model only after read_tool_result returned the
  * truncated-away tail of a previous oversized result.
  */
-export const EXPANSION_MARKER = "TRUNCATED_OUTPUT_EXPANDED";
+export const READ_BACK_MARKER = "TRUNCATED_OUTPUT_READ_BACK";

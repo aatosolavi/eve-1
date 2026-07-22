@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contextStorage, ContextContainer } from "#context/container.js";
 import { SessionIdKey } from "#context/keys.js";
-import { EXPAND_TOOL_RESULT_TOOL_DEFINITION } from "#runtime/framework-tools/expand-tool-result.js";
+import { READ_TOOL_RESULT_TOOL_DEFINITION } from "#runtime/framework-tools/read-tool-result.js";
 
 const getReadableMock = vi.fn();
 
@@ -47,14 +47,14 @@ async function execute(
     ctx.set(SessionIdKey, sessionRunId);
   }
   seed?.(ctx);
-  const exec = EXPAND_TOOL_RESULT_TOOL_DEFINITION.execute;
+  const exec = READ_TOOL_RESULT_TOOL_DEFINITION.execute;
   if (exec === undefined) {
-    throw new Error("expand_tool_result must define execute.");
+    throw new Error("read_tool_result must define execute.");
   }
   return contextStorage.run(ctx, () => exec(input, {} as Parameters<NonNullable<typeof exec>>[1]));
 }
 
-describe("expand_tool_result", () => {
+describe("read_tool_result", () => {
   it("returns a page of the recorded output with continuation info", async () => {
     const payload = { content: "m".repeat(10_000) };
     getReadableMock.mockReturnValue(
@@ -110,7 +110,7 @@ describe("expand_tool_result", () => {
   });
 });
 
-describe("expand_tool_result with an annotation stream index", () => {
+describe("read_tool_result with an annotation stream index", () => {
   it("seeks near the provided index instead of scanning windows", async () => {
     getReadableMock.mockImplementation(() =>
       streamOfEvents([actionResultLine("call-7", "payload")]),

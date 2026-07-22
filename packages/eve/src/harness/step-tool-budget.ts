@@ -25,8 +25,8 @@ const MIN_KEPT_CHARS = 400;
 function truncationAnnotation(toolCallId: string, nearStreamIndex: number | undefined): string {
   const reference =
     nearStreamIndex === undefined
-      ? `expand_tool_result("${toolCallId}")`
-      : `expand_tool_result("${toolCallId}", { nearStreamIndex: ${nearStreamIndex} })`;
+      ? `read_tool_result("${toolCallId}")`
+      : `read_tool_result("${toolCallId}", { nearStreamIndex: ${nearStreamIndex} })`;
   return `[Truncated by eve: this step's tool results exceeded the per-step context budget. Retrieve the full output with ${reference}, or use narrower queries.]`;
 }
 

@@ -283,7 +283,7 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
   // Baseline for stream position hints: the session stream's tail before this
   // turn writes. Indices recorded per action.result are lower bounds on the
   // true chunk index (interleaved writers only push events later), letting
-  // expand_tool_result seek instead of scanning. Failure to resolve the
+  // read_tool_result seek instead of scanning. Failure to resolve the
   // baseline only disables hints; retrieval falls back to scanning.
   const streamPositionBaseline = await resolveSessionStreamTail(ctx.get(SessionIdKey));
   let streamWrites = 0;

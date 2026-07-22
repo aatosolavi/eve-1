@@ -3,7 +3,7 @@ import { mockModel, type MockModelRequest, type MockModelResponse } from "eve/ev
 
 import {
   COMPACTION_CHECKPOINT_TEXT,
-  EXPANSION_MARKER,
+  READ_BACK_MARKER,
   OVERSIZED_PAYLOAD_TAIL_SENTINEL,
   OVERSIZED_TRUNCATION_MARKER,
   SECOND_CHECKPOINT_MARKER,
@@ -20,7 +20,7 @@ type RegressionCase =
   | "stale-todo-work"
   | "task-survival"
   | "oversized-step-truncation"
-  | "expand-truncated-result";
+  | "read-truncated-result";
 
 /** Per-case call bookkeeping shared by every responder. */
 interface CaseState {
@@ -81,8 +81,8 @@ const responders: Record<RegressionCase, CaseResponder> = {
     };
   },
 
-  "expand-truncated-result": (request, state) => {
-    // Once the expanded page (containing the tail sentinel that truncation
+  "read-truncated-result": (request, state) => {
+    // Once the read-back page (containing the tail sentinel that truncation
     // cut) is visible, the round trip through the session stream worked.
     if (
       request.messages.some(
@@ -90,36 +90,38 @@ const responders: Record<RegressionCase, CaseResponder> = {
           message.role !== "user" && message.text.includes(OVERSIZED_PAYLOAD_TAIL_SENTINEL),
       )
     ) {
-      return `Expanded truncated output: ${EXPANSION_MARKER}`;
+      return `Read back truncated output: ${READ_BACK_MARKER}`;
     }
 
-    // A truncation annotation names the call id to expand, plus the stream
+    // A truncation annotation names the call id to read back, plus the stream
     // index when the harness recorded one — pass both through so the eval
     // exercises the seek path.
     const annotated = request.messages
       .map((message) =>
-        /expand_tool_result\("([^"]+)"(?:, \{ nearStreamIndex: (\d+) \})?\)/.exec(message.text),
+        /read_tool_result\("([^"]+)"(?:, \{ nearStreamIndex: (\d+) \})?\)/.exec(message.text),
       )
       .find((match) => match !== null);
     if (annotated?.[1] !== undefined) {
       if (state.advanceCalls >= MAX_TOOL_CALLS) {
-        return `Hard stop after ${MAX_TOOL_CALLS} expansions: EXPANSION_TAIL_MISSING`;
+        return `Hard stop after ${MAX_TOOL_CALLS} read-backs: READ_BACK_TAIL_MISSING`;
       }
       state.advanceCalls += 1;
-      const nearStreamIndex = annotated[2] === undefined ? undefined : Number(annotated[2]);
+      // The payload is ~30k chars; page an 8k window over its tail so the
+      // sentinel survives even if this result is truncated again.
+      const readInput: Record<string, unknown> = {
+        limitChars: 8_000,
+        offsetChars: 26_000,
+        toolCallId: annotated[1],
+      };
+      if (annotated[2] !== undefined) {
+        readInput.nearStreamIndex = Number(annotated[2]);
+      }
       return {
         toolCalls: [
           {
-            id: `expand-tool-result-${state.advanceCalls}`,
-            // The payload is ~30k chars; page an 8k window over its tail so
-            // the sentinel survives even if this result is truncated again.
-            input: {
-              limitChars: 8_000,
-              offsetChars: 26_000,
-              toolCallId: annotated[1],
-              ...(nearStreamIndex === undefined ? {} : { nearStreamIndex }),
-            },
-            name: "expand_tool_result",
+            id: `read-tool-result-${state.advanceCalls}`,
+            input: readInput,
+            name: "read_tool_result",
           },
         ],
       };
@@ -281,7 +283,7 @@ function regressionCaseFromText(text: string): RegressionCase | undefined {
   if (text.includes("[case: stale-todo-work]")) return "stale-todo-work";
   if (text.includes("[case: task-survival]")) return "task-survival";
   if (text.includes("[case: oversized-step-truncation]")) return "oversized-step-truncation";
-  if (text.includes("[case: expand-truncated-result]")) return "expand-truncated-result";
+  if (text.includes("[case: read-truncated-result]")) return "read-truncated-result";
   return undefined;
 }
 

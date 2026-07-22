@@ -174,7 +174,7 @@ describe("presentTool", () => {
       agent: { message: "audit the auth flow" },
       ask_question: { prompt: "Which environment?" },
       bash: { command: "ls" },
-      expand_tool_result: { toolCallId: "call_abc123" },
+      read_tool_result: { toolCallId: "call_abc123" },
       glob: { pattern: "**/*.ts" },
       grep: { pattern: "useEve" },
       load_skill: { skill: "commit" },
