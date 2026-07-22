@@ -8,6 +8,7 @@ import {
   SiDatadog,
   SiEgnyte,
   SiGooglechat,
+  SiWebex,
   SiHuggingface,
   SiMake,
   SiMessenger,
@@ -310,6 +311,8 @@ export const ticketTailorLogo = (props: LogoProps) => (
   </svg>
 );
 
+export const webexLogo = (props: LogoProps) => <SiWebex color="default" {...props} />;
+
 export const googlechatLogo = (props: LogoProps) => <SiGooglechat color="default" {...props} />;
 
 export const whatsappLogo = (props: LogoProps) => <SiWhatsapp color="default" {...props} />;
@@ -382,6 +385,7 @@ export const logos = {
   zapier: zapierLogo,
   zomato: zomatoLogo,
 
+  webex: webexLogo,
   googlechat: googlechatLogo,
   whatsapp: whatsappLogo,
   messenger: messengerLogo,

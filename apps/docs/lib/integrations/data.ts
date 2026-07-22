@@ -491,6 +491,52 @@ export default channel;
 Credentials come from the \`createMessengerAdapter\` config or the adapter's environment variables; see the [Messenger adapter docs](https://chat-sdk.dev/adapters/official/messenger).`,
     configure: `The adapter mounts its webhook at \`/eve/v1/messenger\`. Point your Messenger webhook at it. The adapter owns provider auth, verification, and delivery, while eve owns session dispatch, streaming, typing, and human-in-the-loop. See the [Chat SDK channel docs](/docs/channels/chat-sdk) for routes, streaming, and state options.`,
   },
+  "chat-sdk-webex": {
+    logo: "webex",
+    docsHref: "/docs/channels/chat-sdk",
+    badge: "Chat SDK",
+    keywords: ["chat sdk", "webex", "cisco", "spaces", "adaptive cards", "messaging"],
+    install: `Install eve, Chat SDK, the Webex adapter, and a state adapter:
+
+\`\`\`bash
+npm install eve@latest chat @bitbasti/chat-adapter-webex @chat-adapter/state-memory
+\`\`\`
+
+The in-memory state store is for local development. Use Redis or PostgreSQL in production. The adapter is community-maintained.`,
+    quickStart: `Create \`agent/channels/webex.ts\`:
+
+\`\`\`ts
+// agent/channels/webex.ts
+import { createWebexAdapter } from "@bitbasti/chat-adapter-webex";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { chatSdkChannel } from "eve/channels/chat-sdk";
+
+export const { bot, channel, send } = chatSdkChannel({
+  userName: "My Agent",
+  adapters: {
+    webex: createWebexAdapter({
+      botToken: process.env.WEBEX_BOT_TOKEN!,
+      webhookSecret: process.env.WEBEX_WEBHOOK_SECRET!,
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await send(message.text, { thread });
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  await send(message.text, { thread });
+});
+
+export default channel;
+\`\`\`
+
+See the [Webex adapter documentation](https://chat-sdk.dev/adapters/community/webex) for all supported events and credentials.`,
+    configure: `Create a Webex bot, set \`WEBEX_BOT_TOKEN\` and \`WEBEX_WEBHOOK_SECRET\`, then point its webhook at \`/eve/v1/webex\`. This community adapter supports spaces, threads, adaptive cards, modals, and webhook signature verification. See the [Chat SDK channel docs](/docs/channels/chat-sdk) for eve session dispatch, state, streaming, and human-in-the-loop behavior.`,
+  },
 };
 
 const extensionPresentations: Record<string, ExtensionPresentation> = {

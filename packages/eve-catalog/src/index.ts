@@ -172,6 +172,13 @@ export const INTEGRATIONS: readonly IntegrationEntry[] = [
     surfaces: { scaffoldable: false, gallery: true },
   },
   {
+    slug: "chat-sdk-webex",
+    name: "Webex",
+    kind: "channel",
+    tagline: "Webex spaces, threads, and adaptive cards via a community Chat SDK adapter.",
+    surfaces: { scaffoldable: false, gallery: true },
+  },
+  {
     slug: "agent-browser",
     name: "agent-browser",
     kind: "extension",
