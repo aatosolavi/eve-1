@@ -311,7 +311,7 @@ export const ticketTailorLogo = (props: LogoProps) => (
   </svg>
 );
 
-export const webexLogo = (props: LogoProps) => <SiWebex color="default" {...props} />;
+export const webexLogo = (props: LogoProps) => <SiWebex {...props} />;
 
 export const googlechatLogo = (props: LogoProps) => <SiGooglechat color="default" {...props} />;
 
