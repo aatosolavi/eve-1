@@ -66,6 +66,7 @@ export async function prepareDevelopmentApplicationHost(
       compileResult,
       outDir: workspace.artifactsDir,
       runtimeAppRoot: generation.runtimeAppRoot,
+      projectAppRoot: appRoot,
     });
     return {
       ...createPreparedApplicationHost({
