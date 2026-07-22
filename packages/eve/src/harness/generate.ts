@@ -1,34 +1,7 @@
 import { context as otelContext, type Span, trace } from "#compiled/@opentelemetry/api/index.js";
-import {
-  type LanguageModel,
-  type ModelMessage,
-  type SystemModelMessage,
-  type TelemetryOptions,
-} from "ai";
-import { isScheduleAppAuth } from "#channel/schedule-auth.js";
 import { createErrorId, createLogger, recordErrorOnSpan } from "#internal/logging.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
-import { contextStorage } from "#context/container.js";
-import { AuthKey, ParentSessionKey } from "#context/keys.js";
-import { buildDynamicInstructionMessages } from "#context/dynamic-instruction-lifecycle.js";
-import { PendingSkillAnnouncementKey } from "#context/dynamic-skill-lifecycle.js";
 import { toErrorMessage } from "#shared/errors.js";
-import {
-  createActionResultEvent,
-  createCompactionCompletedEvent,
-  createCompactionRequestedEvent,
-  createStepStartedEvent,
-} from "#protocol/message.js";
-import {
-  hydrateSandboxAttachments,
-  stageAttachmentsToSandbox,
-} from "#harness/attachment-staging.js";
-import {
-  compactMessages,
-  getInputTokenCount,
-  resolveCompactionModel,
-  shouldCompact,
-} from "#harness/compaction.js";
 import {
   accumulateTurnUsage,
   extractGatewayCostUsd,
@@ -36,28 +9,14 @@ import {
   getTurnUsageState,
   setTurnUsageState,
 } from "#harness/turn-tag-state.js";
-import {
-  applySessionLimitContinuation,
-  enforceSessionTokenLimit,
-} from "#harness/session-limit-enforcement.js";
+import { enforceSessionTokenLimit } from "#harness/session-limit-enforcement.js";
 import {
   emitFailedStep,
   emitRecoverableFailedTurn,
   emitStepStarted,
-  emitTurnEpilogue,
-  emitTurnPreamble,
-  getHarnessEmissionState,
   setHarnessEmissionState,
 } from "#harness/emission.js";
-import {
-  consumeDeferredStepInput,
-  getApprovedTools,
-  getPendingInputRequestIds,
-  hasStepInput,
-  resolvePendingInput,
-} from "#harness/input-requests.js";
-import { normalizeUserContent } from "#harness/messages.js";
-import { convertStaleResponsesToUserMessage } from "#harness/stale-input-responses.js";
+import { hasStepInput } from "#harness/input-requests.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
 import {
   classifyModelCallError,
@@ -67,7 +26,6 @@ import {
 } from "#harness/model-call-error.js";
 import { summarizeKnownError } from "#harness/semantic-errors/index.js";
 import { throwIfTurnAborted } from "#harness/turn-cancellation.js";
-import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#shared/empty-delivery.js";
 import { extractWorkflowStreamWriteErrorDetails } from "#harness/workflow-stream-error.js";
 import {
   enrichTelemetry,
@@ -75,14 +33,8 @@ import {
   resolveStepOtelContext,
   setTurnTraceState,
 } from "#harness/otel-integration.js";
-import { detectPromptCachePath, getAnthropicCacheMarker } from "#harness/prompt-cache.js";
-import { resolvePendingRuntimeActions } from "#harness/runtime-actions.js";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
-import {
-  classifyParkedSession,
-  handleStepResult,
-  resolveApprovalKeyFromTools,
-} from "#harness/step-result.js";
+import { classifyParkedSession, handleStepResult } from "#harness/step-result.js";
 import {
   attemptEmptyResponseRecovery,
   attemptUnsupportedProviderToolRecovery,
@@ -90,21 +42,11 @@ import {
   buildModelCallFailureLogFields,
   runModelCallRecoveryPipeline,
 } from "#harness/model-call-recovery.js";
-import {
-  buildGatewayAttributionHeaders,
-  createModelCallRunner,
-  environment,
-  eveVersion,
-  resolveActiveRuntimeModel,
-} from "#harness/model-call.js";
+import { assemblePrompt, resolveTurnInput } from "#core/turn-before-call.js";
+import { createModelCallRunner, environment, eveVersion } from "#harness/model-call.js";
+import { createBeforeCallPorts } from "#harness/turn-before-call.js";
 import { continuePendingWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
-import type {
-  GenerateOutcome,
-  HarnessSession,
-  GenerateFn,
-  StepInput,
-  GenerateConfig,
-} from "#harness/types.js";
+import type { GenerateOutcome, GenerateFn, StepInput, GenerateConfig } from "#harness/types.js";
 
 /**
  * Creates a generate harness step function backed by AI SDK `ToolLoopAgent`.
@@ -171,218 +113,45 @@ export function createGenerate(config: GenerateConfig): GenerateFn {
       session = setTurnTraceState(session, turnSpan.spanContext());
     }
 
-    let emissionState = getHarnessEmissionState(session.state);
-
-    // Resolve deferred input, runtime actions, then HITL input; each stage
-    // may park when its resume payload has not arrived.
-
-    const stepInput = consumeDeferredStepInput({ input, session });
-    session = stepInput.session;
-
-    const resolvedRuntimeActions = await resolvePendingRuntimeActions({
-      emit,
-      session,
-      stepInput: stepInput.input,
-    });
-    if (resolvedRuntimeActions.outcome === "unresolved") {
-      return classifyParkedSession(resolvedRuntimeActions.session);
-    }
-    session = resolvedRuntimeActions.session;
-
-    const staleConversion = convertStaleResponsesToUserMessage({
-      history: resolvedRuntimeActions.messages,
-      pendingRequestIds: getPendingInputRequestIds(session.state),
-      stepInput: stepInput.input,
-    });
-    const effectiveStepInput = staleConversion.stepInput;
-    const preambleStepInput =
-      staleConversion.kind === "converted"
-        ? { ...effectiveStepInput, message: staleConversion.displayMessage }
-        : effectiveStepInput;
-
-    const pending = resolvePendingInput({
-      history: resolvedRuntimeActions.messages,
-      resolveApprovalKey: resolveApprovalKeyFromTools(config.tools),
-      session,
-      stepInput: effectiveStepInput,
-    });
-    if (pending.outcome === "unresolved") {
-      if (emit && pending.deferredMessage === true && hasStepInput(input)) {
-        emissionState = await emitTurnPreamble(
-          emit,
-          preambleStepInput ?? {},
-          emissionState,
-          config.runtimeIdentity,
-        );
-        emissionState = await emitTurnEpilogue(
-          emit,
-          emissionState,
-          config.mode,
-          pending.session.continuationToken,
-        );
-        return classifyParkedSession(setHarnessEmissionState(pending.session, emissionState));
-      }
-
-      return classifyParkedSession(pending.session);
-    }
-
-    // Surface denied tool-call approvals as rejected `action.result` events.
-    // The denial otherwise lives only in model history, so consumers (e.g.
-    // observability) never see the tool call resolve. Attributed to the turn
-    // that requested approval via the parked batch's emit coordinates.
-    if (emit && pending.rejectedActions) {
-      for (const result of pending.rejectedActions.results) {
-        await emit(
-          createActionResultEvent({
-            rejected: true,
-            result,
-            sequence: pending.rejectedActions.event.sequence,
-            stepIndex: pending.rejectedActions.event.stepIndex,
-            turnId: pending.rejectedActions.event.turnId,
-          }),
-        );
-      }
-    }
-
-    // --- Turn preamble ------------------------------------------------------
-
-    if (emit && hasStepInput(input)) {
-      emissionState = await emitTurnPreamble(
-        emit,
-        preambleStepInput ?? {},
-        emissionState,
-        config.runtimeIdentity,
-      );
-      session = setHarnessEmissionState(session, emissionState);
-
-      if (turnSpan) {
-        turnSpan.setAttribute("eve.turn.id", emissionState.turnId);
-      }
-    }
-
-    session = pending.session;
-    let messages: ModelMessage[] = pending.messages;
-
-    // A resolved session-limit continuation prompt grants a fresh token
-    // budget or ends the session; see session-limit-enforcement.
-    const continuation = await applySessionLimitContinuation({
+    const ports = createBeforeCallPorts({
       config,
-      emit,
-      emissionState,
-      limitContinuation: pending.limitContinuation,
-      session,
+      telemetry: enrichTelemetry(telemetryConfig, agentName) ?? undefined,
+      turnSpan,
     });
-    if (continuation.result !== null) {
-      return continuation.result;
-    }
-    session = continuation.session;
 
-    if (effectiveStepInput?.context !== undefined && pending.deferredContext !== true) {
-      for (const entry of effectiveStepInput.context) {
-        messages.push({ content: entry, role: "user" });
-      }
-    }
+    // --- Pre-call stage 1: turn-input resolution (may settle) ---------------
 
-    const userContent = normalizeUserContent(effectiveStepInput?.message);
-    if (userContent !== undefined && !pending.deferredMessage && !pending.consumedMessage) {
-      // Staging writes FilePart bytes into the sandbox and replaces
-      // each part's `data` with a compact `eve-sandbox:` URL. The
-      // `messages` array — and everything that flows into
-      // `session.history` from it — therefore never carries raw
-      // attachment bytes across step boundaries.
-      const content = await stageAttachmentsToSandbox(userContent);
-      messages.push({ content, role: "user" });
+    const resolution = await resolveTurnInput(ports, { input, state: session });
+    if (resolution.kind === "settled") {
+      return resolution.outcome;
     }
+    const effectiveStepInput = resolution.effectiveInput;
+    let emissionState = resolution.emissionState;
 
-    // --- Model + tools ------------------------------------------------------
+    // --- Pre-call stage 2: prompt assembly (straight-line) ------------------
 
-    // Direct harness unit tests may run without an ambient context.
-    const ctx = contextStorage.getStore();
-    if (ctx !== undefined && config.dispatchDynamicModelEvent !== undefined) {
-      await config.dispatchDynamicModelEvent({
-        ctx,
-        event: createStepStartedEvent({
-          sequence: emissionState.sequence,
-          stepIndex: emissionState.stepIndex,
-          turnId: emissionState.turnId,
-        }),
-        fallback: session.agent.dynamicModelDefaultReference ?? session.agent.modelReference,
-        messages,
-      });
-    }
-    const resolvedModel = await resolveActiveRuntimeModel({
-      config,
+    const prepared = await assemblePrompt(ports, resolution);
+    session = prepared.session;
+    const {
+      approvedTools,
+      attributionHeaders,
+      cachePath,
       ctx,
-      session,
-    });
-    session = resolvedModel.session;
-    const model = resolvedModel.model;
-    const cachePath = detectPromptCachePath(model);
-    const marker = cachePath.kind === "anthropic-direct" ? getAnthropicCacheMarker() : undefined;
-
-    // --- Compaction ---------------------------------------------------------
-    //
-    // Runs before `agent.stream()` so the compacted messages flow through
-    // `messages` (which the harness uses to rebuild session history).
-    const attributionHeaders = buildGatewayAttributionHeaders(model, config.runtimeIdentity);
-
-    ({ messages, session } = await maybeCompact({
-      abortSignal: config.abortSignal,
-      emit,
-      emissionState,
+      emptyDeliveryEnabled,
+      marker,
       messages,
       model,
-      onCompaction: config.onCompaction,
-      resolveModel: config.resolveModel,
-      runtimeIdentity: config.runtimeIdentity,
-      session,
-      telemetry: enrichTelemetry(telemetryConfig, agentName) ?? undefined,
-    }));
+      modelMessages,
+      systemMessages,
+    } = prepared;
 
-    const approvedTools = getApprovedTools(session);
-
-    const emptyDeliveryEnabled =
-      session.outputSchema === undefined &&
-      ctx !== undefined &&
-      isScheduleAppAuth(ctx.get(AuthKey)) &&
-      ctx.get(ParentSessionKey) === undefined;
-
-    // --- Execute via ToolLoopAgent ------------------------------------------
+    // --- Model call -----------------------------------------------------------
 
     /*
      * The `onError` override suppresses the AI SDK's default
      * `console.error(error)` handler inside `streamText`. Errors are
      * handled by the harness catch block and emitted as stream events.
      */
-    // Hydrate `eve-sandbox:` ref FileParts into inline bytes for the
-    // model call only. The result is transient — `messages` itself
-    // remains ref-only so it can flow into `session.history` without
-    // bloating every future step boundary.
-    const hydratedMessages = await hydrateSandboxAttachments(messages);
-
-    // AI SDK rejects role:"system" in `messages` — route system entries
-    // from durable history to `instructions` instead.
-    const systemMessages: SystemModelMessage[] = [];
-    const nonSystemMessages: ModelMessage[] = [];
-    for (const entry of hydratedMessages) {
-      if (entry.role === "system") {
-        systemMessages.push(entry);
-      } else {
-        nonSystemMessages.push(entry);
-      }
-    }
-    if (ctx !== undefined) {
-      systemMessages.push(...buildDynamicInstructionMessages(ctx));
-      const skillAnnouncement = ctx.get(PendingSkillAnnouncementKey);
-      if (skillAnnouncement !== undefined && skillAnnouncement.length > 0) {
-        systemMessages.push({ role: "system", content: skillAnnouncement });
-      }
-    }
-    if (emptyDeliveryEnabled) {
-      systemMessages.push({ role: "system", content: CONDITIONAL_DELIVERY_INSTRUCTION });
-    }
-
-    const modelMessages = nonSystemMessages;
 
     const modelCall = createModelCallRunner({
       agentName,
@@ -685,82 +454,4 @@ export function createGenerate(config: GenerateConfig): GenerateFn {
   }
 
   return runStep;
-}
-
-/**
- * Runs the compaction pipeline once if the session's input-token estimate
- * is over the configured threshold. Mutates neither input; returns the new
- * messages array and (possibly updated) session.
- *
- * Kept in the tool-loop (rather than the AI SDK's `prepareStep` hook) so
- * the compacted messages flow through the same `messages` variable the
- * harness uses to rebuild `session.history` after the step.
- */
-async function maybeCompact(input: {
-  readonly abortSignal?: AbortSignal;
-  readonly emit?: GenerateConfig["handleEvent"];
-  readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
-  readonly messages: ModelMessage[];
-  readonly model: LanguageModel;
-  readonly onCompaction?: GenerateConfig["onCompaction"];
-  readonly resolveModel: GenerateConfig["resolveModel"];
-  readonly runtimeIdentity?: GenerateConfig["runtimeIdentity"];
-  readonly session: HarnessSession;
-  readonly telemetry?: TelemetryOptions;
-}): Promise<{ readonly messages: ModelMessage[]; readonly session: HarnessSession }> {
-  const { emit, emissionState } = input;
-  let messages = input.messages;
-  const session = input.session;
-
-  if (!shouldCompact(messages, session.compaction)) {
-    return { messages, session };
-  }
-
-  const compaction = await resolveCompactionModel({
-    compactionModelReference: session.agent.compactionModelReference,
-    model: input.model,
-    modelReference: session.agent.modelReference,
-    resolveModel: input.resolveModel,
-  });
-
-  if (emit) {
-    await emit(
-      createCompactionRequestedEvent({
-        modelId: formatLanguageModelGatewayId(compaction.model),
-        sequence: emissionState.sequence,
-        sessionId: session.sessionId,
-        turnId: emissionState.turnId,
-        usageInputTokens: getInputTokenCount(messages, session.compaction),
-      }),
-    );
-  }
-
-  messages = await compactMessages(
-    messages,
-    compaction.model,
-    session.compaction,
-    compaction.providerOptions,
-    input.telemetry,
-    buildGatewayAttributionHeaders(compaction.model, input.runtimeIdentity),
-    input.abortSignal,
-  );
-
-  if (input.onCompaction) {
-    for (const msg of input.onCompaction()) {
-      messages.push(msg);
-    }
-  }
-
-  if (emit) {
-    await emit(
-      createCompactionCompletedEvent({
-        modelId: formatLanguageModelGatewayId(compaction.model),
-        sequence: emissionState.sequence,
-        sessionId: session.sessionId,
-        turnId: emissionState.turnId,
-      }),
-    );
-  }
-
-  return { messages, session };
 }
