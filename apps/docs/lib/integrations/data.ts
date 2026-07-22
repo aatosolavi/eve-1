@@ -494,7 +494,7 @@ Credentials come from the \`createMessengerAdapter\` config or the adapter's env
   "chat-sdk-zalo": {
     logo: "zalo",
     docsHref: "/docs/channels/chat-sdk",
-    badge: "Chat SDK",
+    badge: "Community",
     keywords: ["chat sdk", "zalo", "vietnam", "zalo bot platform", "messaging"],
     install: `Install eve, Chat SDK, the Zalo adapter, and a state adapter:
 
