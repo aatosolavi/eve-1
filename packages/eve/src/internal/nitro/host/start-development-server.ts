@@ -13,7 +13,9 @@ import { createDevelopmentAuthoredRebuildCoordinator } from "#internal/nitro/hos
 import {
   EVE_DEV_RUNTIME_ARTIFACTS_REBUILD_ROUTE_PATH,
   EVE_DEV_RUNTIME_ARTIFACTS_ROUTE_PATH,
+  EVE_DEV_TRACES_ROUTE_PATH,
 } from "#protocol/routes.js";
+import { handleDevTraceViewerRequest } from "#internal/nitro/host/dev-trace-viewer/handler.js";
 import { resolveDiscoveryProject } from "#discover/project.js";
 import { DevelopmentServerState } from "#internal/nitro/host/dev-server-state.js";
 import { toErrorMessage } from "#shared/errors.js";
@@ -203,6 +205,12 @@ function addDevelopmentControlHandler(input: {
       return worldResponse;
     }
     const url = new URL(request.url);
+    if (
+      url.pathname === EVE_DEV_TRACES_ROUTE_PATH ||
+      url.pathname.startsWith(`${EVE_DEV_TRACES_ROUTE_PATH}/`)
+    ) {
+      return handleDevTraceViewerRequest({ appRoot: input.appRoot, request });
+    }
     if (url.pathname === EVE_DEV_RUNTIME_ARTIFACTS_ROUTE_PATH && request.method === "GET") {
       return handleDevRuntimeArtifactsRequest({ appRoot: input.appRoot });
     }

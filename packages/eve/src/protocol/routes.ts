@@ -71,6 +71,29 @@ export const EVE_DEV_RUNTIME_ARTIFACTS_ROUTE_PATH = `${EVE_ROUTE_PREFIX}/dev/run
 export const EVE_DEV_RUNTIME_ARTIFACTS_REBUILD_ROUTE_PATH = `${EVE_DEV_RUNTIME_ARTIFACTS_ROUTE_PATH}/rebuild`;
 
 /**
+ * Dev-only route serving the local trace viewer SPA.
+ *
+ * Mounted only by the local dev server. The viewer is a self-contained HTML
+ * page (inline CSS + vanilla JS) that reads captured runs from the trace
+ * store; it never ships to production builds.
+ */
+export const EVE_DEV_TRACES_ROUTE_PATH = "/__traces";
+
+/**
+ * Dev-only path prefix under which the trace viewer fetches its JSON data
+ * (`/__traces/data` for the runs list, `/__traces/data/<traceId>` for one
+ * run's summary and waterfall).
+ */
+export const EVE_DEV_TRACES_DATA_ROUTE_PATH = `${EVE_DEV_TRACES_ROUTE_PATH}/data`;
+
+/**
+ * Dev-only Server-Sent Events endpoint that pushes a `change` event (with the
+ * affected run id) whenever a trace segment is written under `.eve/traces`, so
+ * the viewer updates in real time as spans land.
+ */
+export const EVE_DEV_TRACES_STREAM_ROUTE_PATH = `${EVE_DEV_TRACES_ROUTE_PATH}/stream`;
+
+/**
  * Builds the dev-only schedule dispatch URL for one named authored
  * schedule. The path encodes the schedule id so reserved characters in
  * authored filenames round-trip safely.
