@@ -172,6 +172,13 @@ export const INTEGRATIONS: readonly IntegrationEntry[] = [
     surfaces: { scaffoldable: false, gallery: true },
   },
   {
+    slug: "chat-sdk-weixin",
+    name: "WeChat / Weixin",
+    kind: "channel",
+    tagline: "WeChat messages, media, and typing through the Weixin iLink Chat SDK adapter.",
+    surfaces: { scaffoldable: false, gallery: true },
+  },
+  {
     slug: "agent-browser",
     name: "agent-browser",
     kind: "extension",
