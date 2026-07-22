@@ -502,7 +502,7 @@ Credentials come from the \`createMessengerAdapter\` config or the adapter's env
   "chat-sdk-weixin": {
     logo: "wechat",
     docsHref: "/docs/channels/chat-sdk",
-    badge: "Chat SDK",
+    badge: "Community",
     keywords: ["chat sdk", "wechat", "weixin", "ilink", "china", "messaging"],
     install: `Install eve, Chat SDK, the WeChat / Weixin adapter, and a state adapter:
 
