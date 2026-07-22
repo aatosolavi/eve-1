@@ -36,6 +36,7 @@ import type {
   PreparedDevelopmentApplicationHost,
 } from "#internal/nitro/host/types.js";
 import { createEveVercelOptions } from "#internal/nitro/host/vercel-build-output-config.js";
+import { createEvePackageTraceOptions } from "#internal/nitro/host/eve-package-trace-options.js";
 import { applyWorkflowTransform } from "#internal/workflow-bundle/workflow-builders.js";
 import { transformDynamicToolExecute } from "#internal/workflow-bundle/dynamic-tool-transform.js";
 import type { CompiledAgentManifest } from "#compiler/manifest.js";
@@ -841,6 +842,7 @@ export async function createProductionApplicationNitro(
     rootDir: preparedHost.appRoot,
     serverDir: false,
     traceDeps: bundler.tracedAppDependencies,
+    traceOpts: createEvePackageTraceOptions(),
     vercel: createEveVercelOptions(
       preset === "vercel" && includesApplicationSurface(options.surface),
     ),
