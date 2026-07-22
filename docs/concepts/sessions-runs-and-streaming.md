@@ -37,7 +37,7 @@ The stream is newline-delimited JSON (NDJSON), one event per line:
 | Event                     | Meaning                                                                                                          |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `session.started`         | A durable session was created.                                                                                   |
-| `turn.started`            | A new turn began.                                                                                                |
+| `turn.started`            | A new turn began. Includes an optional normalized user id for the authenticated caller.                          |
 | `message.received`        | An inbound user message was accepted; carries flattened text plus structured text/file parts.                    |
 | `step.started`            | A model step began.                                                                                              |
 | `actions.requested`       | The model requested one or more actions, including tool calls; calls stream before execution.                    |

@@ -17,7 +17,7 @@ export const EVE_STREAM_FORMAT_HEADER = "x-eve-stream-format";
 export const EVE_STREAM_VERSION_HEADER = "x-eve-stream-version";
 export const EVE_MESSAGE_STREAM_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";
 export const EVE_MESSAGE_STREAM_FORMAT = "ndjson";
-export const EVE_MESSAGE_STREAM_VERSION = "19";
+export const EVE_MESSAGE_STREAM_VERSION = "20";
 
 /**
  * eve-owned finish reason for one completed assistant step.
@@ -151,6 +151,12 @@ export interface SessionStartedStreamEvent {
   type: "session.started";
 }
 
+/** Authenticated user identity attached to a turn. */
+export interface TurnUserIdentity {
+  /** Stable canonical identity key. */
+  readonly id: string;
+}
+
 /**
  * Stream event emitted when one runtime turn starts.
  */
@@ -158,6 +164,7 @@ export interface TurnStartedStreamEvent {
   data: {
     sequence: number;
     turnId: string;
+    user?: TurnUserIdentity;
   };
   type: "turn.started";
 }
@@ -687,12 +694,17 @@ export function createSessionStartedEvent(input?: {
 export function createTurnStartedEvent(input: {
   readonly sequence: number;
   readonly turnId: string;
+  readonly user?: TurnUserIdentity;
 }): TurnStartedStreamEvent {
+  const data: TurnStartedStreamEvent["data"] = {
+    sequence: input.sequence,
+    turnId: input.turnId,
+  };
+  if (input.user !== undefined) {
+    data.user = input.user;
+  }
   return {
-    data: {
-      sequence: input.sequence,
-      turnId: input.turnId,
-    },
+    data,
     type: "turn.started",
   };
 }
