@@ -18,7 +18,30 @@ export interface Tracer {
   startSpan(name: string, options?: { attributes?: Record<string, unknown> | undefined }): Span;
 }
 
-export interface Context {}
+export interface Context {
+  getValue(key: symbol): unknown;
+  setValue(key: symbol, value: unknown): Context;
+  deleteValue(key: symbol): Context;
+}
+
+export declare const ROOT_CONTEXT: Context;
+
+export interface ContextManager {
+  active(): Context;
+  with<A extends unknown[], F extends (...args: A) => ReturnType<F>>(
+    context: Context,
+    fn: F,
+    thisArg?: ThisParameterType<F>,
+    ...args: A
+  ): ReturnType<F>;
+  bind<T>(context: Context, target: T): T;
+  enable(): this;
+  disable(): this;
+}
+
+export interface TracerProvider {
+  getTracer(name: string, version?: string, options?: { schemaUrl?: string }): Tracer;
+}
 
 export declare enum SpanStatusCode {
   UNSET = 0,
@@ -28,6 +51,8 @@ export declare enum SpanStatusCode {
 
 export declare const context: {
   active(): Context;
+  bind<T>(context: Context, target: T): T;
+  setGlobalContextManager(contextManager: ContextManager): boolean;
   with<T>(context: Context, fn: () => T): T;
 };
 
@@ -35,6 +60,7 @@ export declare const trace: {
   getActiveSpan(): Span | undefined;
   getTracer(name: string): Tracer;
   setSpan(context: Context, span: Span): Context;
+  setGlobalTracerProvider(provider: TracerProvider): boolean;
   wrapSpanContext(spanContext: SpanContext): Span;
 };
 
