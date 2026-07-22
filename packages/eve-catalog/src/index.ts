@@ -172,6 +172,13 @@ export const INTEGRATIONS: readonly IntegrationEntry[] = [
     surfaces: { scaffoldable: false, gallery: true },
   },
   {
+    slug: "chat-sdk-zalo",
+    name: "Zalo",
+    kind: "channel",
+    tagline: "Zalo Bot Platform conversations via a community Chat SDK adapter.",
+    surfaces: { scaffoldable: false, gallery: true },
+  },
+  {
     slug: "agent-browser",
     name: "agent-browser",
     kind: "extension",
