@@ -6,6 +6,7 @@ import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { isCodingAgentLaunch } from "#cli/agent-detection.js";
 import { eveCliBanner } from "#cli/banner.js";
 import { registerProjectCommands } from "#cli/commands/register-project-commands.js";
+import { registerTraceCommands } from "#cli/commands/register-trace-commands.js";
 import { resolveDevUiMode, resolveTuiDisplayOptions } from "#cli/dev/ui-options.js";
 import {
   parseDevelopmentHeaderOption,
@@ -607,6 +608,8 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
       const { runLogsListCommand } = await import("#cli/commands/logs.js");
       await runLogsListCommand(logger, appRoot, options);
     });
+
+  registerTraceCommands({ program, logger, appRoot });
 
   program
     .command("info")

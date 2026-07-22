@@ -16,6 +16,7 @@ import chatAdapterStateMemory from "./@chat-adapter/state-memory.mjs";
 import chatAdapterTwilio from "./@chat-adapter/twilio.mjs";
 
 import opentelemetryApi from "./@opentelemetry/api.mjs";
+import opentelemetrySdkTraceBase from "./@opentelemetry/sdk-trace-base.mjs";
 import standardSchemaSpec from "./@standard-schema/spec.mjs";
 import vercelDetectAgent from "./@vercel/detect-agent.mjs";
 import vercelOidc from "./@vercel/oidc.mjs";
@@ -64,6 +65,7 @@ export const MODULES = [
   mcp,
   openai,
   opentelemetryApi,
+  opentelemetrySdkTraceBase,
   otel,
   picocolors,
   provider,

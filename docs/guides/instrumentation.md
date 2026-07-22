@@ -115,6 +115,21 @@ ai.eve.turn  {eve.session.id}
 
 eve creates the `ai.eve.turn` parent span per turn and passes enriched telemetry to the AI SDK so model calls and tool executions are traced automatically. Session, turn, step, and channel context is injected as the framework half of the runtime context (`eve.version`, `eve.session.id`, `eve.environment`, `eve.turn.id`, `eve.turn.sequence`, `eve.step.index`, `eve.channel.kind`) and rides onto the spans alongside any values your `events["step.started"]` callback returns under `runtimeContext`.
 
+## Local traces in dev
+
+`eve dev` captures this same span tree locally with no setup — you do not need an `instrumentation.ts` or an external backend. Each run is written to `.eve/traces` as standard OTLP/JSON, and eve serves a live waterfall (runs list plus per-run timings, tokens, and model/tool detail) from the dev server at `/__traces`. This is the local mirror of the deployed Agent Runs view. By default the waterfall shows just the agent work (turns, model calls, tool calls); toggle **Verbose** to also see the workflow-engine plumbing (`workflow.*`, `step.*`, `hook.*`) that wraps each turn.
+
+Inspect the same traces from the terminal:
+
+```sh
+eve trace ls                        # recent runs: trigger, turns, tokens, duration
+eve trace show [traceId]            # render a run's waterfall (most recent when omitted)
+eve trace show <traceId> --json     # the raw OTLP/JSON payload
+eve trace export <traceId> --otlp <url>   # POST the run to any OTLP/HTTP endpoint
+```
+
+Because the stored artifact is standard OTLP, `eve trace export` sends a locally captured run to any OpenTelemetry backend unchanged. Local capture is **dev-only** — it is never registered under `eve start`. By default it records message payloads (prompts, completions, and tool arguments/results) to disk; set `EVE_TRACE_RECORD_INPUTS=0` and/or `EVE_TRACE_RECORD_OUTPUTS=0` to keep that content off disk for sensitive local data while still capturing the span tree, timings, and token usage. When you author your own `instrumentation.ts`, its `recordInputs` / `recordOutputs` configuration takes over and the zero-config local capture steps aside.
+
 ## Workflow run tags
 
 Separately from OpenTelemetry, eve tags every workflow run with reserved `$eve.*` attributes. These live on the Vercel Workflow run, queryable in the Workflow dashboard, not on OTel spans, and you do not configure them: they are framework-owned and emitted automatically on every session, turn, and subagent run, whether or not an `instrumentation.ts` file is present. Authored code cannot set or override the `$eve.` namespace.
