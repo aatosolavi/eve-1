@@ -22,6 +22,10 @@
  * inspects them; the implementation binds concrete types once.
  */
 export interface StepFlowTypes {
+  /** One model call's raw result before settlement. */
+  readonly callResult: unknown;
+  /** The prepared model-call runner one step drives. */
+  readonly callRunner: unknown;
   /** Emission coordinates threaded through lifecycle events. */
   readonly emissionState: unknown;
   /** The durable message history that becomes the base prompt. */

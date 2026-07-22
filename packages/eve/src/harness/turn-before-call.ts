@@ -6,11 +6,11 @@ import {
   type TelemetryOptions,
 } from "ai";
 import { isScheduleAppAuth } from "#channel/schedule-auth.js";
-import { contextStorage, type AlsContext } from "#context/container.js";
+import { contextStorage } from "#context/container.js";
 import { AuthKey, ParentSessionKey } from "#context/keys.js";
 import { buildDynamicInstructionMessages } from "#context/dynamic-instruction-lifecycle.js";
 import { PendingSkillAnnouncementKey } from "#context/dynamic-skill-lifecycle.js";
-import type { BeforeCallPorts, StepFlowTypes } from "#core/turn-before-call.js";
+import type { BeforeCallPorts } from "#core/turn-before-call.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
 import {
   createActionResultEvent,
@@ -41,80 +41,24 @@ import {
   getPendingInputRequestIds,
   hasStepInput,
   resolvePendingInput,
-  type RejectedActionBatch,
 } from "#harness/input-requests.js";
 import { normalizeUserContent } from "#harness/messages.js";
 import { buildGatewayAttributionHeaders, resolveActiveRuntimeModel } from "#harness/model-call.js";
-import {
-  detectPromptCachePath,
-  getAnthropicCacheMarker,
-  type AnthropicCacheMarker,
-  type PromptCachePath,
-} from "#harness/prompt-cache.js";
+import { detectPromptCachePath, getAnthropicCacheMarker } from "#harness/prompt-cache.js";
 import { resolvePendingRuntimeActions } from "#harness/runtime-actions.js";
 import { applySessionLimitContinuation } from "#harness/session-limit-enforcement.js";
 import { convertStaleResponsesToUserMessage } from "#harness/stale-input-responses.js";
+import type { HarnessStepFlow } from "#harness/step-flow.js";
 import { classifyParkedSession, resolveApprovalKeyFromTools } from "#harness/step-result.js";
-import type { GenerateConfig, GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
+import type { GenerateConfig, HarnessSession } from "#harness/types.js";
 import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#shared/empty-delivery.js";
 
 /**
- * The harness binding of the core pre-call flow
- * ({@link import("#core/turn-before-call.js").resolveTurnInput} and
- * {@link import("#core/turn-before-call.js").assemblePrompt}): this module
- * only implements the ports — every effect the flow sequences — while the
- * sequencing and settle points live in core.
- */
-
-/** Concrete {@link StepFlowTypes} binding for the harness. */
-export interface HarnessStepFlow extends StepFlowTypes {
-  readonly emissionState: HarnessEmissionState;
-  readonly history: ModelMessage[];
-  readonly limitGrant: { readonly granted: boolean };
-  readonly modelEnvironment: ModelCallEnvironment;
-  readonly outcome: GenerateOutcome;
-  readonly prompt: PreparedModelCall;
-  readonly rejectedApprovals: RejectedActionBatch;
-  readonly state: HarnessSession;
-  readonly stepInput: StepInput;
-}
-
-/** The resolved model call environment threaded through assembly. */
-export interface ModelCallEnvironment {
-  readonly attributionHeaders: Record<string, string> | undefined;
-  readonly cachePath: PromptCachePath;
-  /** Ambient context, absent in direct harness unit tests. */
-  readonly ctx: AlsContext | undefined;
-  readonly marker: AnthropicCacheMarker | undefined;
-  readonly model: LanguageModel;
-}
-
-/** The assembled prompt: everything one model call consumes. */
-export interface PreparedModelCall {
-  readonly approvedTools: ReadonlySet<string>;
-  readonly attributionHeaders: Record<string, string> | undefined;
-  readonly cachePath: PromptCachePath;
-  /** Ambient context, absent in direct harness unit tests. */
-  readonly ctx: AlsContext | undefined;
-  readonly emptyDeliveryEnabled: boolean;
-  readonly marker: AnthropicCacheMarker | undefined;
-  /**
-   * The durable prompt: ref-only attachment parts, flows into
-   * `session.history` after the step. Never carries raw bytes.
-   */
-  readonly messages: ModelMessage[];
-  readonly model: LanguageModel;
-  /**
-   * Transient projection of `messages` for the model call: attachments
-   * hydrated to inline bytes, system entries split out.
-   */
-  readonly modelMessages: ModelMessage[];
-  readonly session: HarnessSession;
-  readonly systemMessages: SystemModelMessage[];
-}
-
-/**
- * Binds every pre-call port to its harness implementation for one step.
+ * The pre-call ports of the core step flow, bound to the harness: every
+ * effect {@link import("#core/turn-before-call.js").resolveTurnInput} and
+ * {@link import("#core/turn-before-call.js").assemblePrompt} sequence.
+ * The sequencing and settle points live in core; the concrete type
+ * binding lives in {@link HarnessStepFlow}.
  */
 export function createBeforeCallPorts(input: {
   readonly config: GenerateConfig;
