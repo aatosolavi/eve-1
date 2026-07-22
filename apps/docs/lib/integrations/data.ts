@@ -502,7 +502,7 @@ Credentials come from the \`createMessengerAdapter\` config or the adapter's env
   "chat-sdk-mattermost": {
     logo: "mattermost",
     docsHref: "/docs/channels/chat-sdk",
-    badge: "Chat SDK",
+    badge: "Community",
     keywords: ["chat sdk", "mattermost", "self hosted chat", "team messaging", "websocket"],
     install: `Install eve, Chat SDK, the Mattermost adapter, and a state adapter:
 
