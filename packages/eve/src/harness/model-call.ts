@@ -41,7 +41,7 @@ import type {
   CompactionConfig,
   HarnessSession,
   HarnessToolMap,
-  ToolLoopHarnessConfig,
+  GenerateConfig,
 } from "#harness/types.js";
 import { createWorkflowLifecycle } from "#harness/workflow-lifecycle.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
@@ -58,9 +58,7 @@ import {
 export const environment = process.env.NODE_ENV ?? "unknown";
 export const eveVersion = resolveInstalledPackageInfo().version;
 
-// Logger name intentionally stays "harness.tool-loop": this machinery moved
-// out of tool-loop.ts and its emitted log fields must remain byte-identical.
-const log = createLogger("harness.tool-loop");
+const log = createLogger("harness.generate");
 
 /**
  * Wired as the agent's `onToolExecutionEnd`. On the `tool-error` branch
@@ -119,7 +117,7 @@ function mergeSystemInstructions(
  */
 export function buildGatewayAttributionHeaders(
   model: LanguageModel,
-  runtimeIdentity: ToolLoopHarnessConfig["runtimeIdentity"],
+  runtimeIdentity: GenerateConfig["runtimeIdentity"],
 ): Record<string, string> | undefined {
   const providerHeaders = resolveProviderHeaders(model);
   if (providerHeaders === undefined) return undefined;
@@ -135,7 +133,7 @@ export function buildGatewayAttributionHeaders(
 }
 
 export async function resolveActiveRuntimeModel(input: {
-  readonly config: ToolLoopHarnessConfig;
+  readonly config: GenerateConfig;
   readonly ctx: ReturnType<typeof contextStorage.getStore>;
   readonly session: HarnessSession;
 }): Promise<{
@@ -249,10 +247,10 @@ export interface ModelCallRunnerInput {
   readonly approvedTools: ReadonlySet<string>;
   readonly attributionHeaders: Record<string, string> | undefined;
   readonly cachePath: PromptCachePath;
-  readonly config: ToolLoopHarnessConfig;
+  readonly config: GenerateConfig;
   readonly ctx: ReturnType<typeof contextStorage.getStore>;
   readonly emissionState: HarnessEmissionState;
-  readonly emit: ToolLoopHarnessConfig["handleEvent"];
+  readonly emit: GenerateConfig["handleEvent"];
   readonly marker: AnthropicCacheMarker | undefined;
   readonly model: LanguageModel;
   readonly modelMessages: ModelMessage[];
@@ -425,7 +423,7 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
         // and emits the structured step.failed. Unrecognized errors keep
         // the full dump so they stay loud.
         if (summarizeKnownError(event.error)?.tags.includes("config") === true) return;
-        logError(log, "tool-loop stream error", event.error);
+        logError(log, "generate stream error", event.error);
       },
       onStepFinish: hooks.onStepFinish,
       prepareStep: hooks.prepareStep,

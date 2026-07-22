@@ -100,7 +100,7 @@ export function getHarnessEmissionState(state: SessionStateMap | undefined): Har
  * epilogue (or recoverable failure cascade) and reset.
  *
  * Returns `false` while a turn is in progress, including during
- * tool-loop continuations and runtime-action resumes within the same
+ * generation continuations and runtime-action resumes within the same
  * turn. Callers that gate per-turn work (eg. lifecycle hook dispatch)
  * use this predicate to distinguish a fresh delivery from a
  * continuation of an in-flight turn.

@@ -171,7 +171,7 @@ export type GenerateOutcome = TurnStepResult<HarnessLoopTypes>;
  * loop's classified outcome. This is the production implementation of the
  * core `generate` port.
  */
-export type StepFn = (session: HarnessSession, input?: StepInput) => Promise<GenerateOutcome>;
+export type GenerateFn = (session: HarnessSession, input?: StepInput) => Promise<GenerateOutcome>;
 
 /**
  * Map from tool name to its harness-owned definition.
@@ -193,9 +193,9 @@ export type HandleEventFn = (
 ) => Promise<void>;
 
 /**
- * Dependencies injected into the tool-loop harness at construction time.
+ * Dependencies injected into the generate harness at construction time.
  */
-export interface ToolLoopHarnessConfig {
+export interface GenerateConfig {
   /** Cancellation signal for the active turn. */
   readonly abortSignal?: AbortSignal;
   /**

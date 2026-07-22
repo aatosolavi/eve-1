@@ -3,8 +3,8 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
 import { setPendingInputBatch } from "#harness/input-requests.js";
-import { createToolLoopHarness } from "#harness/tool-loop.js";
-import type { HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import { createGenerate } from "#harness/generate.js";
+import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 
 const usage = {
   inputTokens: {
@@ -111,7 +111,7 @@ describe("tool loop generate approval resume (real AI SDK)", () => {
       modelId: "generate-approval-resume-model",
       provider: "eve-integration-mock",
     });
-    const tools: ToolLoopHarnessConfig["tools"] = new Map([
+    const tools: GenerateConfig["tools"] = new Map([
       [
         toolCall.toolName,
         {
@@ -128,13 +128,13 @@ describe("tool loop generate approval resume (real AI SDK)", () => {
         },
       ],
     ]);
-    const config: ToolLoopHarnessConfig = {
+    const config: GenerateConfig = {
       mode: "conversation",
       resolveModel: async (): Promise<LanguageModel> => model,
       tools,
     };
 
-    const result = await createToolLoopHarness(config)(createPendingApprovalSession(), {
+    const result = await createGenerate(config)(createPendingApprovalSession(), {
       inputResponses: [{ optionId: "approve", requestId: approvalRequest.approvalId }],
     });
 

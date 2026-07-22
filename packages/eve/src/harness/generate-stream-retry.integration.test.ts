@@ -2,8 +2,8 @@ import { type LanguageModel } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createToolLoopHarness } from "#harness/tool-loop.js";
-import type { HandleEventFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import { createGenerate } from "#harness/generate.js";
+import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
@@ -44,7 +44,7 @@ function createEventCollector(): {
   };
 }
 
-function createConfig(model: LanguageModel, emit: HandleEventFn): ToolLoopHarnessConfig {
+function createConfig(model: LanguageModel, emit: HandleEventFn): GenerateConfig {
   return {
     handleEvent: emit,
     mode: "task",
@@ -116,7 +116,7 @@ describe("tool loop streamed provider retries", () => {
     });
     const { emit, events } = createEventCollector();
 
-    const result = await createToolLoopHarness(createConfig(model, emit))(createSession(), {
+    const result = await createGenerate(createConfig(model, emit))(createSession(), {
       message: "Continue.",
     });
 
@@ -158,7 +158,7 @@ describe("tool loop streamed provider retries", () => {
     });
     const { emit, events } = createEventCollector();
 
-    const result = await createToolLoopHarness(createConfig(model, emit))(createSession(), {
+    const result = await createGenerate(createConfig(model, emit))(createSession(), {
       message: "Continue.",
     });
 

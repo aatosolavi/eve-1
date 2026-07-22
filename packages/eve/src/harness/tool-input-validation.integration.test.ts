@@ -3,8 +3,8 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 
 import { getPendingInputRequestIds } from "#harness/input-requests.js";
-import { createToolLoopHarness } from "#harness/tool-loop.js";
-import type { HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import { createGenerate } from "#harness/generate.js";
+import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 import {
   ASK_QUESTION_INPUT_SCHEMA,
   ASK_QUESTION_TOOL_DEFINITION,
@@ -86,7 +86,7 @@ describe("framework tool input validation (real AI SDK)", () => {
       modelId: "tool-validation-model",
       provider: "eve-integration-mock",
     });
-    const tools: ToolLoopHarnessConfig["tools"] = new Map([
+    const tools: GenerateConfig["tools"] = new Map([
       [
         "ask_question",
         {
@@ -96,7 +96,7 @@ describe("framework tool input validation (real AI SDK)", () => {
         },
       ],
     ]);
-    const config: ToolLoopHarnessConfig = {
+    const config: GenerateConfig = {
       capabilities: { requestInput: true },
       mode: "conversation",
       resolveModel: async (): Promise<LanguageModel> => model,
@@ -119,7 +119,7 @@ describe("framework tool input validation (real AI SDK)", () => {
       history: [],
       sessionId: "tool-validation-session",
     };
-    const runStep = createToolLoopHarness(config);
+    const runStep = createGenerate(config);
 
     const malformedStep = await runStep(session, { message: "Ask me which option to use." });
 
@@ -199,7 +199,7 @@ describe("framework tool input validation (real AI SDK)", () => {
       modelId: "final-output-validation-model",
       provider: "eve-integration-mock",
     });
-    const config: ToolLoopHarnessConfig = {
+    const config: GenerateConfig = {
       mode: "task",
       resolveModel: async (): Promise<LanguageModel> => model,
       tools: new Map(),
@@ -216,7 +216,7 @@ describe("framework tool input validation (real AI SDK)", () => {
       outputSchema,
       sessionId: "final-output-validation-session",
     };
-    const runStep = createToolLoopHarness(config);
+    const runStep = createGenerate(config);
 
     const invalidStep = await runStep(session, { message: "Finish the task." });
 

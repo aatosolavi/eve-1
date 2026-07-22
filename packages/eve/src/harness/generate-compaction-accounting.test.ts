@@ -2,8 +2,8 @@ import { generateText, jsonSchema, type LanguageModel, ToolLoopAgent } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setPendingInputBatch } from "#harness/input-requests.js";
-import { createToolLoopHarness } from "#harness/tool-loop.js";
-import type { HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import { createGenerate } from "#harness/generate.js";
+import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -32,7 +32,7 @@ function createTestSession(overrides?: Partial<HarnessSession>): HarnessSession 
   };
 }
 
-function createTestConfig(overrides?: Partial<ToolLoopHarnessConfig>): ToolLoopHarnessConfig {
+function createTestConfig(overrides?: Partial<GenerateConfig>): GenerateConfig {
   return {
     mode: "conversation",
     resolveModel: vi.fn().mockResolvedValue({} as LanguageModel),
@@ -188,7 +188,7 @@ describe("tool-loop structured compaction accounting", () => {
       },
     ]);
 
-    const runStep = createToolLoopHarness(
+    const runStep = createGenerate(
       createTestConfig({
         resolveModel: vi.fn().mockResolvedValue({ modelId: "test-model" } as LanguageModel),
       }),
@@ -240,7 +240,7 @@ describe("tool-loop structured compaction accounting", () => {
       },
     ]);
 
-    const runStep = createToolLoopHarness(createTestConfig());
+    const runStep = createGenerate(createTestConfig());
     const session = setPendingInputBatch({
       requests: [
         {
@@ -327,7 +327,7 @@ describe("tool-loop structured compaction accounting", () => {
       },
     ]);
 
-    const runStep = createToolLoopHarness(createTestConfig());
+    const runStep = createGenerate(createTestConfig());
 
     // Threshold far above the history size so compaction never fires; the only
     // thing that could shrink the large result is pruning, which is gone.

@@ -4,7 +4,7 @@
  * way the rest of the harness state does.
  *
  * The harness runs each turn as a sequence of `"use step"` invocations
- * (one per tool-loop iteration). Each step knows its own
+ * (one per generation step). Each step knows its own
  * `result.usage`, but the dashboard cares about totals **per turn**.
  * The workflow runtime's attribute store is "last write wins" per key,
  * so the simplest cumulative pattern is: read the previous total from

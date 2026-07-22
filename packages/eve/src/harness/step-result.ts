@@ -45,7 +45,7 @@ import type {
   HarnessLoopTypes,
   HarnessSession,
   HarnessToolMap,
-  ToolLoopHarnessConfig,
+  GenerateConfig,
 } from "#harness/types.js";
 import { readWorkflowContinuationSecurity } from "#harness/workflow-continuation-security.js";
 import { parkOnWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
@@ -63,9 +63,7 @@ import { hasEmptyDeliverySentinel } from "#shared/empty-delivery.js";
 import type { JsonValue } from "#shared/json.js";
 import { getWorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
 
-// Logger name intentionally stays "harness.tool-loop": these functions moved
-// out of tool-loop.ts and their emitted log fields must remain byte-identical.
-const log = createLogger("harness.tool-loop");
+const log = createLogger("harness.generate");
 
 /**
  * Classifies a parked session into the {@link GenerateOutcome} arm the loop
@@ -154,8 +152,8 @@ export function withOutcomeState<
  * park, continue the tool loop, or terminate.
  */
 export async function handleStepResult(input: {
-  readonly config: ToolLoopHarnessConfig;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly config: GenerateConfig;
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
   readonly promptMessages: readonly ModelMessage[];
   readonly result: HarnessStepResult;

@@ -18,9 +18,7 @@ import { EMPTY_DELIVERY_SENTINEL } from "#shared/empty-delivery.js";
 import type { JsonObject, JsonValue } from "#shared/json.js";
 import { FINAL_OUTPUT_TOOL_NAME } from "#runtime/framework-tools/final-output.js";
 
-// Logger name intentionally stays "harness.tool-loop": these functions moved
-// out of tool-loop.ts and their emitted log fields must remain byte-identical.
-const log = createLogger("harness.tool-loop");
+const log = createLogger("harness.generate");
 
 /**
  * Max attempts (1 original + N retries) for transient model-call

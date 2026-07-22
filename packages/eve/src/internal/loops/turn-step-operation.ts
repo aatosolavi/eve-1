@@ -39,7 +39,7 @@ import {
   type DurableSession,
   type DurableSessionState,
 } from "#execution/durable-session-store.js";
-import { createExecutionNodeStep, type CreateRuntime } from "#execution/node-step.js";
+import { createNodeGenerate, type CreateRuntime } from "#execution/node-generate.js";
 import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
@@ -306,7 +306,7 @@ export async function executeTurnStepOperation(
           turnAgent: bundle.turnAgent,
         });
 
-        const step = createExecutionNodeStep({
+        const step = createNodeGenerate({
           abortSignal: input.abortSignal,
           capabilities,
           createRuntime: input.createRuntime,

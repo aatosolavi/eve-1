@@ -1,5 +1,5 @@
 /**
- * Session token limit policy for the tool-loop harness.
+ * Session token limit policy for the generate harness.
  *
  * Two seams into the harness step:
  *
@@ -33,13 +33,13 @@ import {
   type SessionTokenLimitViolation,
 } from "#harness/turn-tag-state.js";
 import { classifyParkedSession } from "#harness/step-result.js";
-import type { GenerateOutcome, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 
 const SESSION_TOKEN_LIMIT_REACHED_CODE = "SESSION_TOKEN_LIMIT_REACHED";
 
 interface SessionLimitPolicyInput {
-  readonly config: ToolLoopHarnessConfig;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly config: GenerateConfig;
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly emissionState: HarnessEmissionState;
   readonly session: HarnessSession;
 }
@@ -135,8 +135,8 @@ export async function enforceSessionTokenLimit(
  * survives into the resumed turn.
  */
 async function parkOnSessionTokenLimit(input: {
-  readonly config: ToolLoopHarnessConfig;
-  readonly emit: NonNullable<ToolLoopHarnessConfig["handleEvent"]>;
+  readonly config: GenerateConfig;
+  readonly emit: NonNullable<GenerateConfig["handleEvent"]>;
   readonly emissionState: HarnessEmissionState;
   readonly messages: readonly ModelMessage[];
   readonly session: HarnessSession;
@@ -187,8 +187,8 @@ function formatSessionTokenLimitMessage(kind: SessionTokenLimitViolation["kind"]
 }
 
 async function failSessionTokenLimit(input: {
-  readonly config: ToolLoopHarnessConfig;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly config: GenerateConfig;
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly emissionState: HarnessEmissionState;
   readonly session: HarnessSession;
   readonly violation: SessionTokenLimitViolation;

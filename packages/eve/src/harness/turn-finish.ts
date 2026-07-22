@@ -13,14 +13,14 @@ import {
   OUTPUT_SCHEMA_NOT_FULFILLED,
   persistStructuredAssistantTurn,
 } from "#harness/step-result.js";
-import type { GenerateOutcome, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { createResultCompletedEvent } from "#protocol/message.js";
 import type { JsonObject, JsonValue } from "#shared/json.js";
 import type { RunMode } from "#shared/run-mode.js";
 
 /** Emits `result.completed` followed by the turn epilogue for `mode`. */
 async function emitStructuredResult(
-  emit: NonNullable<ToolLoopHarnessConfig["handleEvent"]>,
+  emit: NonNullable<GenerateConfig["handleEvent"]>,
   emissionState: ReturnType<typeof getHarnessEmissionState>,
   structured: JsonValue,
   mode: RunMode,
@@ -44,7 +44,7 @@ async function emitStructuredResult(
  */
 export async function finishTaskTurn(input: {
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly history: readonly ModelMessage[];
   readonly result: HarnessStepResult;
   readonly schema: JsonObject | undefined;
@@ -104,7 +104,7 @@ export async function finishTaskTurn(input: {
  */
 export async function finishConversationTurn(input: {
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly history: readonly ModelMessage[];
   readonly result: HarnessStepResult;
   readonly schema: JsonObject | undefined;

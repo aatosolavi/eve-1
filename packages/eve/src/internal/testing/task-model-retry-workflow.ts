@@ -13,7 +13,7 @@ import {
   readDurableSession,
 } from "#execution/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
-import { createToolLoopHarness } from "#harness/tool-loop.js";
+import { createGenerate } from "#harness/generate.js";
 import type { HarnessSession } from "#harness/types.js";
 import { createBootstrapGenerateResult } from "#runtime/agent/bootstrap-model-utils.js";
 import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
@@ -89,7 +89,7 @@ export async function taskModelRetryStep(input: {
     modelId: MODEL_ID,
     provider: "eve-integration-mock",
   });
-  const runStep = createToolLoopHarness({
+  const runStep = createGenerate({
     mode: "task",
     resolveModel: async (): Promise<LanguageModel> => model,
     tools: new Map(),

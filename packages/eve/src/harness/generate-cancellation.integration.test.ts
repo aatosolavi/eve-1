@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { withOutcomeState } from "#harness/step-result.js";
-import { createToolLoopHarness } from "#harness/tool-loop.js";
+import { createGenerate } from "#harness/generate.js";
 import { TurnCancelledError } from "#harness/turn-cancellation.js";
-import type { HandleEventFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
@@ -42,8 +42,8 @@ function createEventCollector(): {
 function createConfig(
   model: LanguageModel,
   emit: HandleEventFn,
-  overrides?: Partial<ToolLoopHarnessConfig>,
-): ToolLoopHarnessConfig {
+  overrides?: Partial<GenerateConfig>,
+): GenerateConfig {
   return {
     handleEvent: emit,
     mode: "conversation",
@@ -79,7 +79,7 @@ describe("tool loop cancellation (real AI SDK)", () => {
     });
 
     const { emit, events } = createEventCollector();
-    const runStep = createToolLoopHarness(
+    const runStep = createGenerate(
       createConfig(model, emit, { abortSignal: abortController.signal }),
     );
 
@@ -128,7 +128,7 @@ describe("tool loop cancellation (real AI SDK)", () => {
       doStream,
     });
 
-    const tools: ToolLoopHarnessConfig["tools"] = new Map([
+    const tools: GenerateConfig["tools"] = new Map([
       [
         "wait_for_cancel",
         {
@@ -154,7 +154,7 @@ describe("tool loop cancellation (real AI SDK)", () => {
     ]);
 
     const { emit, events } = createEventCollector();
-    const runStep = createToolLoopHarness(
+    const runStep = createGenerate(
       createConfig(model, emit, { abortSignal: abortController.signal, tools }),
     );
 
@@ -212,12 +212,12 @@ describe("tool loop cancellation (real AI SDK)", () => {
       });
 
     const inert = createEventCollector();
-    const inertResult = await createToolLoopHarness(
+    const inertResult = await createGenerate(
       createConfig(buildModel(), inert.emit, { abortSignal: new AbortController().signal }),
     )(createSession(), { message: "Hi" });
 
     const bare = createEventCollector();
-    const bareResult = await createToolLoopHarness(createConfig(buildModel(), bare.emit))(
+    const bareResult = await createGenerate(createConfig(buildModel(), bare.emit))(
       createSession(),
       { message: "Hi" },
     );

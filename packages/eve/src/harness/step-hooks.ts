@@ -33,7 +33,7 @@ import {
 import { createRuntimeActionRequestFromToolCall } from "#harness/runtime-actions.js";
 import { isInvalidToolCall } from "#harness/tool-call-input-errors.js";
 import type { RuntimeToolResultActionResult } from "#runtime/actions/types.js";
-import type { HandleEventFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { contextStorage } from "#context/container.js";
 import { isAuthorizationSignal, isPendingAuthorizationToolOutput } from "#harness/authorization.js";
 import { readToolInterrupt } from "#harness/tool-interrupts.js";
@@ -101,7 +101,7 @@ interface StepHooks {
    * `ToolLoopAgent` `prepareStep` callback.
    *
    * Handles `step.started` emission and cache/provider metadata. Compaction
-   * happens in the tool-loop before `agent.stream()`.
+   * happens in the generate harness before `agent.stream()`.
    */
   readonly prepareStep: PrepareStepFunction<ToolSet>;
 
@@ -149,7 +149,7 @@ export function buildStepHooks(input: StepHooksInput): StepHooks {
   // prepareStep
   //
   // Only handles step.started emission and cache/provider metadata. Compaction
-  // runs in the tool-loop before `agent.stream()` so the compacted messages
+  // runs in the generate harness before `agent.stream()` so the compacted messages
   // flow through the same `messages` variable the harness uses to rebuild
   // session history — no prepareStep snapshot required.
   // -------------------------------------------------------------------------
@@ -215,7 +215,7 @@ export async function emitStepActions(
     readonly excludedActionCallIds?: ReadonlySet<string>;
     readonly excludedActionToolNames: ReadonlySet<string>;
     readonly handledInlineToolResultCallIds?: ReadonlySet<string>;
-    readonly tools: ToolLoopHarnessConfig["tools"];
+    readonly tools: GenerateConfig["tools"];
   },
 ): Promise<void> {
   const providerExecutedCallIds = new Set(

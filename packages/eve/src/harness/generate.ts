@@ -101,18 +101,18 @@ import { continuePendingWorkflowInterrupt } from "#harness/workflow-interrupt-co
 import type {
   GenerateOutcome,
   HarnessSession,
-  StepFn,
+  GenerateFn,
   StepInput,
-  ToolLoopHarnessConfig,
+  GenerateConfig,
 } from "#harness/types.js";
 
 /**
- * Creates a tool-loop harness step function backed by AI SDK `ToolLoopAgent`.
+ * Creates a generate harness step function backed by AI SDK `ToolLoopAgent`.
  */
 
-const log = createLogger("harness.tool-loop");
+const log = createLogger("harness.generate");
 
-export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
+export function createGenerate(config: GenerateConfig): GenerateFn {
   const emit = config.handleEvent;
   const telemetryConfig = getInstrumentationConfig();
   if (telemetryConfig !== undefined) {
@@ -122,7 +122,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
   const agentName = config.runtimeIdentity?.agentName;
 
   async function runStep(
-    initialSession: Readonly<Parameters<StepFn>[0]>,
+    initialSession: Readonly<Parameters<GenerateFn>[0]>,
     input?: StepInput,
   ): Promise<GenerateOutcome> {
     // --- Turn span lifecycle ------------------------------------------------
@@ -159,7 +159,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
   }
 
   async function executeStepBody(
-    initialSession: Readonly<Parameters<StepFn>[0]>,
+    initialSession: Readonly<Parameters<GenerateFn>[0]>,
     input?: StepInput,
     turnSpan?: Span,
   ): Promise<GenerateOutcome> {
@@ -698,13 +698,13 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
  */
 async function maybeCompact(input: {
   readonly abortSignal?: AbortSignal;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
   readonly messages: ModelMessage[];
   readonly model: LanguageModel;
-  readonly onCompaction?: ToolLoopHarnessConfig["onCompaction"];
-  readonly resolveModel: ToolLoopHarnessConfig["resolveModel"];
-  readonly runtimeIdentity?: ToolLoopHarnessConfig["runtimeIdentity"];
+  readonly onCompaction?: GenerateConfig["onCompaction"];
+  readonly resolveModel: GenerateConfig["resolveModel"];
+  readonly runtimeIdentity?: GenerateConfig["runtimeIdentity"];
   readonly session: HarnessSession;
   readonly telemetry?: TelemetryOptions;
 }): Promise<{ readonly messages: ModelMessage[]; readonly session: HarnessSession }> {

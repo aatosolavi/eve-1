@@ -130,7 +130,7 @@ describe("turnWorkflow", () => {
     );
   });
 
-  it("keeps tool-loop continuations inside the same turn workflow", async () => {
+  it("keeps generation continuations inside the same turn workflow", async () => {
     const sessionState = createSessionState();
     vi.mocked(turnStep)
       .mockResolvedValueOnce({

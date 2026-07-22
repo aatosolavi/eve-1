@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { createLogger, logError } from "#internal/logging.js";
 import { getHarnessEmissionState, setHarnessEmissionState } from "#harness/emission.js";
 import { classifyParkedSession } from "#harness/step-result.js";
-import type { GenerateOutcome, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { getWorkflowContinuationSecurity } from "#harness/workflow-continuation-security.js";
 import {
   clearPendingWorkflowInterrupt,
@@ -25,15 +25,13 @@ import {
   type WorkflowSandboxInterrupt,
 } from "#shared/workflow-sandbox.js";
 
-// Logger name intentionally stays "harness.tool-loop": these functions moved
-// out of tool-loop.ts and their emitted log fields must remain byte-identical.
-const log = createLogger("harness.tool-loop");
+const log = createLogger("harness.generate");
 
 /** Replays a parked dynamic workflow with completed child-agent results. */
 export async function continuePendingWorkflowInterrupt(input: {
   readonly childResults?: readonly { readonly output?: unknown }[];
-  readonly config: ToolLoopHarnessConfig;
-  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly config: GenerateConfig;
+  readonly emit?: GenerateConfig["handleEvent"];
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
   readonly session: HarnessSession;
 }): Promise<GenerateOutcome | null> {
