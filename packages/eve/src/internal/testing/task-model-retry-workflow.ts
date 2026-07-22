@@ -97,18 +97,18 @@ export async function taskModelRetryStep(input: {
 
   const result = await runStep(session, { message: "Continue the delegated task." });
 
-  if (result.next === null || typeof result.next === "function") {
+  if (result.action !== "done") {
     throw new Error("Task model retry fixture expected a completed task result.");
   }
-  if (typeof result.next.output !== "string") {
+  if (typeof result.output !== "string") {
     throw new Error("Task model retry fixture expected a string task output.");
   }
 
   return {
     attempt,
-    history: result.session.history,
+    history: result.state.history,
     historyBeforeModelCall,
-    output: result.next.output,
+    output: result.output,
   };
 }
 

@@ -32,7 +32,8 @@ import {
   getSessionTokenUsage,
   type SessionTokenLimitViolation,
 } from "#harness/turn-tag-state.js";
-import type { HarnessSession, StepResult, ToolLoopHarnessConfig } from "#harness/types.js";
+import { classifyParkedSession } from "#harness/step-result.js";
+import type { GenerateOutcome, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
 
 const SESSION_TOKEN_LIMIT_REACHED_CODE = "SESSION_TOKEN_LIMIT_REACHED";
 
@@ -60,7 +61,10 @@ export async function applySessionLimitContinuation(
   input: SessionLimitPolicyInput & {
     readonly limitContinuation: { readonly granted: boolean } | undefined;
   },
-): Promise<{ readonly result: StepResult | null; readonly session: HarnessSession }> {
+): Promise<{
+  readonly result: GenerateOutcome | null;
+  readonly session: HarnessSession;
+}> {
   if (input.limitContinuation === undefined) {
     return { result: null, session: input.session };
   }
@@ -92,7 +96,7 @@ export async function applySessionLimitContinuation(
   }
 
   return {
-    result: { next: { done: true, output: "" }, session: input.session },
+    result: { action: "done", output: "", state: input.session },
     session: input.session,
   };
 }
@@ -107,7 +111,7 @@ export async function applySessionLimitContinuation(
  */
 export async function enforceSessionTokenLimit(
   input: SessionLimitPolicyInput & { readonly messages: readonly ModelMessage[] },
-): Promise<StepResult | null> {
+): Promise<GenerateOutcome | null> {
   const violation = getSessionTokenLimitViolation(input.session);
   if (violation === null) {
     return null;
@@ -137,7 +141,7 @@ async function parkOnSessionTokenLimit(input: {
   readonly messages: readonly ModelMessage[];
   readonly session: HarnessSession;
   readonly violation: SessionTokenLimitViolation;
-}): Promise<StepResult> {
+}): Promise<GenerateOutcome> {
   const usage = getSessionTokenUsage(input.session);
   const request = createSessionLimitContinuationRequest({
     sessionId: input.session.sessionId,
@@ -175,10 +179,7 @@ async function parkOnSessionTokenLimit(input: {
     );
   }
 
-  return {
-    next: null,
-    session: setHarnessEmissionState(parkedSession, emissionState),
-  };
+  return classifyParkedSession(setHarnessEmissionState(parkedSession, emissionState));
 }
 
 function formatSessionTokenLimitMessage(kind: SessionTokenLimitViolation["kind"]): string {
@@ -191,7 +192,7 @@ async function failSessionTokenLimit(input: {
   readonly emissionState: HarnessEmissionState;
   readonly session: HarnessSession;
   readonly violation: SessionTokenLimitViolation;
-}): Promise<StepResult> {
+}): Promise<GenerateOutcome> {
   const usage = getSessionTokenUsage(input.session);
   const message = formatSessionTokenLimitMessage(input.violation.kind);
   const details = {
@@ -212,11 +213,9 @@ async function failSessionTokenLimit(input: {
   }
 
   return {
-    next: {
-      done: true,
-      isError: input.config.mode === "task" ? true : undefined,
-      output: input.config.mode === "task" ? message : "",
-    },
-    session: input.session,
+    action: "done",
+    isError: input.config.mode === "task" ? true : undefined,
+    output: input.config.mode === "task" ? message : "",
+    state: input.session,
   };
 }

@@ -50,7 +50,12 @@ import {
   getSessionTokenUsage,
   setTurnUsageState,
 } from "#harness/turn-tag-state.js";
-import type { HarnessEmitFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type {
+  GenerateOutcome,
+  HandleEventFn,
+  HarnessSession,
+  ToolLoopHarnessConfig,
+} from "#harness/types.js";
 import {
   CONDITIONAL_DELIVERY_INSTRUCTION,
   EMPTY_DELIVERY_SENTINEL,
@@ -99,6 +104,43 @@ afterEach(() => {
   mockGetInstrumentationConfig.mockReturnValue(undefined);
 });
 
+/**
+ * Pins a waiting park: no unresolved child work (`pendingRuntimeActionKeys`
+ * absent), with the given pending-input/authorization flags.
+ */
+function expectWaitingPark(
+  result: GenerateOutcome,
+  flags: { hasPendingAuthorization: boolean; hasPendingInputBatch: boolean },
+): void {
+  expect(result).toMatchObject({ action: "park", ...flags });
+  if (result.action === "park") {
+    expect(result.pendingRuntimeActionKeys).toBeUndefined();
+  }
+}
+
+/** Pins a plain conversation park: waiting with no pending input or auth. */
+function expectConversationPark(result: GenerateOutcome): void {
+  expectWaitingPark(result, { hasPendingAuthorization: false, hasPendingInputBatch: false });
+}
+
+/** Pins an input park: waiting on a pending input batch (HITL/approval). */
+function expectInputPark(result: GenerateOutcome): void {
+  expectWaitingPark(result, { hasPendingAuthorization: false, hasPendingInputBatch: true });
+}
+
+/** Pins an authorization park: waiting on pending auth challenges. */
+function expectAuthorizationPark(result: GenerateOutcome): void {
+  expectWaitingPark(result, { hasPendingAuthorization: true, hasPendingInputBatch: false });
+}
+
+/** Pins a runtime-action park: unresolved child work carrying request keys. */
+function expectRuntimeActionPark(result: GenerateOutcome): void {
+  expect(result.action).toBe("park");
+  if (result.action === "park") {
+    expect(result.pendingRuntimeActionKeys).not.toHaveLength(0);
+  }
+}
+
 function createTestSession(overrides?: Partial<HarnessSession>): HarnessSession {
   return {
     agent: {
@@ -116,7 +158,7 @@ function createTestSession(overrides?: Partial<HarnessSession>): HarnessSession 
 
 function createTestConfig(
   mode: RunMode = "conversation",
-  emit?: HarnessEmitFn,
+  emit?: HandleEventFn,
   overrides?: Partial<ToolLoopHarnessConfig>,
 ): ToolLoopHarnessConfig {
   return {
@@ -182,11 +224,11 @@ function setDelegatedParent(ctx: ContextContainer): void {
 }
 
 function createEventCollector(): {
-  emit: HarnessEmitFn;
+  emit: HandleEventFn;
   events: HandleMessageStreamEvent[];
 } {
   const events: HandleMessageStreamEvent[] = [];
-  const emit: HarnessEmitFn = async (event) => {
+  const emit: HandleEventFn = async (event) => {
     events.push(event);
   };
   return { emit, events };
@@ -583,8 +625,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toBeNull();
-    expect(result.session.history).toEqual([
+    expectConversationPark(result);
+    expect(result.state.history).toEqual([
       { content: "Hi", role: "user" },
       { content: "Hello!", role: "assistant" },
     ]);
@@ -613,7 +655,7 @@ describe("createToolLoopHarness", () => {
         message,
       });
 
-      expect(result.session.history).toEqual([
+      expect(result.state.history).toEqual([
         { content: "channel context", role: "user" },
         { content: "Hello!", role: "assistant" },
       ]);
@@ -641,8 +683,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(result.next).toBeNull();
-    expect(result.session.history).toEqual([{ content: "Hi", role: "user" }]);
+    expectConversationPark(result);
+    expect(result.state.history).toEqual([{ content: "Hi", role: "user" }]);
     expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(1);
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -722,12 +764,12 @@ describe("createToolLoopHarness", () => {
     expect(agentCall!.model).toBe("selected-model");
     expect(dispatchDynamicModelEvent).toHaveBeenCalledTimes(1);
     expect(resolveModel).not.toHaveBeenCalled();
-    expect(result.session.agent.modelReference).toEqual({
+    expect(result.state.agent.modelReference).toEqual({
       contextWindowTokens: 200_000,
       id: "selected-model",
       providerOptions: { gateway: { order: ["openai"] } },
     });
-    expect(result.session.compaction.threshold).toBe(180_000);
+    expect(result.state.compaction.threshold).toBe(180_000);
   });
 
   it("uses session-scoped dynamic model selection for the model call", async () => {
@@ -772,12 +814,12 @@ describe("createToolLoopHarness", () => {
     const agentCall = vi.mocked(ToolLoopAgent).mock.calls[0]?.[0];
     expect(agentCall).toBeDefined();
     expect(agentCall!.model).toBe("selected-model");
-    expect(result.session.agent.modelReference).toEqual({
+    expect(result.state.agent.modelReference).toEqual({
       contextWindowTokens: 200_000,
       id: "selected-model",
       providerOptions: { gateway: { order: ["openai"] } },
     });
-    expect(result.session.compaction.threshold).toBe(180_000);
+    expect(result.state.compaction.threshold).toBe(180_000);
   });
 
   it("keeps the compaction threshold stable across steps with the same dynamic selection", async () => {
@@ -809,21 +851,19 @@ describe("createToolLoopHarness", () => {
     });
 
     const first = await contextStorage.run(ctx, () => runStep(session, { message: "Hi" }));
-    expect(first.session.compaction.threshold).toBe(180_000);
+    expect(first.state.compaction.threshold).toBe(180_000);
 
     // Regression: the threshold used to compound (360k) on every extra step.
-    const second = await contextStorage.run(ctx, () =>
-      runStep(first.session, { message: "Again" }),
-    );
-    expect(second.session.compaction.threshold).toBe(180_000);
+    const second = await contextStorage.run(ctx, () => runStep(first.state, { message: "Again" }));
+    expect(second.state.compaction.threshold).toBe(180_000);
 
     ctx.set(SessionDynamicModelReferenceKey, null);
-    const third = await contextStorage.run(ctx, () => runStep(second.session, { message: "Back" }));
-    expect(third.session.agent.modelReference).toEqual({
+    const third = await contextStorage.run(ctx, () => runStep(second.state, { message: "Back" }));
+    expect(third.state.agent.modelReference).toEqual({
       contextWindowTokens: 100_000,
       id: "fallback-model",
     });
-    expect(third.session.compaction.threshold).toBe(90_000);
+    expect(third.state.compaction.threshold).toBe(90_000);
   });
 
   it("keeps declared subagent tools visible in deeply nested sessions", async () => {
@@ -900,7 +940,7 @@ describe("createToolLoopHarness", () => {
         subagentName: "worker",
       },
     ]);
-    expect(getPendingRuntimeActionBatch(result.session.state)?.actions).toEqual([
+    expect(getPendingRuntimeActionBatch(result.state.state)?.actions).toEqual([
       {
         callId: "call-1",
         description: "Delegate to a subagent.",
@@ -959,7 +999,7 @@ describe("createToolLoopHarness", () => {
         subagentName: "worker",
       }),
     ]);
-    expect(getPendingRuntimeActionBatch(result.session.state)?.actions).toHaveLength(1);
+    expect(getPendingRuntimeActionBatch(result.state.state)?.actions).toHaveLength(1);
   });
 
   it("keeps declared subagent tools when Workflow is unavailable outside the root", async () => {
@@ -1071,7 +1111,7 @@ describe("createToolLoopHarness", () => {
     const runStep = createToolLoopHarness(createTestConfig());
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(getSessionTokenUsage(result.session)).toEqual({
+    expect(getSessionTokenUsage(result.state)).toEqual({
       cacheReadTokens: 2,
       cacheWriteTokens: 1,
       costUsd: 0,
@@ -1140,7 +1180,12 @@ describe("createToolLoopHarness", () => {
       const result = await runStep(session, { message: "Hi again" });
 
       expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
-      expect(result.next).toEqual({ done: true, isError: true, output: testCase.message });
+      expect(result).toEqual({
+        action: "done",
+        isError: true,
+        output: testCase.message,
+        state: expect.anything(),
+      });
       expect(events.map((event) => event.type)).toEqual([
         "session.started",
         "turn.started",
@@ -1186,7 +1231,7 @@ describe("createToolLoopHarness", () => {
     const result = await runStep(createLimitReachedSession(), { message: "Hi again" });
 
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
-    expect(result.next).toBeNull();
+    expectInputPark(result);
     expect(events.map((event) => event.type)).toEqual([
       "session.started",
       "turn.started",
@@ -1233,15 +1278,15 @@ describe("createToolLoopHarness", () => {
     const parked = await runStep(createLimitReachedSession(), { message: "Hi again" });
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
 
-    const resumed = await runStep(parked.session, {
+    const resumed = await runStep(parked.state, {
       inputResponses: [{ optionId: "continue", requestId: LIMIT_REQUEST_ID }],
     });
 
     expect(vi.mocked(ToolLoopAgent)).toHaveBeenCalledTimes(1);
-    expect(resumed.next).toBeNull();
-    expect(getSessionTokenLimitViolation(resumed.session)).toBeNull();
+    expectConversationPark(resumed);
+    expect(getSessionTokenLimitViolation(resumed.state)).toBeNull();
     // The parked user message survives into model history for the resumed call.
-    expect(resumed.session.history).toContainEqual({ content: "Hi again", role: "user" });
+    expect(resumed.state.history).toContainEqual({ content: "Hi again", role: "user" });
   });
 
   it("grants the budget when the user types the continue option as plain text", async () => {
@@ -1260,11 +1305,11 @@ describe("createToolLoopHarness", () => {
 
     // Surfaces without buttons deliver the answer as a plain message;
     // resolveTextToResponses maps it onto the pending option.
-    const resumed = await runStep(parked.session, { message: "continue" });
+    const resumed = await runStep(parked.state, { message: "continue" });
 
     expect(vi.mocked(ToolLoopAgent)).toHaveBeenCalledTimes(1);
-    expect(resumed.next).toBeNull();
-    expect(getSessionTokenLimitViolation(resumed.session)).toBeNull();
+    expectConversationPark(resumed);
+    expect(getSessionTokenLimitViolation(resumed.state)).toBeNull();
   });
 
   it("ends the session gracefully when the user declines the limit continuation prompt", async () => {
@@ -1272,12 +1317,12 @@ describe("createToolLoopHarness", () => {
     const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
 
     const parked = await runStep(createLimitReachedSession(), { message: "Hi again" });
-    const declined = await runStep(parked.session, {
+    const declined = await runStep(parked.state, {
       inputResponses: [{ optionId: "stop", requestId: LIMIT_REQUEST_ID }],
     });
 
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
-    expect(declined.next).toEqual({ done: true, output: "" });
+    expect(declined).toEqual({ action: "done", output: "", state: expect.anything() });
     // A decline is a user decision, not an error: no failure events, no extra
     // chat copy — the resolved prompt is the acknowledgment.
     expect(events.some((event) => event.type.endsWith(".failed"))).toBe(false);
@@ -1292,15 +1337,16 @@ describe("createToolLoopHarness", () => {
     );
 
     const parked = await runStep(createLimitReachedSession(), { message: "Hi again" });
-    expect(parked.next).toBeNull();
+    expectInputPark(parked);
 
-    const declined = await runStep(parked.session, {
+    const declined = await runStep(parked.state, {
       inputResponses: [{ optionId: "stop", requestId: LIMIT_REQUEST_ID }],
     });
 
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
-    expect(declined.next).toEqual({
-      done: true,
+    expect(declined).toEqual({
+      action: "done",
+      state: expect.anything(),
       isError: true,
       output: "The session reached its configured input token limit.",
     });
@@ -1315,10 +1361,10 @@ describe("createToolLoopHarness", () => {
     const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
 
     const parked = await runStep(createLimitReachedSession(), { message: "Hi again" });
-    const reparked = await runStep(parked.session, { message: "also do this other thing" });
+    const reparked = await runStep(parked.state, { message: "also do this other thing" });
 
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
-    expect(reparked.next).toBeNull();
+    expectInputPark(reparked);
     expect(events.filter((event) => event.type === "input.requested")).toHaveLength(2);
   });
 
@@ -1466,7 +1512,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toEqual({ done: true, output: "Hello!" });
+    expect(result).toEqual({ action: "done", output: "Hello!", state: expect.anything() });
   });
 
   it("returns an empty successful result when a task chooses not to deliver", async () => {
@@ -1483,7 +1529,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Check for alerts." });
 
-    expect(result.next).toEqual({ done: true, output: "" });
+    expect(result).toEqual({ action: "done", output: "", state: expect.anything() });
     expect(vi.mocked(ToolLoopAgent)).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -1507,7 +1553,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toBeNull();
+    expectConversationPark(result);
     expect(getCompatibilityEventTypes(events)).toEqual([
       "session.started",
       "turn.started",
@@ -1525,11 +1571,11 @@ describe("createToolLoopHarness", () => {
         type: "result.completed",
       }),
     );
-    expect(result.session.history).toEqual([
+    expect(result.state.history).toEqual([
       { content: "Hi", role: "user" },
       { content: '{"title":"Done"}', role: "assistant" },
     ]);
-    expect(result.session.outputSchema).toBeUndefined();
+    expect(result.state.outputSchema).toBeUndefined();
     expect(vi.mocked(ToolLoopAgent).mock.calls[0]?.[0]).toMatchObject({
       tools: expect.objectContaining({ final_output: expect.anything() }),
     });
@@ -1549,7 +1595,11 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toEqual({ done: true, output: { summary: "Done" } });
+    expect(result).toEqual({
+      action: "done",
+      output: { summary: "Done" },
+      state: expect.anything(),
+    });
   });
 
   it("fails a task turn as an error when structured output is not produced", async () => {
@@ -1567,7 +1617,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toMatchObject({ done: true, isError: true });
+    expect(result).toMatchObject({ action: "done", isError: true });
   });
 
   it("does not offer final_output when no schema is in effect", async () => {
@@ -1636,14 +1686,14 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toEqual({ done: true, output: { title: "Done" } });
+    expect(result).toEqual({ action: "done", output: { title: "Done" }, state: expect.anything() });
     // The un-executed final_output call is never persisted, so no dangling
     // tool_use survives into history.
-    expect(result.session.history).toEqual([
+    expect(result.state.history).toEqual([
       { content: "Hi", role: "user" },
       { content: '{"title":"Done"}', role: "assistant" },
     ]);
-    expect(result.session.outputSchema).toBeUndefined();
+    expect(result.state.outputSchema).toBeUndefined();
   });
 
   it("parks a conversation when requested structured output is not fulfilled", async () => {
@@ -1661,7 +1711,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Hi" });
 
-    expect(result.next).toBeNull();
+    expectConversationPark(result);
     expect(getCompatibilityEventTypes(events)).toEqual([
       "session.started",
       "turn.started",
@@ -1748,7 +1798,11 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "What's the weather in NY?" });
 
-    expect(result.next).toEqual({ done: true, output: "It is 41 F in New York right now." });
+    expect(result).toEqual({
+      action: "done",
+      output: "It is 41 F in New York right now.",
+      state: expect.anything(),
+    });
   });
 
   it("returns next: runStep (continue) when model makes tool calls", async () => {
@@ -1790,9 +1844,9 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Add 1 and 2" });
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history.length).toBeGreaterThan(0);
-    expect(result.session.history[result.session.history.length - 1]?.role).toBe("tool");
+    expect(result.action).toBe("continue");
+    expect(result.state.history.length).toBeGreaterThan(0);
+    expect(result.state.history[result.state.history.length - 1]?.role).toBe("tool");
   });
 
   it("parks when a completed step also includes tool calls and tool results", async () => {
@@ -1870,8 +1924,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "What's the weather in NY?" });
 
-    expect(result.next).toBeNull();
-    expect(result.session.history).toEqual([
+    expectConversationPark(result);
+    expect(result.state.history).toEqual([
       { content: "What's the weather in NY?", role: "user" },
       {
         content: [
@@ -1973,8 +2027,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "What's the weather in NY?" });
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history).toEqual([
+    expect(result.action).toBe("continue");
+    expect(result.state.history).toEqual([
       { content: "What's the weather in NY?", role: "user" },
       {
         content: [
@@ -2044,7 +2098,7 @@ describe("createToolLoopHarness", () => {
     const session = createTestSession();
 
     const result = await runStep(session, { message: "Add 1 and 2" });
-    const assistantMessage = result.session.history.find(
+    const assistantMessage = result.state.history.find(
       (message) => message.role === "assistant" && Array.isArray(message.content),
     );
     const toolCallPart =
@@ -2077,8 +2131,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session);
 
-    expect(result.next).toBeNull();
-    expect(result.session.history).toEqual([
+    expectConversationPark(result);
+    expect(result.state.history).toEqual([
       { content: "prior message", role: "user" },
       { content: "The result is 42.", role: "assistant" },
     ]);
@@ -2099,7 +2153,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Tell me a story" });
 
-    expect(result.next).toBeNull();
+    expectConversationPark(result);
   });
 
   it("emits session, turn, and step lifecycle events on first user message", async () => {
@@ -2221,7 +2275,7 @@ describe("createToolLoopHarness", () => {
     const firstResult = await createToolLoopHarness(config)(session, {
       message: "Add 1 and 2, then maybe use bash.",
     });
-    expect(typeof firstResult.next).toBe("function");
+    expect(firstResult.action).toBe("continue");
 
     setupMockAgent({
       content: [
@@ -2269,9 +2323,9 @@ describe("createToolLoopHarness", () => {
       toolResults: [],
     });
 
-    const secondResult = await createToolLoopHarness(config)(firstResult.session);
+    const secondResult = await createToolLoopHarness(config)(firstResult.state);
 
-    expect(secondResult.next).toBeNull();
+    expectInputPark(secondResult);
     expect(events.filter((event) => event.type === "input.requested").at(-1)).toEqual({
       data: {
         requests: [
@@ -2550,10 +2604,10 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Ask me a question." });
 
-    expect(typeof result.next).toBe("function");
-    expect(hasPendingInputBatch(result.session.state)).toBe(false);
+    expect(result.action).toBe("continue");
+    expect(hasPendingInputBatch(result.state.state)).toBe(false);
     expect(events.some((event) => event.type === "input.requested")).toBe(false);
-    expect(result.session.history.at(-1)?.role).toBe("tool");
+    expect(result.state.history.at(-1)?.role).toBe("tool");
   });
 
   it("feeds non-object tool call input back to the model as a failed tool result", async () => {
@@ -2593,8 +2647,8 @@ describe("createToolLoopHarness", () => {
     const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
     const firstStep = await runStep(createTestSession(), { message: "Add these" });
 
-    expect(firstStep.next).toBe(runStep);
-    expect(firstStep.session.history).toEqual([
+    expect(firstStep.action).toBe("continue");
+    expect(firstStep.state.history).toEqual([
       { content: "Add these", role: "user" },
       {
         content: [
@@ -2629,7 +2683,7 @@ describe("createToolLoopHarness", () => {
       toolCalls: [],
       toolResults: [],
     });
-    await runStep(firstStep.session);
+    await runStep(firstStep.state);
 
     const secondInstance = vi.mocked(ToolLoopAgent).mock.results[1]?.value as
       | { stream: ReturnType<typeof vi.fn> }
@@ -2637,7 +2691,7 @@ describe("createToolLoopHarness", () => {
     const secondCall = secondInstance?.stream.mock.calls[0]?.[0] as
       | { messages: ModelMessage[] }
       | undefined;
-    expect(secondCall?.messages).toEqual(firstStep.session.history);
+    expect(secondCall?.messages).toEqual(firstStep.state.history);
     expect(secondCall?.messages.at(-1)).toEqual({
       content: [
         {
@@ -2777,7 +2831,7 @@ describe("createToolLoopHarness", () => {
 
     // No crash, no parked runtime-action batch — the invalid call is
     // dropped so the AI SDK's tool-error feedback drives the next step.
-    expect(result.session.state?.["eve.runtime.pendingActionBatch"]).toBeUndefined();
+    expect(result.state.state?.["eve.runtime.pendingActionBatch"]).toBeUndefined();
     expect(events.some((event) => event.type === "actions.requested")).toBe(false);
     expect(events.some((event) => event.type === "turn.failed")).toBe(false);
   });
@@ -2832,18 +2886,18 @@ describe("createToolLoopHarness", () => {
     const result = await runStep(createTestSession(), { message: "Go" });
 
     // Parked on the runtime-action batch.
-    expect(result.next).toBeNull();
-    expect(result.session.state?.["eve.runtime.pendingActionBatch"]).toBeDefined();
+    expectRuntimeActionPark(result);
+    expect(result.state.state?.["eve.runtime.pendingActionBatch"]).toBeDefined();
 
     // The parked session must carry the live turn's emission identity so
     // the resume turn is classified as a continuation, not a fresh turn.
     // Regression: the runtime-action park previously dropped the
     // post-preamble emission update, persisting the default `turnId: ""`,
     // which mis-routed the resume through the fresh-turn lifecycle path.
-    const emission = getHarnessEmissionState(result.session.state);
+    const emission = getHarnessEmissionState(result.state.state);
     expect(emission.turnId).toBe("turn_0");
     expect(emission.sessionStarted).toBe(true);
-    expect(isHarnessBetweenTurns(result.session)).toBe(false);
+    expect(isHarnessBetweenTurns(result.state)).toBe(false);
   });
 
   it("emits failed action.result from tool response messages when the stream and toolResults omit it", async () => {
@@ -3010,7 +3064,7 @@ describe("createToolLoopHarness", () => {
       message: "Use the missing demo skill.",
     });
 
-    expect(typeof result.next).toBe("function");
+    expect(result.action).toBe("continue");
     expect(events.find((event) => event.type === "action.result")?.data).toEqual({
       error: {
         code: "ACTION_RESULT_FAILED",
@@ -3030,7 +3084,7 @@ describe("createToolLoopHarness", () => {
       status: "failed",
       turnId: "turn_0",
     });
-    expect(result.session.history.slice(-2)).toEqual([
+    expect(result.state.history.slice(-2)).toEqual([
       {
         content: [
           {
@@ -3247,7 +3301,7 @@ describe("createToolLoopHarness", () => {
     // A plain Error defaults to the recoverable classification — the
     // session parks (`next: null`) so the user can follow up in the
     // same thread rather than the whole run being torn down.
-    expect(result.next).toBeNull();
+    expectConversationPark(result);
 
     const types = events.map((e) => e.type);
     expect(types).toContain("session.started");
@@ -3298,7 +3352,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(result.next).toBeNull();
+    expectConversationPark(result);
 
     const types = events.map((e) => e.type);
     expect(types).toContain("step.failed");
@@ -3341,7 +3395,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(result.next).toEqual({ done: true, output: "" });
+    expect(result).toEqual({ action: "done", output: "", state: expect.anything() });
 
     const types = events.map((e) => e.type);
     expect(types).toContain("step.failed");
@@ -3371,8 +3425,8 @@ describe("createToolLoopHarness", () => {
     // failure shape. Today the terminal branch returns
     // `{ done: true, output: "" }`, which the parent driver treats as a
     // successful delegation with empty output.
-    expect(result.next).toMatchObject({
-      done: true,
+    expect(result).toMatchObject({
+      action: "done",
       isError: true,
       output: expect.stringContaining("No endpoints found for anthropic/claude-3.5-haiku"),
     });
@@ -3397,7 +3451,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(result.next).toEqual({ done: true, output: "" });
+    expect(result).toEqual({ action: "done", output: "", state: expect.anything() });
 
     const types = events.map((e) => e.type);
     expect(types).toContain("step.failed");
@@ -3640,7 +3694,7 @@ describe("createToolLoopHarness", () => {
         const result = await runStep(session, { message: "Hi" });
 
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(3);
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
         expect(events.map((event) => event.type)).not.toContain("turn.failed");
 
         // The reissue repeated the degraded call shape: web_search stays
@@ -3714,7 +3768,7 @@ describe("createToolLoopHarness", () => {
 
         // Rejection, degraded retry, reissue: three calls, then the floor.
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(3);
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
 
         const types = events.map((event) => event.type);
         expect(types).toContain("step.failed");
@@ -3784,7 +3838,7 @@ describe("createToolLoopHarness", () => {
 
         // Empty original plus one reissue: two calls, no third attempt.
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(2);
-        expect(result.next).toEqual({ done: true, output: "" });
+        expect(result).toEqual({ action: "done", output: "", state: expect.anything() });
 
         const types = events.map((event) => event.type);
         expect(types).toContain("step.failed");
@@ -3862,7 +3916,7 @@ describe("createToolLoopHarness", () => {
 
       // The retry succeeded — the session parked normally instead of
       // emitting any failure cascade.
-      expect(result.next).toBeNull();
+      expectConversationPark(result);
       const types = events.map((e) => e.type);
       expect(types).not.toContain("session.failed");
       expect(types).not.toContain("turn.failed");
@@ -3934,7 +3988,7 @@ describe("createToolLoopHarness", () => {
 
       // 400 with no known summary classifies as terminal, so the
       // cascade is the terminal one.
-      expect(result.next).toEqual({ done: true, output: "" });
+      expect(result).toEqual({ action: "done", output: "", state: expect.anything() });
       const types = events.map((e) => e.type);
       expect(types).toContain("step.failed");
       expect(types).toContain("turn.failed");
@@ -4038,9 +4092,9 @@ describe("createToolLoopHarness", () => {
       try {
         const result = await runStep(createTestSession(), { message: "Hi" });
 
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(2);
-        expect(result.session.history).toContainEqual({
+        expect(result.state.history).toContainEqual({
           content: "Here is your answer.",
           role: "assistant",
         });
@@ -4079,7 +4133,7 @@ describe("createToolLoopHarness", () => {
         });
         expect(reissueMessages.at(-1)?.content).not.toContain(EMPTY_DELIVERY_SENTINEL);
         expect(
-          result.session.history.some(
+          result.state.history.some(
             (message) =>
               typeof message.content === "string" && message.content.includes("was not delivered"),
           ),
@@ -4154,9 +4208,9 @@ describe("createToolLoopHarness", () => {
       try {
         const result = await runStep(createTestSession(), { message: "Hi" });
 
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
         expect(vi.mocked(ToolLoopAgent)).toHaveBeenCalledTimes(2);
-        expect(result.session.history).toContainEqual({
+        expect(result.state.history).toContainEqual({
           content: "Here is your answer.",
           role: "assistant",
         });
@@ -4174,9 +4228,9 @@ describe("createToolLoopHarness", () => {
       try {
         const result = await runStep(createTestSession(), { message: "Hi" });
 
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(2);
-        expect(result.session.history).toContainEqual({
+        expect(result.state.history).toContainEqual({
           content: "Here is your answer.",
           role: "assistant",
         });
@@ -4226,7 +4280,7 @@ describe("createToolLoopHarness", () => {
 
         // Original attempt + one reissue, then bail to the recoverable floor.
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(2);
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
 
         const types = events.map((event) => event.type);
         expect(types).toContain("step.failed");
@@ -4256,7 +4310,7 @@ describe("createToolLoopHarness", () => {
 
         // Original attempt + one reissue, then bail to the recoverable floor.
         expect(vi.mocked(ToolLoopAgent).mock.calls.length).toBe(2);
-        expect(result.next).toBeNull();
+        expectConversationPark(result);
 
         const types = events.map((event) => event.type);
         expect(types).toContain("step.failed");
@@ -4286,8 +4340,9 @@ describe("createToolLoopHarness", () => {
         // A task cannot park for a user retry; the failure is the task's
         // terminal result instead of a `next: null` park that turnWorkflow
         // would reject.
-        expect(result.next).toEqual({
-          done: true,
+        expect(result).toEqual({
+          action: "done",
+          state: expect.anything(),
           isError: true,
           output: expect.stringContaining("did not return a response"),
         });
@@ -4821,8 +4876,8 @@ describe("createToolLoopHarness", () => {
         }),
       );
 
-      expect(result.next).toBeNull();
-      expect(getPendingAuthorization(result.session.state)).toEqual({
+      expectAuthorizationPark(result);
+      expect(getPendingAuthorization(result.state.state)).toEqual({
         challenges: full.challenges,
       });
 
@@ -4919,8 +4974,8 @@ describe("createToolLoopHarness", () => {
         runStep(createTestSession(), { message: "run protected action" }),
       );
 
-      expect(result.next).toBeNull();
-      expect(getPendingAuthorization(result.session.state)).toEqual({
+      expectAuthorizationPark(result);
+      expect(getPendingAuthorization(result.state.state)).toEqual({
         challenges: full.challenges,
       });
 
@@ -4981,13 +5036,13 @@ describe("createToolLoopHarness", () => {
       inputResponses: [{ optionId: "approve", requestId: "approval-1" }],
     });
 
-    expect(result.session.history.map((msg) => msg.role)).toEqual([
+    expect(result.state.history.map((msg) => msg.role)).toEqual([
       "assistant",
       "tool",
       "tool",
       "assistant",
     ]);
-    const approvalMessage = result.session.history[1];
+    const approvalMessage = result.state.history[1];
     expect(Array.isArray(approvalMessage?.content)).toBe(true);
     const approvalParts = approvalMessage?.content as Array<Record<string, unknown>>;
     expect(approvalParts).toHaveLength(1);
@@ -4998,7 +5053,7 @@ describe("createToolLoopHarness", () => {
       type: "tool-approval-response",
     });
 
-    const toolResultMessage = result.session.history[2];
+    const toolResultMessage = result.state.history[2];
     expect(Array.isArray(toolResultMessage?.content)).toBe(true);
     const toolResultParts = toolResultMessage?.content as Array<Record<string, unknown>>;
     expect(toolResultParts).toHaveLength(1);
@@ -5007,7 +5062,7 @@ describe("createToolLoopHarness", () => {
       toolName: "bash",
       type: "tool-result",
     });
-    expect(result.session.history.at(-1)?.role).toBe("assistant");
+    expect(result.state.history.at(-1)?.role).toBe("assistant");
   });
 
   it("persists approved tool results when event handling is disabled", async () => {
@@ -5049,10 +5104,10 @@ describe("createToolLoopHarness", () => {
     }
     expect(vi.mocked(agent.generate)).toHaveBeenCalledOnce();
     expect(vi.mocked(agent.stream)).not.toHaveBeenCalled();
-    const assistantParts = result.session.history.flatMap((message) =>
+    const assistantParts = result.state.history.flatMap((message) =>
       message.role === "assistant" && Array.isArray(message.content) ? message.content : [],
     );
-    const toolParts = result.session.history.flatMap((message) =>
+    const toolParts = result.state.history.flatMap((message) =>
       message.role === "tool" ? message.content : [],
     );
     const toolCall = assistantParts.find(
@@ -5062,10 +5117,10 @@ describe("createToolLoopHarness", () => {
       (part) => part.type === "tool-result" && part.toolCallId === "call-1",
     );
     expect([
-      result.session.history[0]?.role,
+      result.state.history[0]?.role,
       toolCall?.type,
       toolResult?.type,
-      result.session.history.at(-1)?.role,
+      result.state.history.at(-1)?.role,
     ]).toEqual(["assistant", "tool-call", "tool-result", "assistant"]);
     expect(toolResult).toEqual(resumedToolResultMessage.content[0]);
   });
@@ -5165,7 +5220,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await harness(session, { message: "continue" });
 
-    const toolMessagesWithServerToolId = result.session.history.filter(
+    const toolMessagesWithServerToolId = result.state.history.filter(
       (message) =>
         message.role === "tool" &&
         Array.isArray(message.content) &&
@@ -5176,7 +5231,7 @@ describe("createToolLoopHarness", () => {
     );
     expect(toolMessagesWithServerToolId).toHaveLength(0);
 
-    const assistantParts = result.session.history.flatMap((message) =>
+    const assistantParts = result.state.history.flatMap((message) =>
       message.role === "assistant" && Array.isArray(message.content) ? message.content : [],
     );
     expect(assistantParts).toContainEqual(
@@ -5338,8 +5393,8 @@ describe("createToolLoopHarness", () => {
         .slice(finalMessageIndex + 1)
         .filter((event) => event.type === "actions.requested" || event.type === "action.result"),
     ).toEqual([]);
-    expect(result.next).toBeNull();
-    expect(result.session.history.at(-1)?.role).toBe("assistant");
+    expectConversationPark(result);
+    expect(result.state.history.at(-1)?.role).toBe("assistant");
   });
 
   it("continues after provider-executed web_search follows assistant narration", async () => {
@@ -5425,8 +5480,8 @@ describe("createToolLoopHarness", () => {
       { message: "Search the web." },
     );
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history.slice(-2)).toEqual([
+    expect(result.action).toBe("continue");
+    expect(result.state.history.slice(-2)).toEqual([
       {
         content: [
           { text: "I will look that up.", type: "text" },
@@ -5561,12 +5616,12 @@ describe("createToolLoopHarness", () => {
     );
 
     const pendingResponseMessages = (
-      result.session.state?.["eve.runtime.pendingInputBatch"] as
+      result.state.state?.["eve.runtime.pendingInputBatch"] as
         | { responseMessages?: readonly ModelMessage[] }
         | undefined
     )?.responseMessages;
 
-    expect(result.next).toBeNull();
+    expectInputPark(result);
     expect(pendingResponseMessages).toEqual([
       {
         content: [
@@ -5668,8 +5723,8 @@ describe("createToolLoopHarness", () => {
       { message: "Search the web." },
     );
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history.at(-1)).toEqual({
+    expect(result.action).toBe("continue");
+    expect(result.state.history.at(-1)).toEqual({
       content: [
         {
           input: { objective: "Search the web." },
@@ -5750,8 +5805,8 @@ describe("createToolLoopHarness", () => {
       { message: "Search the web." },
     );
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history.slice(-2)).toEqual([
+    expect(result.action).toBe("continue");
+    expect(result.state.history.slice(-2)).toEqual([
       {
         content: [
           {
@@ -5885,8 +5940,8 @@ describe("createToolLoopHarness", () => {
         },
       },
     ]);
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history.slice(-2).map((message) => message.role)).toEqual([
+    expect(result.action).toBe("continue");
+    expect(result.state.history.slice(-2).map((message) => message.role)).toEqual([
       "assistant",
       "tool",
     ]);
@@ -6001,8 +6056,8 @@ describe("createToolLoopHarness", () => {
       inputResponses: [{ optionId: "approve", requestId: "approval-1" }],
     });
 
-    expect(result.session.history.filter((msg) => msg.role === "tool")).toHaveLength(2);
-    expect(result.session.history.map((msg) => msg.role)).toEqual([
+    expect(result.state.history.filter((msg) => msg.role === "tool")).toHaveLength(2);
+    expect(result.state.history.map((msg) => msg.role)).toEqual([
       "assistant",
       "tool",
       "tool",
@@ -6358,10 +6413,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Delete the temp directory." });
 
-    expect(result.next).toBeNull();
-    expect(result.session.history).toEqual([
-      { content: "Delete the temp directory.", role: "user" },
-    ]);
+    expectInputPark(result);
+    expect(result.state.history).toEqual([{ content: "Delete the temp directory.", role: "user" }]);
     expect(getCompatibilityEventTypes(events)).toEqual([
       "session.started",
       "turn.started",
@@ -6519,8 +6572,8 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Delete the temp directory." });
 
-    expect(typeof result.next).toBe("function");
-    expect(result.session.history).toEqual([
+    expect(result.action).toBe("continue");
+    expect(result.state.history).toEqual([
       { content: "Delete the temp directory.", role: "user" },
       ...responseMessages,
     ]);
@@ -6643,15 +6696,15 @@ describe("createToolLoopHarness", () => {
       message: "Hi instead.",
     });
 
-    expect(firstResult.next).toBeNull();
+    expectInputPark(firstResult);
     expect(generateCalls).toEqual([]);
-    expect(hasDeferredStepInput(firstResult.session)).toBe(true);
+    expect(hasDeferredStepInput(firstResult.state)).toBe(true);
 
-    const deniedResult = await createToolLoopHarness(config)(firstResult.session, {
+    const deniedResult = await createToolLoopHarness(config)(firstResult.state, {
       inputResponses: [{ requestId: "approval-1", optionId: "deny" }],
     });
 
-    expect(typeof deniedResult.next).toBe("function");
+    expect(deniedResult.action).toBe("continue");
     expect(generateCalls[0]).toEqual([
       {
         content: [
@@ -6691,18 +6744,18 @@ describe("createToolLoopHarness", () => {
       },
     ]);
 
-    const secondResult = await createToolLoopHarness(config)(deniedResult.session);
+    const secondResult = await createToolLoopHarness(config)(deniedResult.state);
 
-    expect(secondResult.next).toBeNull();
+    expectConversationPark(secondResult);
     expect((generateCalls[1] as { role: string; content: unknown }[]).at(-1)).toEqual({
       content: "Hi instead.",
       role: "user",
     });
-    expect(secondResult.session.history.at(-2)).toEqual({
+    expect(secondResult.state.history.at(-2)).toEqual({
       content: "Hi instead.",
       role: "user",
     });
-    expect(secondResult.session.history.at(-1)).toEqual({
+    expect(secondResult.state.history.at(-1)).toEqual({
       content: "Hello!",
       role: "assistant",
     });
@@ -6909,7 +6962,7 @@ describe("createToolLoopHarness", () => {
     });
 
     const firstMessages = readGenerateMessages(0);
-    expect(typeof firstResult.next).toBe("function");
+    expect(firstResult.action).toBe("continue");
     expect(firstMessages.at(-1)?.role).toBe("tool");
     expect(firstMessages).not.toContainEqual({ content: context, role: "user" });
     expect((await readPreparedMessages(0)).at(-1)).toMatchObject({
@@ -6919,10 +6972,10 @@ describe("createToolLoopHarness", () => {
       role: "tool",
     });
 
-    const secondResult = await harness(firstResult.session);
+    const secondResult = await harness(firstResult.state);
 
     const secondMessages = readGenerateMessages(1);
-    expect(secondResult.next).toBeNull();
+    expectConversationPark(secondResult);
     expect(secondMessages.slice(0, firstMessages.length)).toEqual(firstMessages);
     expect(secondMessages.at(-1)).toEqual({ content: context, role: "user" });
     expect((await readPreparedMessages(1)).at(-1)).toMatchObject({
@@ -7056,27 +7109,27 @@ describe("createToolLoopHarness", () => {
     const firstResult = await createToolLoopHarness(config)(session, {
       message: "Do something else",
     });
-    expect(firstResult.next).toBeNull();
+    expectInputPark(firstResult);
     expect(generateCalls).toEqual([]);
 
     // Step 2: user denies the approval; the deferred message is NOT in this call.
-    const deniedResult = await createToolLoopHarness(config)(firstResult.session, {
+    const deniedResult = await createToolLoopHarness(config)(firstResult.state, {
       inputResponses: [{ requestId: "approval-1", optionId: "deny" }],
     });
-    expect(typeof deniedResult.next).toBe("function");
+    expect(deniedResult.action).toBe("continue");
     const step2Last = generateCalls[0]?.at(-1);
     expect(step2Last?.role).toBe("tool");
 
     // Step 3: harness consumes the deferred message.
-    const secondResult = await createToolLoopHarness(config)(deniedResult.session);
-    expect(secondResult.next).toBeNull();
+    const secondResult = await createToolLoopHarness(config)(deniedResult.state);
+    expectConversationPark(secondResult);
 
     // The deferred user message is the last message the model sees.
     const step3Last = generateCalls[1]?.at(-1);
     expect(step3Last).toEqual({ content: "Do something else", role: "user" });
 
     // History reflects the full conversation.
-    expect(secondResult.session.history.at(-1)).toEqual({
+    expect(secondResult.state.history.at(-1)).toEqual({
       content: "Sure, here you go.",
       role: "assistant",
     });
@@ -7138,7 +7191,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(session, { message: "Choose for me." });
 
-    expect(result.next).toBeNull();
+    expectInputPark(result);
     expect(events.some((event) => event.type === "actions.requested")).toBe(false);
     expect(events.find((event) => event.type === "input.requested")).toEqual({
       data: {
@@ -7271,11 +7324,11 @@ describe("createToolLoopHarness", () => {
       message: "Use current context instead.",
     });
 
-    expect(followupResult.next).toBeNull();
-    expect(hasPendingInputBatch(followupResult.session.state)).toBe(true);
+    expectInputPark(followupResult);
+    expect(hasPendingInputBatch(followupResult.state.state)).toBe(true);
 
     const secondTurnEventIndex = events.length;
-    const result = await runStep(followupResult.session, {
+    const result = await runStep(followupResult.state, {
       inputResponses: [{ requestId: "question-1", optionId: "candidate" }],
     });
 
@@ -7285,8 +7338,8 @@ describe("createToolLoopHarness", () => {
     }
     const modelMessages = vi.mocked(agent.stream).mock.calls[0]?.[0].messages;
 
-    expect(result.next).toBeNull();
-    expect(hasPendingInputBatch(result.session.state)).toBe(false);
+    expectConversationPark(result);
+    expect(hasPendingInputBatch(result.state.state)).toBe(false);
     expect(modelMessages?.at(-1)).toEqual({
       content: expect.stringContaining("STALE-CANDIDATE-7Q4M"),
       role: "user",
@@ -7359,11 +7412,11 @@ describe("createToolLoopHarness", () => {
       message: "Use current context instead.",
     });
 
-    expect(followupResult.next).toBeNull();
-    expect(hasPendingInputBatch(followupResult.session.state)).toBe(false);
+    expectConversationPark(followupResult);
+    expect(hasPendingInputBatch(followupResult.state.state)).toBe(false);
 
     const secondTurnEventIndex = events.length;
-    const result = await runStep(followupResult.session, {
+    const result = await runStep(followupResult.state, {
       inputResponses: [{ requestId: "question-1", optionId: "candidate" }],
     });
 
@@ -7373,8 +7426,8 @@ describe("createToolLoopHarness", () => {
     }
     const modelMessages = vi.mocked(agent.stream).mock.calls[0]?.[0].messages;
 
-    expect(result.next).toBeNull();
-    expect(hasPendingInputBatch(result.session.state)).toBe(false);
+    expectConversationPark(result);
+    expect(hasPendingInputBatch(result.state.state)).toBe(false);
     expect(modelMessages?.at(-1)).toEqual({
       content: expect.stringContaining("STALE-CANDIDATE-7Q4M"),
       role: "user",
@@ -7666,7 +7719,7 @@ describe("createToolLoopHarness", () => {
 
     const result = await runStep(createTestSession(), { message: "Hi" });
 
-    expect(result.session.compaction).toMatchObject({
+    expect(result.state.compaction).toMatchObject({
       lastKnownInputTokens: 321,
       lastKnownPromptMessageCount: 1,
     });
@@ -7701,7 +7754,7 @@ describe("createToolLoopHarness", () => {
     const result = await runStep(session, { message: "Continue" });
 
     expect(onCompaction).toHaveBeenCalledTimes(1);
-    expect(result.session.history).toEqual([
+    expect(result.state.history).toEqual([
       { content: "Summary of our conversation so far:", role: "user" },
       { content: "summary", role: "assistant" },
       { content: "[State preserved]", role: "user" },
@@ -7733,8 +7786,8 @@ describe("createToolLoopHarness", () => {
 
     const step1Harness = createToolLoopHarness(createTestConfig("conversation"));
     const result1 = await step1Harness(createTestSession(), { message: "add stuff" });
-    expect(result1.next).toBe(step1Harness);
-    expect(result1.session.history.at(-1)).toMatchObject({ role: "tool" });
+    expect(result1.action).toBe("continue");
+    expect(result1.state.history.at(-1)).toMatchObject({ role: "tool" });
 
     // Step 2: continuation — model responds with text, turn ends.
     // History now trails with assistant.
@@ -7747,9 +7800,9 @@ describe("createToolLoopHarness", () => {
     });
 
     const step2Harness = createToolLoopHarness(createTestConfig("conversation"));
-    const result2 = await step2Harness(result1.session);
-    expect(result2.next).toBeNull();
-    expect(result2.session.history.at(-1)).toMatchObject({
+    const result2 = await step2Harness(result1.state);
+    expectConversationPark(result2);
+    expect(result2.state.history.at(-1)).toMatchObject({
       content: "The answer is 42.",
       role: "assistant",
     });
@@ -7774,7 +7827,7 @@ describe("createToolLoopHarness", () => {
     });
 
     const step3Harness = createToolLoopHarness(createTestConfig("conversation"));
-    await step3Harness(result2.session, {});
+    await step3Harness(result2.state, {});
 
     // Verify the model received messages ending with the synthetic
     // user message, not the trailing assistant.
@@ -7981,15 +8034,15 @@ describe("createToolLoopHarness", () => {
 
       setupMockAgent(modelResults[0]!);
       const firstStep = await runStep(session, { message: "Add 1 and 2." });
-      expect(firstStep.next).toBe(runStep);
+      expect(firstStep.action).toBe("continue");
 
       setupMockAgent(modelResults[1]!);
-      const secondStep = await runStep(firstStep.session);
-      expect(secondStep.next).toBeNull();
+      const secondStep = await runStep(firstStep.state);
+      expectConversationPark(secondStep);
 
       setupMockAgent(modelResults[2]!);
-      const nextTurn = await runStep(secondStep.session, { message: "Can you confirm?" });
-      expect(nextTurn.next).toBeNull();
+      const nextTurn = await runStep(secondStep.state, { message: "Can you confirm?" });
+      expectConversationPark(nextTurn);
       const modelCalls = await Promise.all([0, 1, 2].map(captureModelCall));
       expect(modelCalls).toHaveLength(3);
 
@@ -8689,8 +8742,8 @@ describe("createToolLoopHarness", () => {
       const result = await runStep(createTestSession(), { message: "add stuff" });
       mockGetInstrumentationConfig.mockReturnValue(undefined);
 
-      expect(result.next).toBe(runStep);
-      expect(result.session.state?.["eve.harness.turnTrace"]).toEqual({
+      expect(result.action).toBe("continue");
+      expect(result.state.state?.["eve.harness.turnTrace"]).toEqual({
         traceId: expect.any(String),
         spanId: expect.any(String),
         traceFlags: expect.any(Number),
@@ -8723,8 +8776,8 @@ describe("createToolLoopHarness", () => {
       const runStep = createToolLoopHarness(config);
       const result = await runStep(createTestSession(), { message: "add stuff" });
 
-      expect(result.next).toBe(runStep);
-      expect(result.session.state?.["eve.harness.turnTrace"]).toBeUndefined();
+      expect(result.action).toBe("continue");
+      expect(result.state.state?.["eve.harness.turnTrace"]).toBeUndefined();
     });
 
     it("continuation step restores parent trace context from session state", async () => {
@@ -8755,7 +8808,7 @@ describe("createToolLoopHarness", () => {
       const step1 = createToolLoopHarness(step1Config);
       const result1 = await step1(createTestSession(), { message: "add stuff" });
 
-      const storedTrace = result1.session.state?.["eve.harness.turnTrace"] as {
+      const storedTrace = result1.state.state?.["eve.harness.turnTrace"] as {
         traceId: string;
         spanId: string;
         traceFlags: number;
@@ -8778,10 +8831,10 @@ describe("createToolLoopHarness", () => {
       const step2Config = createTestConfig("conversation");
       const step2 = createToolLoopHarness(step2Config);
       // No input — continuation step
-      const result2 = await step2(result1.session);
+      const result2 = await step2(result1.state);
       mockGetInstrumentationConfig.mockReturnValue(undefined);
 
-      expect(result2.next).toBeNull();
+      expectConversationPark(result2);
 
       // Verify the stored span context was restored
       expect(wrapSpy).toHaveBeenCalledWith({
@@ -8837,7 +8890,7 @@ describe("createToolLoopHarness", () => {
 
       const order: string[] = [];
       const events: HandleMessageStreamEvent[] = [];
-      const emit: HarnessEmitFn = async (event) => {
+      const emit: HandleEventFn = async (event) => {
         order.push(event.type);
         events.push(event);
       };
@@ -8924,7 +8977,7 @@ describe("createToolLoopHarness", () => {
       const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
       const result = await runStep(createTestSession(), { message: "hi" });
 
-      expect(result.next).toBeNull();
+      expectConversationPark(result);
       expect(getCompatibilityEventTypes(events)).toEqual([
         "session.started",
         "turn.started",
@@ -9001,7 +9054,7 @@ describe("createToolLoopHarness", () => {
       const firstResult = await createToolLoopHarness(config)(session, {
         message: "Add 1 and 2.",
       });
-      expect(typeof firstResult.next).toBe("function");
+      expect(firstResult.action).toBe("continue");
 
       setupMockAgent({
         finishReason: "stop",
@@ -9010,8 +9063,8 @@ describe("createToolLoopHarness", () => {
         toolCalls: [],
         toolResults: [],
       });
-      const secondResult = await createToolLoopHarness(config)(firstResult.session);
-      expect(secondResult.next).toBeNull();
+      const secondResult = await createToolLoopHarness(config)(firstResult.state);
+      expectConversationPark(secondResult);
 
       setupMockAgent({
         finishReason: "stop",
@@ -9020,10 +9073,10 @@ describe("createToolLoopHarness", () => {
         toolCalls: [],
         toolResults: [],
       });
-      const thirdResult = await createToolLoopHarness(config)(secondResult.session, {
+      const thirdResult = await createToolLoopHarness(config)(secondResult.state, {
         message: "Next turn.",
       });
-      expect(thirdResult.next).toBeNull();
+      expectConversationPark(thirdResult);
 
       expect(
         resolveRuntimeContext.mock.calls.map(([input]) => ({
@@ -9080,7 +9133,7 @@ describe("createToolLoopHarness", () => {
       expect((firstWrite!.content as Buffer).equals(imageBytes)).toBe(true);
 
       // --- Invariant 2: session.history carries a sandbox ref, not bytes.
-      const historyUserMsg = result.session.history[0];
+      const historyUserMsg = result.state.history[0];
       expect(historyUserMsg?.role).toBe("user");
       const historyContent = historyUserMsg?.content as Exclude<UserContent, string>;
       const historyFilePart = historyContent.find(
@@ -9154,7 +9207,7 @@ describe("createToolLoopHarness", () => {
       // History still carries the ref (not a text summary) — the
       // inlining decision is re-evaluated on every step from the
       // same stable wire format.
-      const historyContent = result.session.history[0]?.content as Exclude<UserContent, string>;
+      const historyContent = result.state.history[0]?.content as Exclude<UserContent, string>;
       const historyFilePart = historyContent.find(
         (p) => (p as FilePart).type === "file",
       ) as FilePart;
@@ -9258,7 +9311,7 @@ describe("createToolLoopHarness", () => {
         context: ["background-context"],
       });
 
-      expect(result.session.history).toEqual([
+      expect(result.state.history).toEqual([
         { role: "user", content: "background-context" },
         { role: "user", content: "Hi" },
         { role: "assistant", content: "ok" },
@@ -9418,7 +9471,7 @@ describe("createToolLoopHarness", () => {
 
       const result = await contextStorage.run(ctx, () => runStep(session, { message: "Hi" }));
 
-      expect(result.session.history).toEqual([
+      expect(result.state.history).toEqual([
         { role: "user", content: "Hi" },
         { role: "assistant", content: "ok" },
       ]);

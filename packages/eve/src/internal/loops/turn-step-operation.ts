@@ -13,19 +13,12 @@ import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { getHarnessEmissionState } from "#harness/emission.js";
 import { isTurnCancellation, throwIfTurnAborted } from "#harness/turn-cancellation.js";
 import { setChannelContext } from "#execution/channel-context.js";
-import { hasPendingInputBatch } from "#harness/input-requests.js";
 import { coalesceTurnInputs } from "#harness/messages.js";
-import {
-  getRuntimeActionKeysFromWorkflowInterrupt,
-  isWorkflowRuntimeActionInterrupt,
-} from "#harness/workflow-runtime-action-state.js";
-import { getPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state.js";
-import { getPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
-import type { HarnessSession, StepInput, StepResult } from "#harness/types.js";
+import { classifyParkedSession, withOutcomeState } from "#harness/step-result.js";
+import type { GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
 import { getTurnUsageState, toUsage } from "#harness/turn-tag-state.js";
 import type { JsonObject } from "#shared/json.js";
 import type { RunMode } from "#shared/run-mode.js";
-import { getRuntimeActionRequestKey } from "#runtime/actions/keys.js";
 import {
   createAuthorizationCompletedEvent,
   encodeMessageStreamEvent,
@@ -51,19 +44,8 @@ import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
 import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
-import type { SessionState, TurnStepResult } from "#internal/loops/types.js";
+import type { EveLoopTypes, SessionState, TurnStepResult } from "#internal/loops/types.js";
 
-/**
- * Result of one harness step, consumed by the shared turn program.
- *
- * `park` carries `hasPendingInputBatch`, `hasPendingAuthorization`, and
- * `pendingRuntimeActionKeys` so the shared turn step can distinguish a
- * terminal wait from unresolved child work without re-reading the session.
- *
- * `cancelled` converts the harness's cancellation throw into a *returned*
- * result so workflow-core never classifies the abort as a step failure or
- * retries it; the epilogue runs in `settleCancelledTurnStep`.
- */
 /**
  * Inputs for one harness step, with every engine-owned capability injected:
  * the pre-read durable session, the resolved callback base URL, the runtime
@@ -89,7 +71,12 @@ export interface TurnStepOperationInput {
 
 /**
  * Runs one atomic harness step: fold the delivery in, run the model with
- * its tools, and classify the outcome into a {@link TurnStepResult}.
+ * its tools, and return the classified {@link TurnStepResult} projected
+ * onto the serialized session cursors ({@link SessionState}).
+ *
+ * A harness cancellation throw converts into the `cancelled` arm so the
+ * engine never classifies the abort as a step failure or retries it; the
+ * epilogue runs in `settleCancelledTurnStep`.
  *
  * Engine-neutral by construction — the caller owns the durable boundary
  * (e.g. a Workflow `"use step"`), session reading, and retry policy.
@@ -211,17 +198,15 @@ export async function executeTurnStepOperation(
   // the snapshot write when the session itself is unchanged.
   if (input.input?.kind === "deliver" && resolved === undefined) {
     const rekeyed = reconcileSessionContinuationToken(ctx, initialSession);
-    const nextSerializedContext = serializeContext(ctx);
     const nextState =
       rekeyed === initialSession
         ? input.sessionState
         : createDurableSessionState({ session: rekeyed });
 
-    return {
-      action: "park",
-      ...derivePendingState(rekeyed),
-      state: toSessionState(nextState, nextSerializedContext),
-    };
+    return withOutcomeState<EveLoopTypes>(
+      classifyParkedSession(rekeyed),
+      toSessionState(nextState, serializeContext(ctx)),
+    );
   }
 
   const writer = input.parentWritable.getWriter();
@@ -278,13 +263,13 @@ export async function executeTurnStepOperation(
 
   const mode = ctx.require(ModeKey);
 
-  let stepResult: StepResult;
+  let generated: GenerateOutcome;
   try {
     // A signal already aborted at entry (cancellation during an in-line
     // runtime-action wait) must settle before the park-resume stages run,
     // or the pending batch would re-park and later re-dispatch.
     throwIfTurnAborted(input.abortSignal);
-    stepResult = await runStep(ctx, initialSession, async (enrichedSession) => {
+    generated = await runStep(ctx, initialSession, async (enrichedSession) => {
       const schemaSession = resolveEffectiveOutputSchema({
         agentOutputSchema: bundle.turnAgent.outputSchema,
         input: resolved,
@@ -312,7 +297,7 @@ export async function executeTurnStepOperation(
       const runHarnessStep = async (
         lifecycleSession: HarnessSession,
         stepInput: StepInput | undefined,
-      ): Promise<StepResult> => {
+      ): Promise<GenerateOutcome> => {
         const refreshedSession = refreshSessionFromTurnAgent({
           compactionOverrides: {
             thresholdPercent: bundle.resolvedAgent.config.compaction?.thresholdPercent,
@@ -351,57 +336,26 @@ export async function executeTurnStepOperation(
 
   // Re-stamp the in-memory session's continuation token in case a
   // handler called `setContinuationToken(...)` (eg. Slack auto-anchor).
-  const rekeyed = reconcileSessionContinuationToken(ctx, stepResult.session);
-  const nextSerializedContext = serializeContext(ctx);
-  stepResult = { ...stepResult, session: rekeyed };
+  const rekeyed = reconcileSessionContinuationToken(ctx, generated.state);
+  const state = toSessionState(
+    createDurableSessionState({ session: rekeyed }),
+    serializeContext(ctx),
+  );
 
-  const nextState = createDurableSessionState({ session: stepResult.session });
-
-  if (
-    stepResult.next !== null &&
-    typeof stepResult.next === "object" &&
-    "done" in stepResult.next
-  ) {
+  if (generated.action === "done") {
     await writer.close();
-    const sessionTotals = getTurnUsageState(stepResult.session.state)?.session;
+    const sessionTotals = getTurnUsageState(rekeyed.state)?.session;
     return {
       action: "done",
-      output: stepResult.next.output,
-      isError: stepResult.next.isError,
-      state: toSessionState(nextState, nextSerializedContext),
+      output: generated.output,
+      isError: generated.isError,
+      state,
       usage: sessionTotals === undefined ? undefined : toUsage(sessionTotals),
     };
   }
 
-  if (stepResult.next === null) {
-    writer.releaseLock();
-
-    const workflowInterrupt = getPendingWorkflowInterrupt(stepResult.session.state);
-    if (
-      workflowInterrupt !== undefined &&
-      isWorkflowRuntimeActionInterrupt(workflowInterrupt.interrupt)
-    ) {
-      return {
-        action: "dispatch-workflow-runtime-actions",
-        pendingRuntimeActionKeys: getRuntimeActionKeysFromWorkflowInterrupt(
-          workflowInterrupt.interrupt,
-        ),
-        state: toSessionState(nextState, nextSerializedContext),
-      };
-    }
-
-    return {
-      action: "park",
-      ...derivePendingState(stepResult.session),
-      state: toSessionState(nextState, nextSerializedContext),
-    };
-  }
-
   writer.releaseLock();
-  return {
-    action: "continue",
-    state: toSessionState(nextState, nextSerializedContext),
-  };
+  return withOutcomeState<EveLoopTypes>(generated, state);
 }
 
 function toSessionState(
@@ -409,32 +363,6 @@ function toSessionState(
   serializedContext: Record<string, unknown>,
 ): SessionState {
   return { durable, serializedContext };
-}
-
-/**
- * Derives the pending-state fields the turn workflow needs to choose
- * the right `NextDriverAction` arm at the park boundary.
- */
-function derivePendingState(session: HarnessSession): {
-  readonly authorizationNames?: readonly string[];
-  readonly hasPendingAuthorization: boolean;
-  readonly hasPendingInputBatch: boolean;
-  readonly pendingRuntimeActionKeys?: readonly string[];
-} {
-  const batch = getPendingRuntimeActionBatch(session.state);
-  const pendingAuth = getPendingAuthorization(session.state);
-  const base = {
-    authorizationNames: pendingAuth?.challenges.map((c) => c.name),
-    hasPendingAuthorization: pendingAuth !== undefined,
-    hasPendingInputBatch: hasPendingInputBatch(session.state),
-  };
-  if (batch !== undefined) {
-    return {
-      ...base,
-      pendingRuntimeActionKeys: batch.actions.map((action) => getRuntimeActionRequestKey(action)),
-    };
-  }
-  return base;
 }
 
 /**

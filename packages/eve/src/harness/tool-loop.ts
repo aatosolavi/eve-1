@@ -175,13 +175,14 @@ import {
 } from "#runtime/framework-tools/final-output.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import type { RunMode } from "#shared/run-mode.js";
+import { classifyParkedSession } from "#harness/step-result.js";
 import type {
   CompactionConfig,
+  GenerateOutcome,
   HarnessSession,
   HarnessToolMap,
   StepFn,
   StepInput,
-  StepResult,
   ToolLoopHarnessConfig,
 } from "#harness/types.js";
 
@@ -472,7 +473,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
   async function runStep(
     initialSession: Readonly<Parameters<StepFn>[0]>,
     input?: StepInput,
-  ): Promise<StepResult> {
+  ): Promise<GenerateOutcome> {
     // --- Turn span lifecycle ------------------------------------------------
 
     // First step of a turn: open a new parent span. Continuation steps
@@ -510,7 +511,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     initialSession: Readonly<Parameters<StepFn>[0]>,
     input?: StepInput,
     turnSpan?: Span,
-  ): Promise<StepResult> {
+  ): Promise<GenerateOutcome> {
     let session = initialSession;
 
     // Store the turn span context on the session so continuation steps
@@ -533,7 +534,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       stepInput: stepInput.input,
     });
     if (resolvedRuntimeActions.outcome === "unresolved") {
-      return { next: null, session: resolvedRuntimeActions.session };
+      return classifyParkedSession(resolvedRuntimeActions.session);
     }
     session = resolvedRuntimeActions.session;
 
@@ -568,13 +569,10 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           config.mode,
           pending.session.continuationToken,
         );
-        return {
-          next: null,
-          session: setHarnessEmissionState(pending.session, emissionState),
-        };
+        return classifyParkedSession(setHarnessEmissionState(pending.session, emissionState));
       }
 
-      return { next: null, session: pending.session };
+      return classifyParkedSession(pending.session);
     }
 
     // Surface denied tool-call approvals as rejected `action.result` events.
@@ -1017,7 +1015,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       config,
       emit,
       emissionState,
-      runStep,
       session,
     });
     if (pendingWorkflowInterrupt !== null) {
@@ -1114,7 +1111,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
             message: toErrorMessage(finalError),
           });
           const parkedSession = setHarnessEmissionState(session, emissionState);
-          return { next: null, session: parkedSession };
+          return classifyParkedSession(parkedSession);
         }
 
         const classification = classifyModelCallError(finalError);
@@ -1175,13 +1172,9 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           // must be the task's error result so the parent driver resumes
           // with a failed `subagent-result` instead of a successful empty
           // output (https://github.com/vercel/eve/issues/412).
-          return {
-            next:
-              config.mode === "task"
-                ? { done: true, isError: true, output: taskFailureOutput }
-                : { done: true, output: "" },
-            session,
-          };
+          return config.mode === "task"
+            ? { action: "done", isError: true, output: taskFailureOutput, state: session }
+            : { action: "done", output: "", state: session };
         }
 
         if (config.mode === "task") {
@@ -1202,7 +1195,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           }
 
           // A task run cannot park for a user retry (turnWorkflow rejects
-          // `next: null` in task mode). Classified transient errors arrive
+          // a waiting park in task mode). Classified transient errors arrive
           // here only after their bounded in-process retries are exhausted;
           // empty responses already received their specialized reissue.
           log.error(
@@ -1215,10 +1208,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
             message: errorMessage,
             sessionId: session.sessionId,
           });
-          return {
-            next: { done: true, isError: true, output: taskFailureOutput },
-            session,
-          };
+          return { action: "done", isError: true, output: taskFailureOutput, state: session };
         }
 
         log.error(
@@ -1232,7 +1222,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
           message: errorMessage,
         });
         const parkedSession = setHarnessEmissionState(session, emissionState);
-        return { next: null, session: parkedSession };
+        return classifyParkedSession(parkedSession);
       }
     }
 
@@ -1285,7 +1275,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       emissionState,
       promptMessages: messages,
       result,
-      runStep,
       session,
     });
   }
@@ -1778,10 +1767,9 @@ async function handleStepResult(input: {
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
   readonly promptMessages: readonly ModelMessage[];
   readonly result: HarnessStepResult;
-  readonly runStep: StepFn;
   readonly session: HarnessSession;
-}): Promise<StepResult> {
-  const { config, emit, promptMessages, result, runStep } = input;
+}): Promise<GenerateOutcome> {
+  const { config, emit, promptMessages, result } = input;
   let { emissionState, session } = input;
 
   const resolvedStepOutput = resolveAssistantStepText(result.response.messages, result.text);
@@ -1894,9 +1882,8 @@ async function handleStepResult(input: {
     // parked session carries the default emission state (turnId ""),
     // because the post-preamble `setHarnessEmissionState` is dropped by
     // the later `session = pending.session` / `maybeCompact` rebinds.
-    return {
-      next: null,
-      session: setHarnessEmissionState(
+    return classifyParkedSession(
+      setHarnessEmissionState(
         setPendingRuntimeActionBatch({
           actions: pendingRuntimeActions,
           event: {
@@ -1909,7 +1896,7 @@ async function handleStepResult(input: {
         }),
         emissionState,
       ),
-    };
+    );
   }
 
   // --- Park on input requests -----------------------------------------------
@@ -1947,7 +1934,7 @@ async function handleStepResult(input: {
       }
     }
 
-    return { next: null, session: parkedSession };
+    return classifyParkedSession(parkedSession);
   }
 
   // --- Park on authorization request ------------------------------------------
@@ -1972,9 +1959,8 @@ async function handleStepResult(input: {
       }
     }
 
-    return {
-      next: null,
-      session: setHarnessEmissionState(
+    return classifyParkedSession(
+      setHarnessEmissionState(
         {
           ...baseSession,
           history: [...promptMessages],
@@ -1982,7 +1968,7 @@ async function handleStepResult(input: {
         },
         emissionState,
       ),
-    };
+    );
   }
 
   // --- Continue or terminate ------------------------------------------------
@@ -2012,7 +1998,7 @@ async function handleStepResult(input: {
       nextSession = setHarnessEmissionState(nextSession, emissionState);
     }
 
-    return { next: runStep, session: nextSession };
+    return { action: "continue", state: nextSession };
   }
 
   // `mode` is the fundamental terminal split: a task run must finish (an unmet
@@ -2105,7 +2091,7 @@ async function finishTaskTurn(input: {
   readonly schema: JsonObject | undefined;
   readonly session: HarnessSession;
   readonly stepOutput: string | null;
-}): Promise<StepResult> {
+}): Promise<GenerateOutcome> {
   const { emit, history, result, schema, stepOutput } = input;
   let { emissionState, session } = input;
 
@@ -2119,7 +2105,7 @@ async function finishTaskTurn(input: {
       );
       session = setHarnessEmissionState(session, emissionState);
     }
-    return { next: { done: true, output: stepOutput ?? "" }, session };
+    return { action: "done", output: stepOutput ?? "", state: session };
   }
 
   const structured = extractFinalOutput(result);
@@ -2131,8 +2117,10 @@ async function finishTaskTurn(input: {
       });
     }
     return {
-      next: { done: true, isError: true, output: OUTPUT_SCHEMA_NOT_FULFILLED.message },
-      session,
+      action: "done",
+      isError: true,
+      output: OUTPUT_SCHEMA_NOT_FULFILLED.message,
+      state: session,
     };
   }
 
@@ -2147,7 +2135,7 @@ async function finishTaskTurn(input: {
     );
     session = setHarnessEmissionState(session, emissionState);
   }
-  return { next: { done: true, output: structured }, session };
+  return { action: "done", output: structured, state: session };
 }
 
 /**
@@ -2162,7 +2150,7 @@ async function finishConversationTurn(input: {
   readonly result: HarnessStepResult;
   readonly schema: JsonObject | undefined;
   readonly session: HarnessSession;
-}): Promise<StepResult> {
+}): Promise<GenerateOutcome> {
   const { emit, history, result, schema } = input;
   let { emissionState, session } = input;
 
@@ -2176,7 +2164,7 @@ async function finishConversationTurn(input: {
       );
       session = setHarnessEmissionState(session, emissionState);
     }
-    return { next: null, session };
+    return classifyParkedSession(session);
   }
 
   const structured = extractFinalOutput(result);
@@ -2188,7 +2176,7 @@ async function finishConversationTurn(input: {
       });
       session = setHarnessEmissionState(session, emissionState);
     }
-    return { next: null, session };
+    return classifyParkedSession(session);
   }
 
   session = persistStructuredAssistantTurn(session, history, structured);
@@ -2202,7 +2190,7 @@ async function finishConversationTurn(input: {
     );
     session = setHarnessEmissionState(session, emissionState);
   }
-  return { next: null, session };
+  return classifyParkedSession(session);
 }
 
 /** Replays a parked dynamic workflow with completed child-agent results. */
@@ -2211,9 +2199,8 @@ async function continuePendingWorkflowInterrupt(input: {
   readonly config: ToolLoopHarnessConfig;
   readonly emit?: ToolLoopHarnessConfig["handleEvent"];
   readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
-  readonly runStep: StepFn;
   readonly session: HarnessSession;
-}): Promise<StepResult | null> {
+}): Promise<GenerateOutcome | null> {
   const pending = getPendingWorkflowInterrupt(input.session.state);
   if (pending === undefined) return null;
 
@@ -2310,7 +2297,7 @@ async function continuePendingWorkflowInterrupt(input: {
     });
   }
 
-  return { next: input.runStep, session };
+  return { action: "continue", state: session };
 }
 
 function replaceWorkflowToolResult(
@@ -2341,7 +2328,7 @@ function parkOnWorkflowInterrupt(input: {
   readonly interrupt: WorkflowSandboxInterrupt;
   readonly promptMessages: readonly ModelMessage[];
   readonly responseMessages: readonly ModelMessage[];
-}): StepResult {
+}): GenerateOutcome {
   const interrupt = getWorkflowRuntimeActionInterrupts(input.interrupt)[0];
   if (interrupt === undefined) {
     throw new Error("Workflow continuation contains no pending runtime-action interrupt.");
@@ -2358,7 +2345,7 @@ function parkOnWorkflowInterrupt(input: {
     session: baseSession,
   });
 
-  return { next: null, session: setHarnessEmissionState(parkedSession, input.emissionState) };
+  return classifyParkedSession(setHarnessEmissionState(parkedSession, input.emissionState));
 }
 
 function createNextCompactionConfig(

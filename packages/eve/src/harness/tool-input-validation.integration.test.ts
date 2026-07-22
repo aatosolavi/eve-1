@@ -123,35 +123,39 @@ describe("framework tool input validation (real AI SDK)", () => {
 
     const malformedStep = await runStep(session, { message: "Ask me which option to use." });
 
-    expect(typeof malformedStep.next).toBe("function");
-    expect(getPendingInputRequestIds(malformedStep.session.state)).toEqual(new Set());
-    expect(findToolResult(malformedStep.session.history, malformedCallId)).toMatchObject({
+    expect(malformedStep.action).toBe("continue");
+    expect(getPendingInputRequestIds(malformedStep.state.state)).toEqual(new Set());
+    expect(findToolResult(malformedStep.state.history, malformedCallId)).toMatchObject({
       output: expect.objectContaining({ type: "error-text" }),
       toolName: "ask_question",
     });
 
-    if (typeof malformedStep.next !== "function") {
+    if (malformedStep.action !== "continue") {
       throw new TypeError("Expected the malformed tool call to continue the tool loop.");
     }
-    const invalidStep = await malformedStep.next(malformedStep.session);
+    const invalidStep = await runStep(malformedStep.state);
 
-    expect(typeof invalidStep.next).toBe("function");
-    expect(getPendingInputRequestIds(invalidStep.session.state)).toEqual(new Set());
-    expect(findToolResult(invalidStep.session.history, invalidCallId)).toMatchObject({
+    expect(invalidStep.action).toBe("continue");
+    expect(getPendingInputRequestIds(invalidStep.state.state)).toEqual(new Set());
+    expect(findToolResult(invalidStep.state.history, invalidCallId)).toMatchObject({
       output: expect.objectContaining({ type: "error-text" }),
       toolName: "ask_question",
     });
 
-    if (typeof invalidStep.next !== "function") {
+    if (invalidStep.action !== "continue") {
       throw new TypeError("Expected the invalid tool call to continue the tool loop.");
     }
-    const validStep = await invalidStep.next(invalidStep.session);
+    const validStep = await runStep(invalidStep.state);
 
     expect(model.doGenerateCalls).toHaveLength(3);
     expect(findToolResult(model.doGenerateCalls[1]?.prompt ?? [], malformedCallId)).toBeDefined();
     expect(findToolResult(model.doGenerateCalls[2]?.prompt ?? [], invalidCallId)).toBeDefined();
-    expect(validStep.next).toBeNull();
-    expect(getPendingInputRequestIds(validStep.session.state)).toEqual(new Set([validCallId]));
+    expect(validStep).toMatchObject({
+      action: "park",
+      hasPendingAuthorization: false,
+      hasPendingInputBatch: true,
+    });
+    expect(getPendingInputRequestIds(validStep.state.state)).toEqual(new Set([validCallId]));
   });
 
   it("rejects invalid final_output input instead of terminating the task", async () => {
@@ -216,19 +220,23 @@ describe("framework tool input validation (real AI SDK)", () => {
 
     const invalidStep = await runStep(session, { message: "Finish the task." });
 
-    expect(typeof invalidStep.next).toBe("function");
-    expect(findToolResult(invalidStep.session.history, invalidCallId)).toMatchObject({
+    expect(invalidStep.action).toBe("continue");
+    expect(findToolResult(invalidStep.state.history, invalidCallId)).toMatchObject({
       output: expect.objectContaining({ type: "error-text" }),
       toolName: "final_output",
     });
 
-    if (typeof invalidStep.next !== "function") {
+    if (invalidStep.action !== "continue") {
       throw new TypeError("Expected invalid final output to continue the tool loop.");
     }
-    const validStep = await invalidStep.next(invalidStep.session);
+    const validStep = await runStep(invalidStep.state);
 
     expect(model.doGenerateCalls).toHaveLength(2);
     expect(findToolResult(model.doGenerateCalls[1]?.prompt ?? [], invalidCallId)).toBeDefined();
-    expect(validStep.next).toEqual({ done: true, output: { answer: "done" } });
+    expect(validStep).toEqual({
+      action: "done",
+      output: { answer: "done" },
+      state: expect.anything(),
+    });
   });
 });

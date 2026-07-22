@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setPendingInputBatch } from "#harness/input-requests.js";
 import { createToolLoopHarness } from "#harness/tool-loop.js";
-import type { HarnessSession, StepFn, StepNext, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -113,14 +113,6 @@ function setupMockAgentSequence(results: readonly Record<string, unknown>[]): vo
   } as unknown as MockAgentConstructor);
 }
 
-function expectStepFn(value: StepNext): StepFn {
-  if (typeof value !== "function") {
-    throw new Error("Expected a continuation step function.");
-  }
-
-  return value;
-}
-
 describe("tool-loop structured compaction accounting", () => {
   it("compacts before the continuation step when structured tool results were appended", async () => {
     vi.mocked(generateText).mockResolvedValue({
@@ -212,20 +204,20 @@ describe("tool-loop structured compaction accounting", () => {
       { message: "Compute something" },
     );
 
-    expect(first.next).toBe(runStep);
-    expect(first.session.compaction).toMatchObject({
+    expect(first.action).toBe("continue");
+    expect(first.state.compaction).toMatchObject({
       lastKnownInputTokens: 100,
       lastKnownPromptMessageCount: 1,
     });
 
-    const second = await expectStepFn(first.next)(first.session);
+    const second = await runStep(first.state);
 
     expect(vi.mocked(generateText)).toHaveBeenCalledTimes(1);
-    expect(second.session.history[0]).toEqual({
+    expect(second.state.history[0]).toEqual({
       content: "Summary of our conversation so far:",
       role: "user",
     });
-    expect(second.session.history[1]).toEqual({
+    expect(second.state.history[1]).toEqual({
       content: "summary",
       role: "assistant",
     });
@@ -285,11 +277,11 @@ describe("tool-loop structured compaction accounting", () => {
     });
 
     expect(vi.mocked(generateText)).toHaveBeenCalledTimes(1);
-    expect(result.session.history[0]).toEqual({
+    expect(result.state.history[0]).toEqual({
       content: "Summary of our conversation so far:",
       role: "user",
     });
-    expect(result.session.history[1]).toEqual({
+    expect(result.state.history[1]).toEqual({
       content: "summary",
       role: "assistant",
     });
@@ -343,12 +335,16 @@ describe("tool-loop structured compaction accounting", () => {
       createTestSession({ compaction: { recentWindowSize: 10, threshold: 100_000_000 } }),
       { message: "Read a big file" },
     );
-    expect(first.next).toBe(runStep);
+    expect(first.action).toBe("continue");
 
-    const second = await expectStepFn(first.next)(first.session);
-    expect(second.next).toBeNull();
+    const second = await runStep(first.state);
+    expect(second).toMatchObject({
+      action: "park",
+      hasPendingAuthorization: false,
+      hasPendingInputBatch: false,
+    });
 
-    const toolResult = second.session.history.find(
+    const toolResult = second.state.history.find(
       (m) =>
         m.role === "tool" &&
         Array.isArray(m.content) &&

@@ -152,24 +152,24 @@ describe("tool loop generate approval resume (real AI SDK)", () => {
       toolName: toolCall.toolName,
     });
 
-    expect(result.session.history.map((message) => message.role)).toEqual([
+    expect(result.state.history.map((message) => message.role)).toEqual([
       "user",
       "assistant",
       "tool",
       "tool",
       "assistant",
     ]);
-    expect(findPart(result.session.history, "tool-call")).toEqual(toolCall);
-    expect(findPart(result.session.history, "tool-approval-response")).toMatchObject({
+    expect(findPart(result.state.history, "tool-call")).toEqual(toolCall);
+    expect(findPart(result.state.history, "tool-approval-response")).toMatchObject({
       approvalId: approvalRequest.approvalId,
       approved: true,
     });
-    expect(findPart(result.session.history, "tool-result")).toMatchObject({
+    expect(findPart(result.state.history, "tool-result")).toMatchObject({
       output: { type: "text", value: "canonical:/workspace" },
       toolCallId: toolCall.toolCallId,
       toolName: toolCall.toolName,
     });
-    expect(result.session.history.at(-1)).toMatchObject({
+    expect(result.state.history.at(-1)).toMatchObject({
       content: [{ text: "The command returned /workspace.", type: "text" }],
       role: "assistant",
     });

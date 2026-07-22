@@ -330,7 +330,11 @@ describe("createExecutionNodeStep", () => {
       ),
     );
 
-    expect(result.next).toEqual({ done: true, output: "tool-output" });
+    expect(result.action).toBe("done");
+    if (result.action === "done") {
+      expect(result.output).toBe("tool-output");
+      expect(result.isError).toBeUndefined();
+    }
     expect(resolveRuntimeModelReference).toHaveBeenCalledWith(
       rootNode.turnAgent.model,
       modelResolutionScope,
@@ -393,9 +397,12 @@ describe("createExecutionNodeStep", () => {
       ),
     );
 
-    expect(result.next).toBeNull();
+    expect(result.action).toBe("park");
+    if (result.action === "park") {
+      expect(result.pendingRuntimeActionKeys).toBeDefined();
+    }
     expect(createRuntime).not.toHaveBeenCalled();
-    expect(getPendingRuntimeActionBatch(result.session.state)).toEqual({
+    expect(getPendingRuntimeActionBatch(result.state.state)).toEqual({
       actions: [
         {
           callId: "call-subagent-1",

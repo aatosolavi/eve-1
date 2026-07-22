@@ -3,9 +3,10 @@ import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import { withOutcomeState } from "#harness/step-result.js";
 import { createToolLoopHarness } from "#harness/tool-loop.js";
 import { TurnCancelledError } from "#harness/turn-cancellation.js";
-import type { HarnessEmitFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
@@ -28,11 +29,11 @@ function createSession(): HarnessSession {
 }
 
 function createEventCollector(): {
-  emit: HarnessEmitFn;
+  emit: HandleEventFn;
   events: HandleMessageStreamEvent[];
 } {
   const events: HandleMessageStreamEvent[] = [];
-  const emit: HarnessEmitFn = async (event) => {
+  const emit: HandleEventFn = async (event) => {
     events.push(event);
   };
   return { emit, events };
@@ -40,7 +41,7 @@ function createEventCollector(): {
 
 function createConfig(
   model: LanguageModel,
-  emit: HarnessEmitFn,
+  emit: HandleEventFn,
   overrides?: Partial<ToolLoopHarnessConfig>,
 ): ToolLoopHarnessConfig {
   return {
@@ -221,7 +222,7 @@ describe("tool loop cancellation (real AI SDK)", () => {
       { message: "Hi" },
     );
 
-    expect(inertResult.next).toBe(bareResult.next);
+    expect(withOutcomeState(inertResult, null)).toEqual(withOutcomeState(bareResult, null));
     expect(inert.events.map((event) => event.type)).toEqual(bare.events.map((event) => event.type));
   });
 });
