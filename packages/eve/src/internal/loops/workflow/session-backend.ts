@@ -10,7 +10,7 @@ import type {
   TurnHandle,
   TurnOutcome,
   TurnProgramInput,
-} from "#core/types.js";
+} from "#internal/loops/types.js";
 import {
   createDelegatedSubagentErrorResult,
   createDelegatedSubagentSuccessResult,

@@ -6,10 +6,8 @@ import {
   type TurnWorkflowDispatchInput,
 } from "#execution/durable-session-migrations/turn-workflow.js";
 import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
-import {
-  executeTurnStepOperation,
-  type DurableStepResult,
-} from "#execution/turn-step-operation.js";
+import { executeTurnStepOperation } from "#internal/loops/turn-step-operation.js";
+import type { TurnStepResult } from "#internal/loops/types.js";
 import { buildTurnAttributes, readRootSessionId } from "#execution/eve-workflow-attributes.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { setEveAttributes } from "#runtime/attributes/emit.js";
@@ -18,23 +16,23 @@ import {
   createWorkflowRuntime,
   startWorkflowPreferLatest,
   turnWorkflowReference,
-} from "#execution/workflow-runtime.js";
+} from "#internal/loops/workflow/runtime.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
 
-export type { DurableStepResult, TurnStepInput };
-export { resolveEffectiveOutputSchema } from "#execution/turn-step-operation.js";
+export type { TurnStepInput, TurnStepResult };
+export { resolveEffectiveOutputSchema } from "#internal/loops/turn-step-operation.js";
 
 /**
  * Runs one atomic harness step inside a durable `"use step"` boundary.
  *
  * The step body lives in the engine-neutral
- * {@link import("#execution/turn-step-operation.js").executeTurnStepOperation};
+ * {@link import("#internal/loops/turn-step-operation.js").executeTurnStepOperation};
  * this shell owns what only the Workflow engine can supply: the durable
  * commit boundary, the pre-read of legacy session state, the callback base
  * URL from workflow metadata, the runtime constructor for delegated child
  * runs, and the workflow-run attribute writer.
  */
-export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResult> {
+export async function turnStep(rawInput: TurnStepInput): Promise<TurnStepResult> {
   "use step";
 
   const durableSession = await readDurableSession(rawInput.sessionState);

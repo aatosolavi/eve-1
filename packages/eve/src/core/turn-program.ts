@@ -1,5 +1,11 @@
 import { next } from "#core/turn-step.js";
-import type { TurnBackend, TurnInput, TurnOutcome, TurnProgramInput } from "#core/types.js";
+import type {
+  LoopTypes,
+  TurnBackend,
+  TurnInput,
+  TurnOutcome,
+  TurnProgramInput,
+} from "#core/types.js";
 
 export const TASK_MODE_WAIT_ERROR_MESSAGE =
   "Task mode cannot wait for follow-up input (`next: null`).";
@@ -13,9 +19,12 @@ export const TASK_MODE_WAIT_ERROR_MESSAGE =
  * unparkable task-mode wait, then map the completed step onto the turn's
  * outcome. Cancellation surfaces as a value, never as a failure.
  */
-export async function runTurn(backend: TurnBackend, input: TurnProgramInput): Promise<TurnOutcome> {
+export async function runTurn<Types extends LoopTypes>(
+  backend: TurnBackend<Types>,
+  input: TurnProgramInput<Types>,
+): Promise<TurnOutcome<Types>> {
   let state = input.state;
-  let stepInput: TurnInput | undefined = input.delivery;
+  let stepInput: TurnInput<Types> | undefined = input.delivery;
   let stepOrdinal = 0;
 
   while (true) {

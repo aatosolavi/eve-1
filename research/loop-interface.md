@@ -44,11 +44,9 @@ implementations selected with `eve dev --loop <implementation>` or `EVE_LOOP`.
   demultiplexing, stream transport, and engine lifecycle. Adapter queue drains
   may loop, but adapters do not start successive domain turns or steps.
 
-The Workflow adapter is split between
-[`workflow-session-backend.ts`](../packages/eve/src/execution/workflow-session-backend.ts)
-and
-[`workflow-turn-backend.ts`](../packages/eve/src/execution/workflow-turn-backend.ts).
-The inline and Temporal adapters live under
+The Workflow adapter lives under
+[`internal/loops/workflow`](../packages/eve/src/internal/loops/workflow), next
+to the inline and Temporal adapters under
 [`internal/loops`](../packages/eve/src/internal/loops).
 
 ## Preserved semantics

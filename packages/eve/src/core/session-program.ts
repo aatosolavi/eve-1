@@ -1,5 +1,5 @@
 import type {
-  Delivery,
+  LoopTypes,
   SessionBackend,
   SessionProgramInput,
   TerminalOutcome,
@@ -13,12 +13,12 @@ import type {
  * cancellation settlement, authorization waits, and descendant routing
  * below the port.
  */
-export async function runSession(
-  backend: SessionBackend,
-  input: SessionProgramInput,
-): Promise<TerminalOutcome> {
+export async function runSession<Types extends LoopTypes>(
+  backend: SessionBackend<Types>,
+  input: SessionProgramInput<Types>,
+): Promise<TerminalOutcome<Types>> {
   let state = input.state;
-  let delivery: Delivery = input.initialDelivery;
+  let delivery: Types["delivery"] = input.initialDelivery;
   let turnOrdinal = 0;
 
   while (true) {
@@ -36,7 +36,7 @@ export async function runSession(
     state = turn.state;
 
     if (turn.kind === "done") {
-      const outcome: TerminalOutcome = {
+      const outcome: TerminalOutcome<Types> = {
         isError: turn.isError,
         output: turn.output,
         usage: turn.usage,

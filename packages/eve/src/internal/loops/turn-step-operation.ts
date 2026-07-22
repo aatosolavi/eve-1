@@ -23,7 +23,6 @@ import { getPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state.j
 import { getPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
 import type { HarnessSession, StepInput, StepResult } from "#harness/types.js";
 import { getTurnUsageState, toUsage } from "#harness/turn-tag-state.js";
-import type { TokenUsage } from "#shared/token-usage.js";
 import type { JsonObject } from "#shared/json.js";
 import type { RunMode } from "#shared/run-mode.js";
 import { getRuntimeActionRequestKey } from "#runtime/actions/keys.js";
@@ -52,50 +51,19 @@ import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
 import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
+import type { SessionState, TurnStepResult } from "#internal/loops/types.js";
 
 /**
- * Result of one durable harness step, consumed by the turn workflow.
+ * Result of one harness step, consumed by the shared turn program.
  *
  * `park` carries `hasPendingInputBatch`, `hasPendingAuthorization`, and
- * `pendingRuntimeActionKeys` so the turn workflow can pick the right
- * {@link import("#execution/next-driver-action.js").NextDriverAction}
- * arm without re-reading the session.
+ * `pendingRuntimeActionKeys` so the shared turn step can distinguish a
+ * terminal wait from unresolved child work without re-reading the session.
  *
  * `cancelled` converts the harness's cancellation throw into a *returned*
  * result so workflow-core never classifies the abort as a step failure or
  * retries it; the epilogue runs in `settleCancelledTurnStep`.
  */
-export type DurableStepResult =
-  | {
-      readonly action: "continue" | "done";
-      readonly output?: unknown;
-      readonly isError?: boolean;
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-      /** Session-total token usage; set on `done` when the session spent any. */
-      readonly usage?: TokenUsage;
-    }
-  | {
-      readonly action: "cancelled";
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    }
-  | {
-      readonly action: "park";
-      readonly authorizationNames?: readonly string[];
-      readonly hasPendingAuthorization: boolean;
-      readonly hasPendingInputBatch: boolean;
-      readonly pendingRuntimeActionKeys?: readonly string[];
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    }
-  | {
-      readonly action: "dispatch-workflow-runtime-actions";
-      readonly pendingRuntimeActionKeys: readonly string[];
-      readonly serializedContext: Record<string, unknown>;
-      readonly sessionState: DurableSessionState;
-    };
-
 /**
  * Inputs for one harness step, with every engine-owned capability injected:
  * the pre-read durable session, the resolved callback base URL, the runtime
@@ -121,14 +89,14 @@ export interface TurnStepOperationInput {
 
 /**
  * Runs one atomic harness step: fold the delivery in, run the model with
- * its tools, and classify the outcome into a {@link DurableStepResult}.
+ * its tools, and classify the outcome into a {@link TurnStepResult}.
  *
  * Engine-neutral by construction — the caller owns the durable boundary
  * (e.g. a Workflow `"use step"`), session reading, and retry policy.
  */
 export async function executeTurnStepOperation(
   rawInput: TurnStepOperationInput,
-): Promise<DurableStepResult> {
+): Promise<TurnStepResult> {
   let input = rawInput;
 
   let durableSession = rawInput.durableSession;
@@ -252,8 +220,7 @@ export async function executeTurnStepOperation(
     return {
       action: "park",
       ...derivePendingState(rekeyed),
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
+      state: toSessionState(nextState, nextSerializedContext),
     };
   }
 
@@ -378,8 +345,7 @@ export async function executeTurnStepOperation(
     writer.releaseLock();
     return {
       action: "cancelled",
-      serializedContext: input.serializedContext,
-      sessionState: input.sessionState,
+      state: toSessionState(input.sessionState, input.serializedContext),
     };
   }
 
@@ -402,8 +368,7 @@ export async function executeTurnStepOperation(
       action: "done",
       output: stepResult.next.output,
       isError: stepResult.next.isError,
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
+      state: toSessionState(nextState, nextSerializedContext),
       usage: sessionTotals === undefined ? undefined : toUsage(sessionTotals),
     };
   }
@@ -421,25 +386,29 @@ export async function executeTurnStepOperation(
         pendingRuntimeActionKeys: getRuntimeActionKeysFromWorkflowInterrupt(
           workflowInterrupt.interrupt,
         ),
-        serializedContext: nextSerializedContext,
-        sessionState: nextState,
+        state: toSessionState(nextState, nextSerializedContext),
       };
     }
 
     return {
       action: "park",
       ...derivePendingState(stepResult.session),
-      serializedContext: nextSerializedContext,
-      sessionState: nextState,
+      state: toSessionState(nextState, nextSerializedContext),
     };
   }
 
   writer.releaseLock();
   return {
     action: "continue",
-    serializedContext: nextSerializedContext,
-    sessionState: nextState,
+    state: toSessionState(nextState, nextSerializedContext),
   };
+}
+
+function toSessionState(
+  durable: DurableSessionState,
+  serializedContext: Record<string, unknown>,
+): SessionState {
+  return { durable, serializedContext };
 }
 
 /**

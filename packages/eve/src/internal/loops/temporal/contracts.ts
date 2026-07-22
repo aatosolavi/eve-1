@@ -6,9 +6,8 @@ import type {
   SessionAuthContext,
   SessionCapabilities,
 } from "#channel/types.js";
-import type { TurnOutcome, TurnProgramInput } from "#core/types.js";
+import type { TurnOutcome, TurnProgramInput, TurnStepResult } from "#internal/loops/types.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
-import type { DurableStepResult } from "#execution/turn-step-operation.js";
 import type { RunMode } from "#shared/run-mode.js";
 
 export const TEMPORAL_SESSION_WORKFLOW = "temporalSessionWorkflow";
@@ -58,7 +57,7 @@ export interface TemporalLoopActivities {
   createSession(
     input: TemporalLoopCreateSessionInput,
   ): Promise<{ readonly state: DurableSessionState }>;
-  executeTurnStep(input: TemporalLoopTurnStepInput): Promise<DurableStepResult>;
+  executeTurnStep(input: TemporalLoopTurnStepInput): Promise<TurnStepResult>;
   rekeySession(input: {
     readonly continuationToken: string;
     readonly sessionId: string;

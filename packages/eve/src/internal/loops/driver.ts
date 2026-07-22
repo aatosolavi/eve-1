@@ -1,10 +1,10 @@
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-
-import { createWorkflowRuntime } from "#execution/workflow-runtime.js";
+import { createWorkflowRuntime } from "#internal/loops/workflow/runtime.js";
 import { readLoopKind } from "#internal/loops/config.js";
 import type { LoopDriver } from "#internal/loops/contract.js";
+import {
+  loadInlineRuntimeModule,
+  loadTemporalRuntimeModule,
+} from "#internal/loops/local-runtime-loader.js";
 import {
   getRuntimeCompiledArtifactsCacheKey,
   type RuntimeCompiledArtifactsSource,
@@ -49,7 +49,7 @@ function createWorkflowDriver(compiledArtifactsSource: RuntimeCompiledArtifactsS
 async function createInlineDriver(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<LoopDriver> {
-  const { createInlineLoopRuntime } = await import("#internal/loops/inline/runtime.js");
+  const { createInlineLoopRuntime } = await loadInlineRuntimeModule();
   const driver: LoopDriver = {
     async close() {},
     createRuntime: (input) =>
@@ -83,9 +83,7 @@ async function getTemporalDriver(
 async function createTemporalDriver(
   compiledArtifactsSource: RuntimeCompiledArtifactsSource,
 ): Promise<LoopDriver> {
-  const runtimeModule: typeof import("#internal/loops/temporal/runtime.js") = await import(
-    resolveTemporalRuntimeUrl()
-  );
+  const runtimeModule = await loadTemporalRuntimeModule();
   const { createTemporalLoopRuntime } = runtimeModule;
   const runtime = await createTemporalLoopRuntime({ compiledArtifactsSource });
   return {
@@ -98,12 +96,6 @@ async function createTemporalDriver(
     },
     kind: "temporal",
   };
-}
-
-function resolveTemporalRuntimeUrl(): string {
-  const require = createRequire(import.meta.url);
-  const packageRoot = dirname(require.resolve("eve/package.json"));
-  return pathToFileURL(join(packageRoot, "dist/src/internal/loops/temporal/runtime.js")).href;
 }
 
 async function closeRetiredDriver(driver: Promise<LoopDriver>): Promise<void> {

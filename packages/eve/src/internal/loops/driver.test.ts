@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Runtime } from "#channel/types.js";
 import { resolveLoopDriver } from "#internal/loops/driver.js";
@@ -7,21 +7,26 @@ import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-a
 const mocks = vi.hoisted(() => ({
   createInlineLoopRuntime: vi.fn(),
   createWorkflowRuntime: vi.fn(),
+  loadInlineRuntimeModule: vi.fn(),
 }));
 
-vi.mock("#execution/workflow-runtime.js", () => ({
+vi.mock("#internal/loops/workflow/runtime.js", () => ({
   createWorkflowRuntime: mocks.createWorkflowRuntime,
 }));
 
-vi.mock("#internal/loops/inline/runtime.js", () => ({
-  createInlineLoopRuntime: mocks.createInlineLoopRuntime,
+vi.mock("#internal/loops/local-runtime-loader.js", () => ({
+  loadInlineRuntimeModule: mocks.loadInlineRuntimeModule,
+  loadTemporalRuntimeModule: vi.fn(),
 }));
 
 const source = createBundledRuntimeCompiledArtifactsSource();
 const runtime = {} as Runtime;
 
-afterEach(() => {
+beforeEach(() => {
   vi.clearAllMocks();
+  mocks.loadInlineRuntimeModule.mockResolvedValue({
+    createInlineLoopRuntime: mocks.createInlineLoopRuntime,
+  });
 });
 
 describe("resolveLoopDriver", () => {

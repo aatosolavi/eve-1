@@ -1,10 +1,8 @@
 import type { Runtime } from "#channel/types.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession, type DurableSessionState } from "#execution/durable-session-store.js";
-import {
-  executeTurnStepOperation,
-  type DurableStepResult,
-} from "#execution/turn-step-operation.js";
+import { executeTurnStepOperation } from "#internal/loops/turn-step-operation.js";
+import type { TurnStepResult } from "#internal/loops/types.js";
 import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { serializeDurableCompiledArtifactsSource } from "#runtime/durable-compiled-artifacts-source.js";
@@ -35,7 +33,7 @@ export function createTemporalLoopActivities(input: {
       }
     },
 
-    async executeTurnStep(activityInput): Promise<DurableStepResult> {
+    async executeTurnStep(activityInput): Promise<TurnStepResult> {
       try {
         let emissionOrdinal = 0;
         const parentWritable = new WritableStream<Uint8Array>({

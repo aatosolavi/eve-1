@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 import { runSession, runTurn } from "#core/index.js";
 import { TASK_MODE_WAIT_ERROR_MESSAGE } from "#core/turn-program.js";
 import { DURABLE_SESSION_VERSION } from "#execution/durable-session-store.js";
+import type { LoopRequest } from "#core/types.js";
 import type {
   ChildResults,
   CompletedTurn,
-  Delivery,
-  Generated,
   GenerateInput,
-  LoopRequest,
   SessionAdvance,
   SessionBackend,
   SessionState,
@@ -17,14 +15,17 @@ import type {
   TurnHandle,
   TurnOutcome,
   TurnProgramInput,
-} from "#core/types.js";
+  TurnStepResult,
+} from "#internal/loops/types.js";
+
+type Delivery = Extract<TurnProgramInput["delivery"], { readonly kind: "deliver" }>;
 
 describe("runTurn", () => {
   it("advances through continue steps, checkpointing each, and settles done", async () => {
     const backend = new ScriptedBackend([
-      { kind: "continue", state: state("s1") },
+      { action: "continue", state: state("s1") },
       {
-        kind: "finish",
+        action: "done",
         output: "final",
         state: state("s2"),
         usage: { cacheReadTokens: 0, cacheWriteTokens: 0, inputTokens: 1, outputTokens: 2 },
@@ -47,7 +48,7 @@ describe("runTurn", () => {
       {
         hasPendingAuthorization: false,
         hasPendingInputBatch: false,
-        kind: "waiting",
+        action: "park",
         state: state("s1"),
       },
     ]);
@@ -62,7 +63,7 @@ describe("runTurn", () => {
       {
         hasPendingAuthorization: false,
         hasPendingInputBatch: false,
-        kind: "waiting",
+        action: "park",
         state: state("s1"),
       },
     ]);
@@ -82,7 +83,7 @@ describe("runTurn", () => {
       waiting: { hasPendingAuthorization: false, hasPendingInputBatch: true },
     },
   ])("parks a task-mode wait for $name", async ({ waiting }) => {
-    const backend = new ScriptedBackend([{ ...waiting, kind: "waiting", state: state("s1") }]);
+    const backend = new ScriptedBackend([{ ...waiting, action: "park", state: state("s1") }]);
 
     await expect(
       runTurn(backend, turnInput({ capabilities: { requestInput: true }, mode: "task" })),
@@ -90,7 +91,7 @@ describe("runTurn", () => {
   });
 
   it("settles an observed cancellation as a cancelled outcome, not a failure", async () => {
-    const backend = new ScriptedBackend([{ kind: "cancelled", state: state("s1") }]);
+    const backend = new ScriptedBackend([{ action: "cancelled", state: state("s1") }]);
 
     await expect(runTurn(backend, turnInput({ mode: "conversation" }))).resolves.toMatchObject({
       kind: "cancelled",
@@ -109,8 +110,14 @@ describe("runTurn", () => {
     ];
     const backend = new ScriptedBackend(
       [
-        { kind: "requests", requests, state: state("s1") },
-        { kind: "finish", output: "after-children", state: state("s2") },
+        {
+          action: "park",
+          hasPendingAuthorization: false,
+          hasPendingInputBatch: false,
+          pendingRuntimeActionKeys: requests.map((request) => request.key),
+          state: state("s1"),
+        },
+        { action: "done", output: "after-children", state: state("s2") },
       ],
       { childResults: results },
     );
@@ -130,11 +137,13 @@ describe("runTurn", () => {
     const backend = new ScriptedBackend(
       [
         {
-          kind: "requests",
-          requests: [{ key: "subagent-call:a:1", kind: "subagent" }],
+          action: "park",
+          hasPendingAuthorization: false,
+          hasPendingInputBatch: false,
+          pendingRuntimeActionKeys: ["subagent-call:a:1"],
           state: state("s1"),
         },
-        { kind: "cancelled", state: state("s2") },
+        { action: "cancelled", state: state("s2") },
       ],
       { childResults: "cancelled" },
     );
@@ -147,9 +156,9 @@ describe("runTurn", () => {
 
   it("hands each step a monotonically increasing ordinal", async () => {
     const backend = new ScriptedBackend([
-      { kind: "continue", state: state("s1") },
-      { kind: "continue", state: state("s2") },
-      { kind: "finish", output: "done", state: state("s3") },
+      { action: "continue", state: state("s1") },
+      { action: "continue", state: state("s2") },
+      { action: "done", output: "done", state: state("s3") },
     ]);
 
     await runTurn(backend, turnInput({ mode: "task" }));
@@ -268,10 +277,10 @@ class ScriptedBackend {
   readonly spawnedRequests: (readonly LoopRequest[])[] = [];
   readonly spawnOrder: string[] = [];
   readonly #childResults: ChildResults;
-  readonly #script: Generated[];
+  readonly #script: TurnStepResult[];
 
   constructor(
-    script: readonly Generated[],
+    script: readonly TurnStepResult[],
     options: {
       readonly childResults?: ChildResults;
     } = {},
@@ -284,7 +293,7 @@ class ScriptedBackend {
     this.checkpoints.push(state);
   }
 
-  async generate(input: GenerateInput): Promise<Generated> {
+  async generate(input: GenerateInput): Promise<TurnStepResult> {
     this.generateCalls.push(input);
     this.generateOrdinals.push(input.stepOrdinal);
     const scripted = this.#script.shift();

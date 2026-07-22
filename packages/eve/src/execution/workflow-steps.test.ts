@@ -25,19 +25,19 @@ import {
 import { createTurnWorkflowInput } from "#execution/durable-session-migrations/turn-workflow.js";
 import { projectToDurableSession } from "#execution/session.js";
 import { createExecutionNodeStep } from "#execution/node-step.js";
-import { dispatchRuntimeActionsStep } from "#execution/dispatch-runtime-actions-step.js";
+import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";
 import { runProxySubagentEventStep } from "#execution/subagent-event-proxy-step.js";
 import { emitTerminalSessionFailureStep } from "#execution/terminal-session-failure-step.js";
 import {
   dispatchTurnStep,
   resolveEffectiveOutputSchema,
   turnStep,
-} from "#execution/workflow-steps.js";
+} from "#internal/loops/workflow/steps.js";
 import {
   LATEST_DEPLOYMENT_UNSUPPORTED_MESSAGE,
   turnWorkflowReference,
   workflowEntryReference,
-} from "#execution/workflow-runtime.js";
+} from "#internal/loops/workflow/runtime.js";
 
 vi.mock("./durable-session-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./durable-session-store.js")>();
@@ -824,7 +824,7 @@ describe("turnStep", () => {
 
     expect(first.action).toBe("park");
     expect(seenMessages[0]).toBe("thread=alpha; user=seed:alpha");
-    expect(first.serializedContext[ThreadKey.name]).toBe("alpha");
+    expect(first.state.serializedContext[ThreadKey.name]).toBe("alpha");
 
     const second = await turnStep({
       input: {
@@ -832,8 +832,8 @@ describe("turnStep", () => {
         payloads: [{ message: "follow up" }],
       },
       parentWritable,
-      serializedContext: first.serializedContext,
-      sessionState: first.sessionState,
+      serializedContext: first.state.serializedContext,
+      sessionState: first.state.durable,
     });
 
     expect(second.action).toBe("done");
@@ -841,7 +841,7 @@ describe("turnStep", () => {
     if (second.action === "done") {
       expect(second.output).toBe("thread=alpha; user=follow up");
     }
-    expect(second.serializedContext[ThreadKey.name]).toBe("alpha");
+    expect(second.state.serializedContext[ThreadKey.name]).toBe("alpha");
   });
 
   it("carries session-total usage on the done result, not the final turn's", async () => {

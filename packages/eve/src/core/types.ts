@@ -1,145 +1,156 @@
-import type { DeliverHookPayload, HookPayload, SessionCapabilities } from "#channel/types.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
-import type { RunMode } from "#shared/run-mode.js";
-import type { TokenUsage } from "#shared/token-usage.js";
-
 /**
- * The loop-domain session state: one value carrying both durable cursors
- * that previously threaded every execution boundary separately. The single
- * commit verb for it is {@link TurnBackend.checkpoint}.
+ * The values an engine host supplies to the loop programs.
+ *
+ * Core treats every value as opaque. Concrete eve types are bound once in
+ * `internal/loops/types.ts`; the algorithms here depend only on this shape.
  */
-export interface SessionState {
-  readonly durable: DurableSessionState;
-  readonly serializedContext: Record<string, unknown>;
+export interface LoopTypes {
+  readonly childResult: unknown;
+  readonly delivery: unknown;
+  readonly state: unknown;
+  readonly usage: unknown;
 }
 
+/** Capabilities inspected by the shared turn settlement rule. */
+export interface LoopCapabilities {
+  readonly requestInput?: boolean;
+}
+
+/** Modes whose done-versus-park semantics are owned by the shared core. */
+export type LoopMode = "conversation" | "task";
+
 /** One turn-facing input: a public delivery or folded-back child results. */
-export type TurnInput = HookPayload;
+export type TurnInput<Types extends LoopTypes> =
+  | Types["delivery"]
+  | {
+      readonly kind: "runtime-action-result";
+      readonly results: readonly Types["childResult"][];
+    };
 
-/** One public delivery, as the session program receives it. */
-export type Delivery = DeliverHookPayload;
-
-export interface GenerateInput {
-  readonly input: TurnInput | undefined;
-  readonly state: SessionState;
+export interface GenerateInput<Types extends LoopTypes> {
+  readonly input: TurnInput<Types> | undefined;
+  readonly state: Types["state"];
   readonly stepOrdinal: number;
 }
 
-/**
- * A request the model left unresolved at the end of a generation. Requests
- * are identified by their runtime-action key; the durable representation of
- * the open exchange (the pending batch holding the assistant response
- * outside provider history) lives in `state` and travels with it.
- */
+/** One unresolved request emitted by a generation. */
 export interface LoopRequest {
   readonly key: string;
   readonly kind: "subagent" | "workflow-interrupt";
 }
 
 /**
- * The classified outcome of one generation plus its inline tool execution.
+ * The engine-neutral result of one model/tool operation.
  *
- * `waiting` carries the park classification the settle phase needs;
- * `requests` carries unresolved child work; `cancelled` reports an observed
- * turn abort as a value so the engine never treats it as a failure.
+ * The shared {@link import("#core/turn-step.js").next} function is the only
+ * place that interprets these actions. Implementations only persist or
+ * schedule the operation.
  */
-export type Generated =
-  | { readonly kind: "continue"; readonly state: SessionState }
+export type TurnStepResult<Types extends LoopTypes> =
   | {
-      readonly isError?: boolean;
-      readonly kind: "finish";
-      readonly output: unknown;
-      readonly state: SessionState;
-      readonly usage?: TokenUsage;
+      readonly action: "continue";
+      readonly state: Types["state"];
     }
   | {
+      readonly action: "done";
+      readonly isError?: boolean;
+      readonly output?: unknown;
+      readonly state: Types["state"];
+      readonly usage?: Types["usage"];
+    }
+  | {
+      readonly action: "cancelled";
+      readonly state: Types["state"];
+    }
+  | {
+      readonly action: "park";
       readonly authorizationNames?: readonly string[];
       readonly hasPendingAuthorization: boolean;
       readonly hasPendingInputBatch: boolean;
-      readonly kind: "waiting";
-      readonly state: SessionState;
+      readonly pendingRuntimeActionKeys?: readonly string[];
+      readonly state: Types["state"];
     }
   | {
-      readonly kind: "requests";
-      readonly requests: readonly LoopRequest[];
-      readonly state: SessionState;
-    }
-  | { readonly kind: "cancelled"; readonly state: SessionState };
+      readonly action: "dispatch-workflow-runtime-actions";
+      readonly pendingRuntimeActionKeys: readonly string[];
+      readonly state: Types["state"];
+    };
 
-/**
- * Results of one spawned child batch, in request order, or the sentinel
- * for a turn cancellation observed during the wait.
- */
-export type ChildResults = readonly RuntimeActionResult[] | "cancelled";
+/** Child results in request order, or cancellation observed during the wait. */
+export type ChildResults<Types extends LoopTypes> = readonly Types["childResult"][] | "cancelled";
 
-export interface ChildrenHandle {
-  wait(): Promise<{ readonly results: ChildResults; readonly state: SessionState }>;
+export interface ChildrenHandle<Types extends LoopTypes> {
+  wait(): Promise<{
+    readonly results: ChildResults<Types>;
+    readonly state: Types["state"];
+  }>;
 }
 
-/**
- * Capabilities one intra-turn step may use. Loop mechanics — checkpoint,
- * receive, finish, spawnTurn — are statically invisible to a step.
- */
-export interface TurnDependencies {
-  generate(input: GenerateInput): Promise<Generated>;
+/** The operations one intra-turn step may use. */
+export interface TurnDependencies<Types extends LoopTypes> {
+  generate(input: GenerateInput<Types>): Promise<TurnStepResult<Types>>;
   spawnChildren(
-    state: SessionState,
+    state: Types["state"],
     requests: readonly LoopRequest[],
-  ): Promise<{ readonly handle: ChildrenHandle; readonly state: SessionState }>;
+  ): Promise<{
+    readonly handle: ChildrenHandle<Types>;
+    readonly state: Types["state"];
+  }>;
 }
 
-/** The slice of the port the turn program drives. */
-export interface TurnBackend extends TurnDependencies {
-  checkpoint(state: SessionState): Promise<void>;
+/** The slice of the implementation port driven by the turn program. */
+export interface TurnBackend<Types extends LoopTypes> extends TurnDependencies<Types> {
+  checkpoint(state: Types["state"]): Promise<void>;
 }
 
 /** A completed turn, including the final session state. */
-export type CompletedTurn = Extract<TurnOutcome, { readonly kind: "done" }>;
+export type CompletedTurn<Types extends LoopTypes> = Extract<
+  TurnOutcome<Types>,
+  { readonly kind: "done" }
+>;
 
 /** A parked turn whose reason must cross the session boundary intact. */
-export type SuspendedTurn = Exclude<TurnOutcome, CompletedTurn>;
+export type SuspendedTurn<Types extends LoopTypes> = Exclude<
+  TurnOutcome<Types>,
+  CompletedTurn<Types>
+>;
 
-/** The result of parking a suspended turn at the engine boundary. */
-export type SessionAdvance =
+/** The result of parking a suspended turn at the implementation boundary. */
+export type SessionAdvance<Types extends LoopTypes> =
   | {
-      readonly delivery: Delivery;
+      readonly delivery: Types["delivery"];
       readonly kind: "delivery";
-      readonly state: SessionState;
+      readonly state: Types["state"];
     }
-  | { readonly kind: "closed"; readonly outcome: TerminalOutcome };
+  | { readonly kind: "closed"; readonly outcome: TerminalOutcome<Types> };
 
 /** Engine operations used only by the shared session program. */
-export interface SessionBackend {
-  finish(turn: CompletedTurn): Promise<void>;
-  park(turn: SuspendedTurn): Promise<SessionAdvance>;
-  spawnTurn(input: TurnProgramInput, turnOrdinal: number): TurnHandle;
+export interface SessionBackend<Types extends LoopTypes> {
+  finish(turn: CompletedTurn<Types>): Promise<void>;
+  park(turn: SuspendedTurn<Types>): Promise<SessionAdvance<Types>>;
+  spawnTurn(input: TurnProgramInput<Types>, turnOrdinal: number): TurnHandle<Types>;
 }
 
-export interface StepInput {
-  readonly input: TurnInput | undefined;
-  readonly state: SessionState;
+export interface StepInput<Types extends LoopTypes> {
+  readonly input: TurnInput<Types> | undefined;
+  readonly state: Types["state"];
   readonly stepOrdinal: number;
 }
 
-/**
- * One step's result in the iterator protocol's shape: `done: false`
- * continues the turn loop (carrying the next step's input, e.g. folded
- * child results), `done: true` carries the turn's completion.
- */
-export type StepResult =
+/** One step's iterator-shaped result. */
+export type StepResult<Types extends LoopTypes> =
   | {
       readonly done: false;
-      readonly nextInput: TurnInput | undefined;
-      readonly state: SessionState;
+      readonly nextInput: TurnInput<Types> | undefined;
+      readonly state: Types["state"];
     }
   | {
       readonly done: true;
       readonly isError?: boolean;
       readonly kind: "done";
       readonly output: unknown;
-      readonly state: SessionState;
-      readonly usage?: TokenUsage;
+      readonly state: Types["state"];
+      readonly usage?: Types["usage"];
     }
   | {
       readonly authorizationNames?: readonly string[];
@@ -147,47 +158,51 @@ export type StepResult =
       readonly hasPendingAuthorization: boolean;
       readonly hasPendingInputBatch: boolean;
       readonly kind: "waiting";
-      readonly state: SessionState;
+      readonly state: Types["state"];
     }
-  | { readonly done: true; readonly kind: "cancelled"; readonly state: SessionState };
+  | {
+      readonly done: true;
+      readonly kind: "cancelled";
+      readonly state: Types["state"];
+    };
 
-export interface TurnProgramInput {
-  readonly capabilities: SessionCapabilities | undefined;
-  readonly delivery: TurnInput | undefined;
-  readonly mode: RunMode;
-  readonly state: SessionState;
+export interface TurnProgramInput<Types extends LoopTypes> {
+  readonly capabilities: LoopCapabilities | undefined;
+  readonly delivery: TurnInput<Types> | undefined;
+  readonly mode: LoopMode;
+  readonly state: Types["state"];
 }
 
-export type TurnOutcome =
+export type TurnOutcome<Types extends LoopTypes> =
   | {
       readonly isError?: boolean;
       readonly kind: "done";
       readonly output: unknown;
-      readonly state: SessionState;
-      readonly usage?: TokenUsage;
+      readonly state: Types["state"];
+      readonly usage?: Types["usage"];
     }
   | {
       readonly authorizationNames?: readonly string[];
       readonly hasPendingAuthorization: boolean;
       readonly hasPendingInputBatch: boolean;
       readonly kind: "waiting";
-      readonly state: SessionState;
+      readonly state: Types["state"];
     }
-  | { readonly kind: "cancelled"; readonly state: SessionState };
+  | { readonly kind: "cancelled"; readonly state: Types["state"] };
 
-export interface TurnHandle {
-  wait(): Promise<TurnOutcome>;
+export interface TurnHandle<Types extends LoopTypes> {
+  wait(): Promise<TurnOutcome<Types>>;
 }
 
-export interface TerminalOutcome {
+export interface TerminalOutcome<Types extends LoopTypes> {
   readonly isError?: boolean;
   readonly output: unknown;
-  readonly usage?: TokenUsage;
+  readonly usage?: Types["usage"];
 }
 
-export interface SessionProgramInput {
-  readonly capabilities: SessionCapabilities | undefined;
-  readonly initialDelivery: Delivery;
-  readonly mode: RunMode;
-  readonly state: SessionState;
+export interface SessionProgramInput<Types extends LoopTypes> {
+  readonly capabilities: LoopCapabilities | undefined;
+  readonly initialDelivery: Types["delivery"];
+  readonly mode: LoopMode;
+  readonly state: Types["state"];
 }

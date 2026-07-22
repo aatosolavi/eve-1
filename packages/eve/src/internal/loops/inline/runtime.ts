@@ -11,11 +11,11 @@ import type {
 import { ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { runSession, runTurn } from "#core/index.js";
+import type { LoopRequest } from "#core/types.js";
 import type {
   ChildrenHandle,
   CompletedTurn,
   GenerateInput,
-  LoopRequest,
   SessionAdvance,
   SessionBackend,
   SessionState,
@@ -24,14 +24,13 @@ import type {
   TurnHandle,
   TurnOutcome,
   TurnProgramInput,
-} from "#core/types.js";
+} from "#internal/loops/types.js";
 import { activeTurnId } from "#harness/active-turn-id.js";
-import { classifyTurnStepResult } from "#execution/classify-turn-step-result.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession } from "#execution/durable-session-store.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
-import { executeTurnStepOperation } from "#execution/turn-step-operation.js";
+import { executeTurnStepOperation } from "#internal/loops/turn-step-operation.js";
 import { InMemoryLoopEventLog } from "#internal/loops/event-log.js";
 import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -278,7 +277,7 @@ class InlineTurnBackend implements TurnBackend {
 
   async generate(input: GenerateInput) {
     const durableSession = await readDurableSession(input.state.durable);
-    const result = await executeTurnStepOperation({
+    const generated = await executeTurnStepOperation({
       abortSignal: this.#abortSignal,
       callbackBaseUrl: undefined,
       createRuntime: createInlineLoopRuntime,
@@ -289,7 +288,6 @@ class InlineTurnBackend implements TurnBackend {
       sessionState: input.state.durable,
       writeEveAttributes: undefined,
     });
-    const generated = classifyTurnStepResult(result);
     this.#session.state = generated.state;
     return generated;
   }

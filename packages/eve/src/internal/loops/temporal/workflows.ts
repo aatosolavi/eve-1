@@ -8,11 +8,11 @@ import {
 
 import type { HookPayload } from "#channel/types.js";
 import { runSession, runTurn } from "#core/index.js";
+import type { LoopRequest } from "#core/types.js";
 import type {
   ChildrenHandle,
   CompletedTurn,
   GenerateInput,
-  LoopRequest,
   SessionAdvance,
   SessionBackend,
   SessionState,
@@ -21,8 +21,7 @@ import type {
   TurnHandle,
   TurnOutcome,
   TurnProgramInput,
-} from "#core/types.js";
-import { classifyTurnStepResult } from "#execution/classify-turn-step-result.js";
+} from "#internal/loops/types.js";
 import {
   temporalLoopDeliverySignal,
   TEMPORAL_TURN_WORKFLOW,
@@ -130,16 +129,14 @@ class TemporalTurnBackend implements TurnBackend {
   async checkpoint(_state: SessionState): Promise<void> {}
 
   async generate(input: GenerateInput) {
-    return classifyTurnStepResult(
-      await activities.executeTurnStep({
-        input: input.input,
-        serializedContext: input.state.serializedContext,
-        sessionId: this.#sessionId,
-        sessionState: input.state.durable,
-        stepOrdinal: input.stepOrdinal,
-        turnOrdinal: this.#turnOrdinal,
-      }),
-    );
+    return await activities.executeTurnStep({
+      input: input.input,
+      serializedContext: input.state.serializedContext,
+      sessionId: this.#sessionId,
+      sessionState: input.state.durable,
+      stepOrdinal: input.stepOrdinal,
+      turnOrdinal: this.#turnOrdinal,
+    });
   }
 
   async spawnChildren(

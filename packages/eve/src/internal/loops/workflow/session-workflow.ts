@@ -11,7 +11,7 @@ import { normalizeSerializableError } from "#execution/workflow-errors.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { emitTerminalSessionFailureStep } from "#execution/terminal-session-failure-step.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";
-import { WorkflowSessionBackend } from "#execution/workflow-session-backend.js";
+import { WorkflowSessionBackend } from "#internal/loops/workflow/session-backend.js";
 import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects

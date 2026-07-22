@@ -1,6 +1,6 @@
 import { createHook } from "#compiled/@workflow/core/index.js";
 
-import type { DeliverHookPayload } from "#channel/types.js";
+import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
 import { runTurn } from "#core/turn-program.js";
 import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
 import type { TurnInboxPayload } from "#execution/turn-control-protocol.js";
@@ -14,7 +14,8 @@ import {
   type TurnCancellationControl,
 } from "#execution/turn-cancellation-control.js";
 import { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
-import { WorkflowTurnBackend } from "#execution/workflow-turn-backend.js";
+import { WorkflowTurnBackend } from "#internal/loops/workflow/turn-backend.js";
+import type { TurnInput } from "#internal/loops/types.js";
 import { normalizeSerializableError } from "#execution/workflow-errors.js";
 import { activeTurnId } from "#harness/active-turn-id.js";
 
@@ -89,7 +90,7 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
 
     const outcome = await runTurn(backend, {
       capabilities: input.capabilities,
-      delivery: input.stepInput.input,
+      delivery: toTurnInput(input.stepInput.input),
       mode: input.mode,
       state: {
         durable: input.stepInput.sessionState,
@@ -162,4 +163,11 @@ async function runTurnOwnedWorkflow(input: TurnWorkflowInput): Promise<void> {
     if (cancellation !== undefined) await cancellation.dispose();
     if (ownsInbox) await disposeHook(inbox);
   }
+}
+
+function toTurnInput(input: HookPayload | undefined): TurnInput | undefined {
+  if (input === undefined || input.kind === "deliver" || input.kind === "runtime-action-result") {
+    return input;
+  }
+  throw new Error(`Turn workflow cannot start from hook payload "${input.kind}".`);
 }

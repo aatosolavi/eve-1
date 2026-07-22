@@ -8,7 +8,8 @@ import {
   type DurableSessionState,
 } from "#execution/durable-session-store.js";
 import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import type { DurableStepResult, TurnStepOperationInput } from "#execution/turn-step-operation.js";
+import type { TurnStepOperationInput } from "#internal/loops/turn-step-operation.js";
+import type { TurnStepResult } from "#internal/loops/types.js";
 import {
   createSessionWaitingEvent,
   createTurnStartedEvent,
@@ -30,7 +31,7 @@ vi.mock("#execution/create-session-step.js", () => ({
   createSessionStep: mocks.createSessionOperation,
 }));
 
-vi.mock("#execution/turn-step-operation.js", () => ({
+vi.mock("#internal/loops/turn-step-operation.js", () => ({
   executeTurnStepOperation: mocks.executeTurnStepOperation,
 }));
 
@@ -55,7 +56,7 @@ describe("createInlineLoopRuntime", () => {
     const creation = deferred<{ readonly state: DurableSessionState }>();
     mocks.createSessionOperation.mockReturnValue(creation.promise);
 
-    const step = deferred<DurableStepResult>();
+    const step = deferred<TurnStepResult>();
     const turnInputs: TurnStepOperationInput[] = [];
     mocks.executeTurnStepOperation.mockImplementation(async (input: TurnStepOperationInput) => {
       turnInputs.push(input);
@@ -117,17 +118,19 @@ describe("createInlineLoopRuntime", () => {
         await publish(input, createTurnStartedEvent({ sequence: 0, turnId: "turn_0" }));
         return {
           action: "continue",
-          serializedContext: input.serializedContext,
-          sessionState: {
-            ...initialState,
-            emissionState: {
-              sequence: 0,
-              sessionStarted: true,
-              stepIndex: 1,
-              turnId: "turn_0",
+          state: {
+            durable: {
+              ...initialState,
+              emissionState: {
+                sequence: 0,
+                sessionStarted: true,
+                stepIndex: 1,
+                turnId: "turn_0",
+              },
             },
+            serializedContext: input.serializedContext,
           },
-        } satisfies DurableStepResult;
+        } satisfies TurnStepResult;
       }
 
       const rekeyedState: DurableSessionState = {
@@ -253,9 +256,8 @@ describe("createInlineLoopRuntime", () => {
         ({
           action: "dispatch-workflow-runtime-actions",
           pendingRuntimeActionKeys: ["remote-agent-call:research:call-1"],
-          serializedContext: context,
-          sessionState: state,
-        }) satisfies DurableStepResult,
+          state: { durable: state, serializedContext: context },
+        }) satisfies TurnStepResult,
     },
   ])("fails the event stream for unsupported $name", async ({ expected, result }) => {
     mocks.getCompiledRuntimeAgentBundle.mockResolvedValue({
@@ -342,14 +344,13 @@ function createSessionState(input: {
 function createParkResult(
   state: DurableSessionState,
   serializedContext: Record<string, unknown>,
-  overrides: Partial<Extract<DurableStepResult, { readonly action: "park" }>> = {},
-): DurableStepResult {
+  overrides: Partial<Extract<TurnStepResult, { readonly action: "park" }>> = {},
+): TurnStepResult {
   return {
     action: "park",
     hasPendingAuthorization: false,
     hasPendingInputBatch: false,
-    serializedContext,
-    sessionState: state,
+    state: { durable: state, serializedContext },
     ...overrides,
   };
 }

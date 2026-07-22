@@ -1,24 +1,23 @@
 import { getWorkflowMetadata } from "#compiled/@workflow/core/index.js";
 
 import type { DeliverHookPayload } from "#channel/types.js";
+import type { LoopRequest } from "#core/types.js";
 import type {
   ChildResults,
   ChildrenHandle,
   GenerateInput,
-  LoopRequest,
   SessionState,
   TurnBackend,
-} from "#core/types.js";
-import { classifyTurnStepResult } from "#execution/classify-turn-step-result.js";
-import { dispatchRuntimeActionsStep } from "#execution/dispatch-runtime-actions-step.js";
-import { dispatchWorkflowRuntimeActionsStep } from "#execution/dispatch-workflow-runtime-actions-step.js";
+} from "#internal/loops/types.js";
+import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";
+import { dispatchWorkflowRuntimeActionsStep } from "#internal/loops/workflow/dispatch-workflow-runtime-actions-step.js";
 import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
 import { runProxySubagentEventStep } from "#execution/subagent-event-proxy-step.js";
 import type { TurnCancellationControl } from "#execution/turn-cancellation-control.js";
 import type { TurnInboxPayload } from "#execution/turn-control-protocol.js";
 import type { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
 import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url.js";
-import { turnStep } from "#execution/workflow-steps.js";
+import { turnStep } from "#internal/loops/workflow/steps.js";
 import { resolveRuntimeActionResultsForKeys } from "#harness/runtime-actions.js";
 import type { RuntimeActionResult } from "#runtime/actions/types.js";
 
@@ -64,10 +63,7 @@ export class WorkflowTurnBackend implements TurnBackend {
   }
 
   async generate(input: GenerateInput) {
-    const result = await turnStep(
-      this.#cursor.createStepInput(input.input, this.#cancellation?.signal),
-    );
-    return classifyTurnStepResult(result);
+    return await turnStep(this.#cursor.createStepInput(input.input, this.#cancellation?.signal));
   }
 
   async spawnChildren(
