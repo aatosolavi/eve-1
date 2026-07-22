@@ -22,6 +22,8 @@
  * to that shared shape at the one site (the driver's `done` action) where a
  * session total crosses into it.
  */
+import type { ProviderMetadata } from "ai";
+import type { HarnessStepResult } from "#harness/step-hooks.js";
 import type { HarnessSession, SessionStateMap } from "#harness/types.js";
 import type { TokenUsage } from "#shared/token-usage.js";
 
@@ -253,4 +255,44 @@ function toTokenUsageDelta(usage: TokenUsageDelta | undefined): TokenUsageTotals
     outputTokens,
     sawCost: usage.costUsd !== undefined,
   };
+}
+
+export function extractTokenUsageDelta(input: {
+  readonly costUsd: number | undefined;
+  readonly usage: HarnessStepResult["usage"] | undefined;
+}): TokenUsageDelta | undefined {
+  const usage = input.usage;
+  if (usage === undefined && input.costUsd === undefined) {
+    return undefined;
+  }
+
+  return {
+    cacheReadTokens: usage?.inputTokenDetails?.cacheReadTokens,
+    cacheWriteTokens: usage?.inputTokenDetails?.cacheWriteTokens,
+    costUsd: input.costUsd,
+    inputTokens: usage?.inputTokens,
+    outputTokens: usage?.outputTokens,
+  };
+}
+
+export function extractGatewayCostUsd(
+  providerMetadata: ProviderMetadata | undefined,
+): number | undefined {
+  const gateway = readGatewayMetadata(providerMetadata);
+  const cost = gateway?.cost;
+  if (typeof cost === "number" && Number.isFinite(cost)) {
+    return cost;
+  }
+  if (typeof cost === "string") {
+    const parsed = Number(cost);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function readGatewayMetadata(
+  providerMetadata: ProviderMetadata | undefined,
+): ProviderMetadata[string] | undefined {
+  const gateway = providerMetadata?.gateway;
+  return gateway && typeof gateway === "object" && !Array.isArray(gateway) ? gateway : undefined;
 }

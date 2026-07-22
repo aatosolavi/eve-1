@@ -73,7 +73,8 @@ vi.mock("ai", () => ({
   tool: vi.fn((t: unknown) => t),
 }));
 
-vi.mock("./otel-integration.js", () => ({
+vi.mock("./otel-integration.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./otel-integration.js")>()),
   ensureOtelIntegration: vi.fn(),
 }));
 
@@ -82,7 +83,8 @@ vi.mock("./instrumentation-config.js", () => ({
   getInstrumentationConfig: (...args: unknown[]) => mockGetInstrumentationConfig(...args),
 }));
 
-vi.mock("./compaction.js", () => ({
+vi.mock("./compaction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./compaction.js")>()),
   compactMessages: vi.fn(),
   estimateTokens: vi.fn().mockReturnValue(5000),
   getInputTokenCount: vi.fn().mockReturnValue(5000),
