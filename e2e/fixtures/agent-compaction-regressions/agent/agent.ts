@@ -82,8 +82,8 @@ const responders: Record<RegressionCase, CaseResponder> = {
   },
 
   "read-truncated-result": (request, state) => {
-    // Once the read-back page (containing the tail sentinel that truncation
-    // cut) is visible, the round trip through the session stream worked.
+    // Success: a read-back page reached the tail sentinel that every
+    // truncation cut. The round trip through the session stream worked.
     if (
       request.messages.some(
         (message) =>
@@ -93,34 +93,31 @@ const responders: Record<RegressionCase, CaseResponder> = {
       return `Read back truncated output: ${READ_BACK_MARKER}`;
     }
 
-    // A truncation annotation names the call id to read back, plus the stream
-    // index when the harness recorded one — pass both through so the eval
-    // exercises the seek path.
-    const annotated = request.messages
-      .map((message) =>
-        /read_tool_result\("([^"]+)"(?:, \{ nearStreamIndex: (\d+) \})?\)/.exec(message.text),
+    // Walk the pagination contract: each page's nextOffsetChars feeds the
+    // next call until the sentinel (at the very end of the payload) appears.
+    const callId = request.messages
+      .map(
+        (message) => /read_tool_result tool: \{"toolCallId": "([^"]+)"\}/.exec(message.text)?.[1],
       )
-      .find((match) => match !== null);
-    if (annotated?.[1] !== undefined) {
+      .find((id) => id !== undefined);
+    if (callId !== undefined) {
       if (state.advanceCalls >= MAX_TOOL_CALLS) {
         return `Hard stop after ${MAX_TOOL_CALLS} read-backs: READ_BACK_TAIL_MISSING`;
       }
+
+      const nextOffsets = request.messages
+        .map((message) => /"nextOffsetChars":\s*(\d+)/.exec(message.text)?.[1])
+        .filter((offset) => offset !== undefined);
+      const offsetChars = nextOffsets.length === 0 ? 0 : Number(nextOffsets.at(-1));
+
       state.advanceCalls += 1;
-      // The payload is ~30k chars; page an 8k window over its tail so the
-      // sentinel survives even if this result is truncated again.
-      const readInput: Record<string, unknown> = {
-        limitChars: 8_000,
-        offsetChars: 26_000,
-        toolCallId: annotated[1],
-      };
-      if (annotated[2] !== undefined) {
-        readInput.nearStreamIndex = Number(annotated[2]);
-      }
       return {
         toolCalls: [
           {
             id: `read-tool-result-${state.advanceCalls}`,
-            input: readInput,
+            // Pages stay under the fixture's per-step budget so page bodies
+            // (and their nextOffsetChars) reach the model untruncated.
+            input: { limitChars: 6_000, offsetChars, toolCallId: callId },
             name: "read_tool_result",
           },
         ],

@@ -5,23 +5,11 @@ import { getContext } from "#context/accessors.js";
 import { SessionIdKey } from "#context/keys.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 
-// Seek window around an annotation-provided index. The index is the position
-// of the step's last result, so the target sits at or shortly before it;
-// interleaved writers can only have pushed it later.
-const HINT_BACK_MARGIN = 64;
-const HINT_SCAN_CHUNKS = 256;
-
 export const READ_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
   toolCallId: z
     .string()
     .min(1)
     .describe("The tool call id named in a [Truncated by eve: …] annotation."),
-  nearStreamIndex: z
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .describe("The stream index noted in the truncation annotation, when present."),
   offsetChars: z
     .number()
     .int()
@@ -40,7 +28,8 @@ export const READ_TOOL_RESULT_INPUT_SCHEMA = z.strictObject({
 export const READ_TOOL_RESULT_OUTPUT_SCHEMA = z.strictObject({
   found: z.boolean(),
   content: z.string().optional(),
-  moreAfter: z.boolean().optional(),
+  /** Pass back as `offsetChars` to read the next page; absent on the last page. */
+  nextOffsetChars: z.number().optional(),
   offsetChars: z.number().optional(),
   reason: z.string().optional(),
   toolName: z.string().optional(),
@@ -50,15 +39,15 @@ export const READ_TOOL_RESULT_OUTPUT_SCHEMA = z.strictObject({
 const DEFAULT_LIMIT_CHARS = 6_000;
 
 // Backward scan windows over the session stream, in chunks (one chunk is one
-// event). Truncated results the model asks about are usually recent; the
-// final pass covers the whole stream for results capped by compaction long
-// after they ran.
-const SCAN_WINDOWS = [512, 4_096, Number.POSITIVE_INFINITY];
+// event). Truncated results the model asks about are almost always recent;
+// anything beyond the largest window is reported as too old rather than
+// triggering an unbounded scan.
+const SCAN_WINDOWS = [512, 4_096];
 
 // The stream tails while the session is live, so a reader that has consumed
 // everything stored simply waits. Reads stop at the recorded tail index; the
-// idle race is a backstop so a stalled read can never hang the turn.
-const READ_IDLE_TIMEOUT_MS = 2_000;
+// idle race is only a backstop so a stalled read can never hang the turn.
+const READ_IDLE_TIMEOUT_MS = 500;
 
 interface StoredActionResult {
   readonly output: unknown;
@@ -72,41 +61,51 @@ interface StoredActionResult {
  * stored separately.
  */
 async function readToolResult(input: unknown): Promise<unknown> {
-  const { limitChars, nearStreamIndex, offsetChars, toolCallId } =
-    READ_TOOL_RESULT_INPUT_SCHEMA.parse(input);
+  const { limitChars, offsetChars, toolCallId } = READ_TOOL_RESULT_INPUT_SCHEMA.parse(input);
 
   const sessionRunId = getContext(SessionIdKey);
   if (sessionRunId === undefined) {
     return miss("This session does not expose a durable event stream.");
   }
 
-  let stored: StoredActionResult | undefined;
+  let lookup: LookupOutcome;
   try {
-    stored = await findActionResult(sessionRunId, toolCallId, nearStreamIndex);
+    lookup = await findActionResult(sessionRunId, toolCallId);
   } catch (error) {
     return miss(
       `Reading the session stream failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  if (stored === undefined) {
+  if (lookup.stored === undefined) {
     return miss(
-      `No recorded result for tool call "${toolCallId}". Re-run the tool if the output is still needed.`,
+      lookup.coveredWholeStream
+        ? `No recorded result for tool call "${toolCallId}". Re-run the tool if the output is still needed.`
+        : `Tool call "${toolCallId}" is not among the most recent ${SCAN_WINDOWS.at(-1)} session events — too old to retrieve. Re-run the tool if the output is still needed.`,
     );
   }
 
-  const serialized = JSON.stringify(stored.output) ?? "";
+  const serialized = JSON.stringify(lookup.stored.output) ?? "";
   const offset = Math.min(offsetChars ?? 0, serialized.length);
   const limit = limitChars ?? DEFAULT_LIMIT_CHARS;
   const content = serialized.slice(offset, offset + limit);
+  const nextOffset = offset + content.length;
 
-  return {
+  const page: Record<string, unknown> = {
     content,
     found: true,
-    moreAfter: offset + content.length < serialized.length,
     offsetChars: offset,
-    toolName: stored.toolName,
+    toolName: lookup.stored.toolName,
     totalChars: serialized.length,
   };
+  if (nextOffset < serialized.length) {
+    page.nextOffsetChars = nextOffset;
+  }
+  return page;
+}
+
+interface LookupOutcome {
+  readonly coveredWholeStream: boolean;
+  readonly stored: StoredActionResult | undefined;
 }
 
 function miss(reason: string): { found: false; reason: string } {
@@ -118,38 +117,22 @@ function miss(reason: string): { found: false; reason: string } {
  * the `action.result` event carrying `toolCallId`. One stored chunk is one
  * NDJSON event, so negative start indexes land on clean event boundaries.
  */
-async function findActionResult(
-  sessionRunId: string,
-  toolCallId: string,
-  hint: number | undefined,
-): Promise<StoredActionResult | undefined> {
-  if (hint !== undefined) {
-    const startIndex = Math.max(0, hint - HINT_BACK_MARGIN);
-    const readable = getRun(sessionRunId).getReadable<string | Uint8Array>({ startIndex });
-    const found = await scanChunks(readable, HINT_SCAN_CHUNKS, toolCallId);
-    if (found !== undefined) {
-      return found;
-    }
-    // A hint miss (stale annotation, drift beyond the window) falls back to
-    // the unhinted scan rather than reporting the result missing.
-  }
-
+async function findActionResult(sessionRunId: string, toolCallId: string): Promise<LookupOutcome> {
   for (const window of SCAN_WINDOWS) {
-    const startIndex = Number.isFinite(window) ? -window : 0;
-    const readable = getRun(sessionRunId).getReadable<string | Uint8Array>({ startIndex });
+    const readable = getRun(sessionRunId).getReadable<string | Uint8Array>({
+      startIndex: -window,
+    });
     const tailIndex = await readable.getTailIndex();
-    const chunksToRead = Number.isFinite(window) ? Math.min(window, tailIndex) : tailIndex;
+    const coveredWholeStream = tailIndex <= window;
+    const chunksToRead = Math.min(window, tailIndex);
 
-    const found = await scanChunks(readable, chunksToRead, toolCallId);
-    if (found !== undefined) {
-      return found;
-    }
-    if (!Number.isFinite(window) || tailIndex <= window) {
-      return undefined;
+    const stored = await scanChunks(readable, chunksToRead, toolCallId);
+    if (stored !== undefined || coveredWholeStream) {
+      return { coveredWholeStream, stored };
     }
   }
 
-  return undefined;
+  return { coveredWholeStream: false, stored: undefined };
 }
 
 async function scanChunks(

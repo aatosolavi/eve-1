@@ -73,7 +73,7 @@ describe("read_tool_result", () => {
     expect(result.toolName).toBe("grep");
     expect(result.totalChars).toBe(JSON.stringify(payload).length);
     expect(String(result.content)).toHaveLength(100);
-    expect(result.moreAfter).toBe(true);
+    expect(result.nextOffsetChars).toBe(100);
   });
 
   it("continues from offsetChars where a page ended", async () => {
@@ -87,7 +87,7 @@ describe("read_tool_result", () => {
 
     // Serialized form is the quoted JSON string.
     expect(result.content).toBe(JSON.stringify(payload).slice(4, 8));
-    expect(result.moreAfter).toBe(true);
+    expect(result.nextOffsetChars).toBe(8);
   });
 
   it("returns a structured miss for an unknown call id", async () => {
@@ -110,34 +110,36 @@ describe("read_tool_result", () => {
   });
 });
 
-describe("read_tool_result with an annotation stream index", () => {
-  it("seeks near the provided index instead of scanning windows", async () => {
-    getReadableMock.mockImplementation(() =>
-      streamOfEvents([actionResultLine("call-7", "payload")]),
-    );
+describe("read_tool_result scan bounds", () => {
+  it("omits nextOffsetChars on the final page", async () => {
+    getReadableMock.mockImplementation(() => streamOfEvents([actionResultLine("call-1", "ab")]));
 
     const result = (await execute(
-      { nearStreamIndex: 100, toolCallId: "call-7" },
+      { limitChars: 100, toolCallId: "call-1" },
       "wrun_session",
     )) as Record<string, unknown>;
 
     expect(result.found).toBe(true);
-    expect(getReadableMock).toHaveBeenCalledTimes(1);
-    // Seeks a margin before the index: the target is at or before it.
-    expect(getReadableMock).toHaveBeenCalledWith({ startIndex: 36 });
+    expect(result.nextOffsetChars).toBeUndefined();
   });
 
-  it("falls back to window scanning when the indexed window misses", async () => {
-    getReadableMock
-      .mockImplementationOnce(() => streamOfEvents([actionResultLine("call-other", "x")]))
-      .mockImplementation(() => streamOfEvents([actionResultLine("call-7", "found late")]));
+  it("reports a too-old miss instead of scanning the whole stream", async () => {
+    const filler = Array.from({ length: 5000 }, (_, index) =>
+      JSON.stringify({ data: {}, index, type: "turn.started" }),
+    );
+    getReadableMock.mockImplementation(() => streamOfEvents(filler));
 
-    const result = (await execute(
-      { nearStreamIndex: 100, toolCallId: "call-7" },
-      "wrun_session",
-    )) as Record<string, unknown>;
+    const result = (await execute({ toolCallId: "call-old" }, "wrun_session")) as Record<
+      string,
+      unknown
+    >;
 
-    expect(result.found).toBe(true);
-    expect(getReadableMock.mock.calls.length).toBeGreaterThan(1);
+    expect(result.found).toBe(false);
+    expect(String(result.reason)).toContain("too old");
+    // Bounded: only the two windows were opened, never a full scan.
+    expect(getReadableMock.mock.calls.map((call) => call[0])).toEqual([
+      { startIndex: -512 },
+      { startIndex: -4096 },
+    ]);
   });
 });

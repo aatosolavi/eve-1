@@ -17,7 +17,9 @@ export default defineEval({
     turn.expectOk();
     t.succeeded();
     t.calledTool("emit-oversized-output", { count: 1 });
-    t.calledTool("read_tool_result", { count: 1 });
+    // The mock walks nextOffsetChars pages until the tail sentinel appears,
+    // so the marker also proves the pagination contract; the page count
+    // depends only on the fixed payload size.
     t.messageIncludes(READ_BACK_MARKER);
   },
 });
