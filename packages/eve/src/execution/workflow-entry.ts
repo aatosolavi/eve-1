@@ -31,7 +31,6 @@ import {
   type SessionDeliveryHook,
 } from "#execution/session-delivery-hook.js";
 import { createSessionContinuationMarkers } from "#execution/session-continuation-markers.js";
-import { disposeAll } from "#execution/dispose-all.js";
 import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects
@@ -304,15 +303,13 @@ async function runDriverLoop(input: {
       });
     }
   } finally {
-    await disposeAll([
-      async () => disposeSettledTurnControl?.(),
-      () => deliveryHook.dispose(),
-      () => continuationMarkers.dispose(),
-      // Dispose without closing the iterator: a session cancelled while
-      // awaiting authorization can leave a durable read in flight, and an
-      // async iterator only honors `return()` after that read settles.
-      () => disposeHook(authHook),
-    ]);
+    await disposeSettledTurnControl?.();
+    await deliveryHook.dispose();
+    await continuationMarkers.dispose();
+    // Dispose without closing the iterator: a session cancelled while
+    // awaiting authorization can leave a durable read in flight, and an
+    // async iterator only honors `return()` after that read settles.
+    await disposeHook(authHook);
   }
 }
 
