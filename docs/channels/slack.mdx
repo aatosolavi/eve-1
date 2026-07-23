@@ -110,7 +110,7 @@ export default slackChannel({
 });
 ```
 
-`ctx.unsubscribe()` silences automatic replies while preserving the session and its history. Explicitly mentioning the bot clears the marker and resumes the same session.
+`ctx.unsubscribe()` marks the thread as unsubscribed while preserving its session and history, so later calls to `ctx.isSubscribed()` return `false`. Call `ctx.subscribe()` to mark it as subscribed again; explicitly mentioning the bot does this automatically and resumes the same session. Authored hook logic decides how subscription status affects message routing.
 
 For Vercel Connect, open **Advanced** when creating the connector and add `message.channels` under **Trigger Event Types** and `channels:history` under **Bot Scopes**. Private channels additionally need `message.groups` and `groups:history`.
 

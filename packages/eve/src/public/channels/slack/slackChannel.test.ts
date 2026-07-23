@@ -1505,6 +1505,37 @@ describe("slackChannel() onMessage", () => {
     });
   });
 
+  it("exposes an explicit subscribe helper", async () => {
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
+      async onMessage(ctx) {
+        await ctx.subscribe();
+        return null;
+      },
+    });
+    const reply = buildEventBody({
+      channel: "C01",
+      channel_type: "channel",
+      text: "rejoin",
+      thread_ts: "1700000000.000100",
+      ts: "1700000000.000200",
+      type: "message",
+      user: "U01",
+    });
+
+    const { send, setSessionContinuationMarker } = await firePost(
+      channel,
+      buildSignedRequest({ body: reply }),
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(setSessionContinuationMarker).toHaveBeenCalledWith({
+      active: false,
+      continuationToken: "C01:1700000000.000100",
+      key: "unsubscribed",
+    });
+  });
+
   it("logs and drops a mention when resubscription fails", async () => {
     const onMessage = vi.fn(() => ({ auth: null }));
     const channel = slackChannel({
@@ -1523,7 +1554,7 @@ describe("slackChannel() onMessage", () => {
 
     expect(setSessionContinuationMarker).toHaveBeenCalledWith({
       active: false,
-      continuationToken: "C01:1700000000.000018",
+      continuationToken: "C01:1700000000.000019",
       key: "unsubscribed",
     });
     expect(onMessage).not.toHaveBeenCalled();

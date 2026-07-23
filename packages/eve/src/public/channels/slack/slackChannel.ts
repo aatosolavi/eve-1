@@ -341,7 +341,9 @@ export interface SlackInboundMessageContext extends SlackContext {
   isSubscribed(): Promise<boolean>;
   /** Returns whether the inbound event explicitly mentions this bot. */
   isBotMentioned(): boolean;
-  /** Silences automatic replies while preserving the thread's eve session. */
+  /** Marks this thread's existing eve session as subscribed. */
+  subscribe(): Promise<void>;
+  /** Marks this thread's existing eve session as unsubscribed. */
   unsubscribe(): Promise<void>;
 }
 
@@ -1017,6 +1019,16 @@ async function dispatchSlackMessage(input: {
   const isBotMentioned =
     input.kind === "app_mention" ||
     (input.botUserId !== undefined && input.message.text.includes(`<@${input.botUserId}`));
+  const setSubscribed = async (subscribed: boolean): Promise<void> => {
+    if (input.setSessionContinuationMarker === undefined) {
+      throw new Error("The active runtime does not support Slack thread subscriptions.");
+    }
+    await input.setSessionContinuationMarker({
+      active: !subscribed,
+      continuationToken,
+      key: "unsubscribed",
+    });
+  };
   const ctx: SlackInboundMessageContext = {
     cancel: (options = {}) =>
       input.cancel({
@@ -1028,17 +1040,9 @@ async function dispatchSlackMessage(input: {
       (await input.resolveActiveSession({ continuationToken })) !== undefined &&
       (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) === undefined,
     slack,
+    subscribe: () => setSubscribed(true),
     thread,
-    unsubscribe: async () => {
-      if (input.setSessionContinuationMarker === undefined) {
-        throw new Error("The active runtime does not support Slack thread unsubscribe.");
-      }
-      await input.setSessionContinuationMarker({
-        active: true,
-        continuationToken,
-        key: "unsubscribed",
-      });
-    },
+    unsubscribe: () => setSubscribed(false),
   };
 
   let result;
@@ -1048,14 +1052,7 @@ async function dispatchSlackMessage(input: {
       (await input.resolveActiveSession({ continuationToken })) !== undefined &&
       (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) !== undefined
     ) {
-      if (input.setSessionContinuationMarker === undefined) {
-        throw new Error("The active runtime does not support Slack thread unsubscribe.");
-      }
-      await input.setSessionContinuationMarker({
-        active: false,
-        continuationToken,
-        key: "unsubscribed",
-      });
+      await ctx.subscribe();
     }
 
     result = await input.handler(ctx, input.message);
