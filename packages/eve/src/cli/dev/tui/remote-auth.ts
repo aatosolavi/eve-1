@@ -1,5 +1,6 @@
 import { resolveDevelopmentOidcToken } from "#services/dev-client/request-headers.js";
 import { formatDevelopmentOidcTokenFailure } from "#services/dev-client/vercel-auth-error.js";
+import { prepareVercelCredential } from "#services/dev-client/vercel-credential.js";
 import { runLoginFlow, type LoginFlowResult } from "#setup/flows/login.js";
 import type { Prompter } from "#setup/prompter.js";
 import { pickTeam } from "#setup/vercel-project.js";
@@ -227,22 +228,17 @@ export async function runRemoteAuthFlow(input: {
       }
     }
 
-    const tokenResolution = await deps.resolveOidcToken({
-      ownerId: target.deployment.ownerId,
-      projectId: target.deployment.projectId,
-      forceRefresh: true,
-    });
+    const credential = await prepareVercelCredential(target, deps.resolveOidcToken);
     signal?.throwIfAborted();
-    if (tokenResolution.kind !== "resolved") {
-      return failed(formatDevelopmentOidcTokenFailure(tokenResolution), completedMutations);
+    if (credential.kind === "failed") {
+      return failed(formatDevelopmentOidcTokenFailure(credential.failure), completedMutations);
     }
-    let token = tokenResolution.token.trim();
-    const resolveToken = async (): Promise<string> => {
-      const refreshed = await deps.resolveOidcToken(target.deployment);
-      if (refreshed.kind === "resolved") token = refreshed.token.trim();
-      return token;
+    return {
+      kind: "prepared",
+      target,
+      resolveToken: credential.resolveToken,
+      completedMutations: [...completedMutations],
     };
-    return { kind: "prepared", target, resolveToken, completedMutations: [...completedMutations] };
   } catch (error) {
     if (!mutationStarted && (error instanceof WizardCancelledError || signal?.aborted === true)) {
       return cancelled(completedMutations);

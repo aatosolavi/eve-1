@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VercelCaptureResult } from "#setup/primitives/index.js";
 
 import {
+  resolveAccessibleVercelDeployment,
   resolveVercelDeployment,
   type VercelDeploymentResolutionDeps,
 } from "./vercel-deployment.js";
@@ -16,6 +17,108 @@ const STANDARD = {
   target: "production",
   customEnvironment: null,
 };
+
+describe("resolveAccessibleVercelDeployment", () => {
+  it("searches other accessible teams in bounded parallel batches", async () => {
+    const resolveDeployment = vi.fn(async (input: { readonly scope?: string }) =>
+      input.scope === "team-c"
+        ? ({ kind: "resolved", target: { deployment: STANDARD } } as const)
+        : ({ kind: "not-found" } as const),
+    );
+
+    await expect(
+      resolveAccessibleVercelDeployment({
+        workspaceRoot: "/repo",
+        host: "inbound.example.com",
+        deps: {
+          listTeams: async () => [
+            { current: true, name: "Current", slug: "current" },
+            { current: false, name: "A", slug: "team-a" },
+            { current: false, name: "B", slug: "team-b" },
+            { current: false, name: "C", slug: "team-c" },
+            { current: false, name: "D", slug: "team-d" },
+            { current: false, name: "E", slug: "team-e" },
+          ],
+          resolveVercelDeployment: resolveDeployment as typeof resolveVercelDeployment,
+        },
+      }),
+    ).resolves.toMatchObject({ kind: "resolved", target: { deployment: STANDARD } });
+
+    expect(resolveDeployment.mock.calls.map(([input]) => input.scope)).toEqual([
+      undefined,
+      "team-a",
+      "team-b",
+      "team-c",
+      "team-d",
+    ]);
+  });
+
+  it("keeps the original not-found result when team discovery is unavailable", async () => {
+    await expect(
+      resolveAccessibleVercelDeployment({
+        workspaceRoot: "/repo",
+        host: "inbound.example.com",
+        deps: {
+          listTeams: async () => {
+            throw new Error("Vercel CLI is not logged in");
+          },
+          resolveVercelDeployment: async () => ({ kind: "not-found" }),
+        },
+      }),
+    ).resolves.toEqual({ kind: "not-found" });
+  });
+
+  it("preserves the most actionable scoped failure when no team resolves the deployment", async () => {
+    const resolveDeployment = vi.fn(async (input: { readonly scope?: string }) => {
+      if (input.scope === "team-a") return { kind: "forbidden" } as const;
+      if (input.scope === "team-b") {
+        return {
+          kind: "failed",
+          failure: { cause: "invalid-json", message: "invalid response" },
+        } as const;
+      }
+      return { kind: "not-found" } as const;
+    });
+
+    await expect(
+      resolveAccessibleVercelDeployment({
+        workspaceRoot: "/repo",
+        host: "inbound.example.com",
+        deps: {
+          listTeams: async () => [
+            { current: false, name: "A", slug: "team-a" },
+            { current: false, name: "B", slug: "team-b" },
+          ],
+          resolveVercelDeployment: resolveDeployment as typeof resolveVercelDeployment,
+        },
+      }),
+    ).resolves.toEqual({ kind: "forbidden" });
+  });
+
+  it("prefers a resolution over failures from another team in the same batch", async () => {
+    const resolveDeployment = vi.fn(async (input: { readonly scope?: string }) => {
+      if (input.scope === "team-a") return { kind: "forbidden" } as const;
+      if (input.scope === "team-b") {
+        return { kind: "resolved", target: { deployment: STANDARD } } as const;
+      }
+      return { kind: "not-found" } as const;
+    });
+
+    await expect(
+      resolveAccessibleVercelDeployment({
+        workspaceRoot: "/repo",
+        host: "inbound.example.com",
+        deps: {
+          listTeams: async () => [
+            { current: false, name: "A", slug: "team-a" },
+            { current: false, name: "B", slug: "team-b" },
+          ],
+          resolveVercelDeployment: resolveDeployment as typeof resolveVercelDeployment,
+        },
+      }),
+    ).resolves.toMatchObject({ kind: "resolved", target: { deployment: STANDARD } });
+  });
+});
 
 describe("resolveVercelDeployment", () => {
   it("resolves from the host alone, without a scope, when no source is provided", async () => {

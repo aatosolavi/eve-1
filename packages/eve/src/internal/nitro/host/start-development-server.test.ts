@@ -599,6 +599,19 @@ describe("createDevelopmentServer", () => {
     await server.close();
   });
 
+  it("closes Workflow queue delivery before its HTTP listener", async () => {
+    const startDevelopmentServer = await loadStartDevelopmentServer();
+    const server = await startDevelopmentServer("/tmp/eve-test");
+
+    await server.close();
+
+    const workflowCloseOrder = mocks.worldInstance.close.mock.invocationCallOrder[0];
+    const listenerCloseOrder = mocks.devServer.close.mock.invocationCallOrder[0];
+    expect(workflowCloseOrder).toBeDefined();
+    expect(listenerCloseOrder).toBeDefined();
+    expect(workflowCloseOrder ?? Infinity).toBeLessThan(listenerCloseOrder ?? 0);
+  });
+
   it("attempts every cleanup step when the authored-source watcher fails to close", async () => {
     const startDevelopmentServer = await loadStartDevelopmentServer();
     const server = await startDevelopmentServer("/tmp/eve-test");

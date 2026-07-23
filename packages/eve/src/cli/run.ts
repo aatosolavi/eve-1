@@ -13,6 +13,9 @@ import {
   type DevelopmentRequestHeaders,
 } from "#cli/dev/url-target.js";
 import type { RunDevelopmentTuiInput } from "#cli/dev/tui/tui.js";
+import { registerInvokeCommand } from "#cli/invoke/command.js";
+import type { RunInvokeInput } from "#cli/invoke/invoke.js";
+import type { InvokeResult } from "#cli/invoke/result.js";
 import { LOG_DISPLAY_MODES, parseLogDisplayMode } from "#cli/dev/tui/log-display-mode.js";
 import { resolveTuiTitle, type DevelopmentTuiTarget } from "#cli/dev/tui/target.js";
 import { parseDevelopmentServerUrl } from "#cli/dev/url.js";
@@ -72,6 +75,7 @@ interface CliRuntimeDependencies {
     options?: { json?: boolean },
   ): Promise<void>;
   runDevelopmentTui(input: RunDevelopmentTuiInput): Promise<void>;
+  runInvoke(input: RunInvokeInput): Promise<InvokeResult>;
   runEvalCommand(
     evalIds: readonly string[],
     options: EvalCliOptions,
@@ -151,11 +155,7 @@ async function loadStartProductionHost(): Promise<CliRuntimeDependencies["startP
 }
 
 function shouldPrintCliBootBanner(actionCommand: Command): boolean {
-  return (
-    actionCommand.name() === "info" ||
-    actionCommand.name() === "dev" ||
-    actionCommand.name() === "init"
-  );
+  return ["info", "dev", "init"].includes(actionCommand.name());
 }
 
 async function waitForShutdownSignal(input: { close(): Promise<void> }): Promise<void> {
@@ -390,6 +390,20 @@ function createCliProgram(logger: CliLogger, runtime: CliRuntimeOverrides): Comm
 
       await waitForProductionServer(server);
     });
+
+  registerInvokeCommand({
+    appRoot,
+    deps: {
+      loadEnvironment: async (root) =>
+        (await import("#cli/dev/environment.js")).loadDevelopmentEnvironmentFiles(root),
+      runInvoke: async (invokeInput) =>
+        await (runtime.runInvoke ?? (await import("#cli/invoke/invoke.js")).runInvoke)(invokeInput),
+      startHost: async (root) =>
+        (runtime.startHost ?? (await loadStartHost()))(root, { existing: "reject" }),
+    },
+    logger,
+    program,
+  });
 
   program
     .command("dev")

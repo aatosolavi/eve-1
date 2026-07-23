@@ -245,12 +245,15 @@ async function closeDevelopmentServerResources(input: {
   if (authoredSourceWatcher !== undefined) {
     await attempt(() => authoredSourceWatcher.close());
   }
-  const devServer = input.devServer;
-  const listenerClosed = devServer === undefined ? true : await attempt(() => devServer.close());
   const workflowWorld = input.workflowWorld;
   if (workflowWorld !== undefined) {
+    // world-local owns asynchronous queue deliveries back into this listener.
+    // Abort and drain them before closing their HTTP destination so one-shot
+    // clients do not produce a final retrying 503/socket-hang-up diagnostic.
     await attempt(() => workflowWorld.close());
   }
+  const devServer = input.devServer;
+  const listenerClosed = devServer === undefined ? true : await attempt(() => devServer.close());
   const nitro = input.nitro;
   if (nitro !== undefined) {
     await attempt(() => nitro.close());

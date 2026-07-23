@@ -1,5 +1,6 @@
 import { captureVercel, type VercelCaptureFailure } from "#setup/primitives/index.js";
 import type { VercelProjectReference } from "#setup/project-resolution.js";
+import { listTeams } from "#setup/vercel-project-api.js";
 import { z } from "zod";
 
 import {
@@ -59,6 +60,11 @@ export interface VercelDeploymentResolutionDeps {
   readonly captureVercel: typeof captureVercel;
 }
 
+export interface AccessibleVercelDeploymentResolutionDeps {
+  readonly listTeams: typeof listTeams;
+  readonly resolveVercelDeployment: typeof resolveVercelDeployment;
+}
+
 type VercelDeploymentLookupScope =
   | {
       /** An explicit Vercel scope selected for this lookup. */
@@ -73,12 +79,84 @@ type VercelDeploymentLookupScope =
 
 const defaultDeps: VercelDeploymentResolutionDeps = { captureVercel };
 const DEPLOYMENT_LOOKUP_TIMEOUT_MS = 10_000;
+const TEAM_LOOKUP_CONCURRENCY = 4;
 
 function environmentForDeployment(deployment: z.infer<typeof VercelDeploymentSchema>): string {
   if (deployment.customEnvironment !== null && deployment.customEnvironment !== undefined) {
     return deployment.customEnvironment.slug;
   }
   return deployment.target === "production" ? "production" : "preview";
+}
+
+/**
+ * Resolves a deployment under the active Vercel scope, then searches the
+ * caller's other accessible teams when the active scope cannot see the host.
+ */
+export async function resolveAccessibleVercelDeployment(input: {
+  readonly workspaceRoot: string;
+  readonly host: string;
+  readonly signal?: AbortSignal;
+  readonly deps?: Partial<AccessibleVercelDeploymentResolutionDeps>;
+}): Promise<VercelDeploymentResolution> {
+  const deps: AccessibleVercelDeploymentResolutionDeps = {
+    listTeams,
+    resolveVercelDeployment,
+    ...input.deps,
+  };
+  const direct = await deps.resolveVercelDeployment({
+    workspaceRoot: input.workspaceRoot,
+    host: input.host,
+    signal: input.signal,
+  });
+  if (direct.kind !== "not-found") return direct;
+
+  let teams: Awaited<ReturnType<typeof listTeams>>;
+  try {
+    teams = await deps.listTeams(input.workspaceRoot, { signal: input.signal });
+  } catch {
+    input.signal?.throwIfAborted();
+    return direct;
+  }
+
+  let fallback: VercelDeploymentResolution = direct;
+  const candidates = teams.filter((team) => !team.current);
+  for (let offset = 0; offset < candidates.length; offset += TEAM_LOOKUP_CONCURRENCY) {
+    input.signal?.throwIfAborted();
+    const batch = candidates.slice(offset, offset + TEAM_LOOKUP_CONCURRENCY);
+    const resolutions = await Promise.all(
+      batch.map((team) =>
+        deps.resolveVercelDeployment({
+          workspaceRoot: input.workspaceRoot,
+          host: input.host,
+          scope: team.slug,
+          signal: input.signal,
+        }),
+      ),
+    );
+    const resolved = resolutions.find((resolution) => resolution.kind === "resolved");
+    if (resolved !== undefined) return resolved;
+    const cancelled = resolutions.find((resolution) => resolution.kind === "cancelled");
+    if (cancelled !== undefined) return cancelled;
+    for (const resolution of resolutions) {
+      if (resolutionPriority(resolution) > resolutionPriority(fallback)) fallback = resolution;
+    }
+  }
+  return fallback;
+}
+
+function resolutionPriority(resolution: VercelDeploymentResolution): number {
+  switch (resolution.kind) {
+    case "resolved":
+    case "cancelled":
+      return 4;
+    case "forbidden":
+      return 3;
+    case "failed":
+    case "project-mismatch":
+      return 2;
+    case "not-found":
+      return 1;
+  }
 }
 
 /** Resolves a Vercel deployment URL to its project and target environment. */
