@@ -4,7 +4,6 @@ import { toErrorMessage } from "#shared/errors.js";
 import { interactiveAsker } from "../ask.js";
 import { addChannels, type AddChannelsDeps } from "../boxes/add-channels.js";
 import { CHANNELS_PROMPT_MESSAGE, selectChannels } from "../boxes/select-channels.js";
-import { configurePhotonWebhook } from "../boxes/configure-photon-webhook.js";
 import {
   assertCanAddSelectedChannels,
   inspectExistingChannelRegistrations,
@@ -311,10 +310,6 @@ export async function runChannelsFlow(input: {
         prompter,
         configureVercelServices: true,
         deps: deps.addChannels,
-      }),
-      configurePhotonWebhook({
-        asker: interactiveAsker(prompter),
-        prompter,
       }),
     ];
     let result: Awaited<ReturnType<typeof runInteractive<SetupState>>>;

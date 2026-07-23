@@ -166,6 +166,7 @@ export interface SetupState {
   photonConnectorUid: string | undefined;
   photonConnectorId: string | undefined;
   photonWebhookConfigured: boolean;
+  photonAssignedPhoneNumber: string | undefined;
   /** Deep link that opens a DM compose with the bot ("chat with your agent"). */
   slackChatUrl: string | undefined;
   slackWorkspaceName: string | undefined;
@@ -186,6 +187,7 @@ export function createDefaultSetupState(): SetupState {
     photonConnectorUid: undefined,
     photonConnectorId: undefined,
     photonWebhookConfigured: false,
+    photonAssignedPhoneNumber: undefined,
     slackChatUrl: undefined,
     slackWorkspaceName: undefined,
     agentName: "",

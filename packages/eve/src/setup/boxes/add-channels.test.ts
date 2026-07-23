@@ -82,6 +82,18 @@ function createDeps() {
     provisionPhotonConnector: vi.fn<NonNullable<AddChannelsDeps["provisionPhotonConnector"]>>(
       async () => ({ id: "scl_photon", uid: "spectrum.photon.codes/my-agent" }),
     ),
+    provisionPhotonProject: vi.fn<NonNullable<AddChannelsDeps["provisionPhotonProject"]>>(
+      async () => ({
+        projectId: "photon-project",
+        projectSecret: "photon-secret",
+        assignedPhoneNumber: "+15550000000",
+        cleanup: vi.fn(async () => {}),
+      }),
+    ),
+    registerPhotonWebhook: vi.fn<NonNullable<AddChannelsDeps["registerPhotonWebhook"]>>(
+      async () => "webhook-secret",
+    ),
+    openUrl: vi.fn(),
     readProjectLink: vi.fn<NonNullable<AddChannelsDeps["readProjectLink"]>>(async () => ({
       orgId: "team_demo",
       projectId: "prj_demo",
@@ -144,20 +156,29 @@ describe("addChannels box", () => {
     expect(deps.provisionSlackbot).not.toHaveBeenCalled();
   });
 
-  it("collects Photon credentials separately and provisions iMessage", async () => {
+  it("authorizes Photon and provisions an isolated iMessage project", async () => {
     const deps = createDeps();
     const prompter = createFakePrompter({
-      text: () => "project-id",
-      password: () => "project-secret",
+      text: () => "+15551234567",
     }).prompter;
     const box = makeBox({ prompter, deps });
 
     const result = await runInteractive([box], resolvedState(["imessage"]), silentSink, snapshot);
 
     expect(result.kind).toBe("done");
+    expect(deps.provisionPhotonProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectName: "eve · my-agent",
+        phoneNumber: "+15551234567",
+      }),
+    );
     expect(deps.provisionPhotonConnector).toHaveBeenCalledWith(
       expect.objectContaining({
-        credentials: { projectId: "project-id", projectSecret: "project-secret" },
+        credentials: expect.objectContaining({
+          projectId: "photon-project",
+          projectSecret: "photon-secret",
+          assignedPhoneNumber: "+15550000000",
+        }),
         project: { orgId: "team_demo", projectId: "prj_demo" },
         projectRoot: "/tmp/project",
         slug: "my-agent",

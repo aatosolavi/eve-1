@@ -869,7 +869,7 @@ See the [Kapso adapter documentation](https://chat-sdk.dev/adapters/vendor-offic
 npm install eve@latest chat @photon-ai/chat-adapter-imessage @chat-adapter/state-memory
 \`\`\`
 
-Scaffold and provision this integration with \`eve channels add imessage\`, or install it manually below. The in-memory state store is for local development. Use Redis or PostgreSQL in production. The adapter is vendor-official.`,
+Run \`eve channels add imessage\` to authorize Photon in your browser, create a dedicated project, register your phone and webhook, and scaffold the channel, or install it manually below. The in-memory state store is for local development. Use Redis or PostgreSQL in production. The adapter is vendor-official.`,
     quickStart: `Create \`agent/channels/imessage.ts\`:
 
 \`\`\`ts
@@ -902,7 +902,7 @@ export default channel;
 \`\`\`
 
 See the [Photon adapter documentation](https://chat-sdk.dev/adapters/vendor-official/photon) for all supported events and credentials.`,
-    configure: `Set \`IMESSAGE_PROJECT_ID\` and \`IMESSAGE_PROJECT_SECRET\`, then point Photon’s signed webhook at \`/eve/v1/imessage\`. Photon supports cloud and self-hosted deployments. See the [Chat SDK channel docs](/docs/channels/chat-sdk) for eve session dispatch, state, streaming, and human-in-the-loop behavior.`,
+    configure: `The guided \`eve channels add imessage\` flow stores Photon project credentials in Vercel Connect and registers the signed webhook automatically. For manual setup, set \`IMESSAGE_PROJECT_ID\` and \`IMESSAGE_PROJECT_SECRET\`, then point Photon’s signed webhook at \`/eve/v1/imessage\`. Photon supports cloud and self-hosted deployments. See the [Chat SDK channel docs](/docs/channels/chat-sdk) for eve session dispatch, state, streaming, and human-in-the-loop behavior.`,
   },
   "chat-sdk-dial": {
     logo: "dial",

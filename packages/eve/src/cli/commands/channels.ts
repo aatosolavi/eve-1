@@ -3,7 +3,6 @@ import { isEveProject, listAuthoredChannels, type ChannelKind } from "#setup/sca
 import { interactiveAsker } from "#setup/ask.js";
 import { addChannels, type AddChannelsDeps } from "#setup/boxes/add-channels.js";
 import { deployProject, type DeployProjectDeps } from "#setup/boxes/deploy-project.js";
-import { configurePhotonWebhook } from "#setup/boxes/configure-photon-webhook.js";
 import { selectChannels } from "#setup/boxes/select-channels.js";
 import {
   detectDeployment,
@@ -133,10 +132,6 @@ async function runAddChannelsFlow(
       configureVercelServices: true,
       ensureLinkedProject: "interactive-vercel-link",
       deps: dependencies.addChannelsDeps,
-    }),
-    configurePhotonWebhook({
-      asker: interactiveAsker(prompter),
-      prompter,
     }),
     deployProject({
       prompter,

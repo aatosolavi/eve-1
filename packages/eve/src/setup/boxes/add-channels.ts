@@ -4,7 +4,6 @@ import {
   type ChannelKind,
   type EnsureChannelOptions,
   type EvePackageContract,
-  type PhotonProjectCredentials,
   type SlackConnectorSlug,
 } from "#setup/scaffold/index.js";
 import { HumanActionRequiredError } from "#setup/human-action.js";
@@ -32,6 +31,8 @@ import {
 } from "../slackbot.js";
 import { hasVercelProject, requireProjectPath, type SetupState } from "../state.js";
 import { provisionPhotonConnector } from "../photon-connect.js";
+import { provisionPhotonProject, registerPhotonWebhook } from "../photon-management.js";
+import { openUrl } from "../primitives/open-url.js";
 import { WizardCancelledError, type SetupBox } from "../step.js";
 
 const SLACK_REQUIRES_VERCEL =
@@ -130,6 +131,9 @@ export interface AddChannelsDeps {
   provisionSlackbot: typeof provisionSlackbot;
   reconcileSlackUid: typeof reconcileSlackUid;
   provisionPhotonConnector?: typeof provisionPhotonConnector;
+  provisionPhotonProject?: typeof provisionPhotonProject;
+  registerPhotonWebhook?: typeof registerPhotonWebhook;
+  openUrl?: typeof openUrl;
   readProjectLink?: typeof readProjectLink;
   detectPackageManager: typeof detectPackageManager;
   runPackageManagerInstall: typeof runPackageManagerInstall;
@@ -192,7 +196,7 @@ export interface AddChannelsOptions {
 export interface AddChannelsInput {
   headless: boolean;
   createSlackbot: boolean | undefined;
-  photonCredentials?: PhotonProjectCredentials;
+  photonPhoneNumber?: string;
 }
 
 /** Slackbot facts resolved by a successful Connect provision. */
@@ -226,6 +230,8 @@ export interface AddChannelsPayload {
   slackbot?: AddChannelsSlackbotFacts;
   photonConnectorUid?: string;
   photonConnectorId?: string;
+  photonWebhookConfigured?: boolean;
+  photonAssignedPhoneNumber?: string;
 }
 
 function warnOverwrittenFiles(log: ChannelSetupLog, files: readonly string[] | undefined): void {
@@ -265,6 +271,9 @@ export function addChannels(
     provisionSlackbot,
     reconcileSlackUid,
     provisionPhotonConnector,
+    provisionPhotonProject,
+    registerPhotonWebhook,
+    openUrl,
     readProjectLink,
     detectPackageManager,
     runPackageManagerInstall,
@@ -551,40 +560,87 @@ export function addChannels(
         signal,
       );
     }
-    if (input.photonCredentials === undefined) {
-      throw new Error("Photon project credentials are required to add iMessage.");
+    if (input.photonPhoneNumber === undefined) {
+      throw new Error("A phone number is required to add iMessage.");
     }
 
-    const project = await deps.readProjectLink(projectPath);
-    if (project === undefined) {
-      throw new Error("Expected a linked Vercel project for iMessage, but none was resolved.");
-    }
-    const slug = await deps.deriveSlackConnectorSlug(projectPath, state.agentName);
-    const connector = await deps.provisionPhotonConnector({
-      credentials: input.photonCredentials,
-      log,
-      project,
-      projectRoot: projectPath,
-      slug,
+    const managedProject = await deps.provisionPhotonProject({
+      projectName: `eve · ${state.agentName || "agent"}`,
+      phoneNumber: input.photonPhoneNumber,
       signal,
+      onAuthorization(authorization) {
+        log.message(`Authorize Photon: ${authorization.verificationUrl}`);
+        log.message(`Photon code: ${authorization.userCode}`);
+        deps.openUrl(authorization.verificationUrl);
+      },
     });
     signal?.throwIfAborted();
-    const result = await deps.ensureChannel({
-      projectRoot: projectPath,
-      kind: "imessage",
-      photonConnectorUid: connector.uid,
-      force: options.force,
-    });
-    warnOverwrittenFiles(log, result.filesOverwritten);
-    if (result.action === "created" || result.action === "overwritten") {
-      log.success("Scaffolded channel: imessage");
-    } else {
-      log.info('Channel "imessage" already exists. Skipping file creation.');
+    try {
+      const project = await deps.readProjectLink(projectPath);
+      if (project === undefined) {
+        throw new Error("Expected a linked Vercel project for iMessage, but none was resolved.");
+      }
+      const slug = await deps.deriveSlackConnectorSlug(projectPath, state.agentName);
+      const connector = await deps.provisionPhotonConnector({
+        credentials: managedProject,
+        log,
+        project,
+        projectRoot: projectPath,
+        slug,
+        signal,
+      });
+      signal?.throwIfAborted();
+      const result = await deps.ensureChannel({
+        projectRoot: projectPath,
+        kind: "imessage",
+        photonConnectorUid: connector.uid,
+        force: options.force,
+      });
+      warnOverwrittenFiles(log, result.filesOverwritten);
+      if (result.action === "created" || result.action === "overwritten") {
+        log.success("Scaffolded channel: imessage");
+      } else {
+        log.info('Channel "imessage" already exists. Skipping file creation.');
+      }
+      const webhookSecret = await deps.registerPhotonWebhook({
+        projectId: managedProject.projectId,
+        projectSecret: managedProject.projectSecret,
+        webhookUrl: `https://connect.vercel.com/trigger/${connector.id}`,
+      });
+      const configured = await deps.runVercel(
+        [
+          "env",
+          "add",
+          "IMESSAGE_WEBHOOK_SECRET",
+          "production",
+          "--force",
+          "--scope",
+          project.orgId,
+        ],
+        {
+          cwd: projectPath,
+          nonInteractive: true,
+          onOutput: createPromptCommandOutput(log),
+          signal,
+          stdin: webhookSecret,
+        },
+      );
+      if (!configured) {
+        throw new Error("Could not save the Photon webhook signing secret to Vercel.");
+      }
+      if (managedProject.assignedPhoneNumber !== undefined) {
+        log.success(`Photon iMessage number: ${managedProject.assignedPhoneNumber}`);
+      }
+      payload.imessageScaffolded = true;
+      payload.photonConnectorUid = connector.uid;
+      payload.photonConnectorId = connector.id;
+      payload.photonWebhookConfigured = true;
+      payload.photonAssignedPhoneNumber = managedProject.assignedPhoneNumber;
+      payload.channelsAdded.push("imessage");
+    } catch (error) {
+      await managedProject.cleanup().catch(() => {});
+      throw error;
     }
-    payload.imessageScaffolded = true;
-    payload.photonConnectorUid = connector.uid;
-    payload.photonConnectorId = connector.id;
-    payload.channelsAdded.push("imessage");
   }
 
   async function installChannelDependencies(
@@ -656,31 +712,25 @@ export function addChannels(
       }
       // The preset short-circuits the question, exactly as the dual-face box did,
       // so it stays a factory option rather than a withAnswers rung.
-      let photonCredentials: PhotonProjectCredentials | undefined;
+      let photonPhoneNumber: string | undefined;
       if (state.channelSelection.includes("imessage")) {
         if (headless) {
           throw new Error(
             "iMessage setup is interactive. Run `eve channels add imessage` from an interactive terminal.",
           );
         }
-        const projectId = await options.asker.ask(
+        photonPhoneNumber = await options.asker.ask(
           text({
-            key: "photon-project-id",
-            message: "Photon project ID",
+            key: "photon-phone-number",
+            message: "Your iMessage phone number",
+            placeholder: "+15551234567",
             required: true,
-            validate: (value) => (value.trim() ? null : "Project ID is required"),
+            validate: (value) =>
+              /^\+[1-9]\d{6,14}$/.test(value.trim())
+                ? null
+                : "Use E.164 format, for example +15551234567",
           }),
         );
-        const projectSecret = await options.asker.ask(
-          text({
-            key: "photon-project-secret",
-            message: "Photon project secret",
-            required: true,
-            sensitive: true,
-            validate: (value) => (value.trim() ? null : "Project secret is required"),
-          }),
-        );
-        photonCredentials = { projectId, projectSecret };
       }
       if (
         !state.channelSelection.includes("slack") ||
@@ -690,7 +740,7 @@ export function addChannels(
         return {
           headless,
           createSlackbot: options.presetCreateSlackbot,
-          photonCredentials,
+          photonPhoneNumber,
         };
       }
       try {
@@ -700,12 +750,12 @@ export function addChannels(
             message: "Do you want to create your slackbot?",
           }),
         );
-        return { headless, createSlackbot, photonCredentials };
+        return { headless, createSlackbot, photonPhoneNumber };
       } catch (error) {
         // The question is not required: a headless/assume skip means "do not
         // create", preserving the dual-face box's "false when unset" behavior.
         if (error instanceof SkippedSignal) {
-          return { headless, createSlackbot: false, photonCredentials };
+          return { headless, createSlackbot: false, photonPhoneNumber };
         }
         throw error;
       }
@@ -748,6 +798,9 @@ export function addChannels(
         project: mergeProjectResolution(state.project, payload.project),
         photonConnectorUid: payload.photonConnectorUid ?? state.photonConnectorUid,
         photonConnectorId: payload.photonConnectorId ?? state.photonConnectorId,
+        photonWebhookConfigured: payload.photonWebhookConfigured ?? state.photonWebhookConfigured,
+        photonAssignedPhoneNumber:
+          payload.photonAssignedPhoneNumber ?? state.photonAssignedPhoneNumber,
       };
       if (payload.slackbot === undefined) {
         return next;
