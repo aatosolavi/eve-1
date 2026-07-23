@@ -12,7 +12,7 @@ import {
   readParentSessionId,
   readRootSessionId,
 } from "#execution/eve-workflow-attributes.js";
-import { AuthKey, ChannelRequestIdKey } from "#context/keys.js";
+import { AuthKey, ChannelRequestIdKey, InitiatorAuthKey } from "#context/keys.js";
 
 const userAuth = {
   attributes: { email: "ada@example.com" },
@@ -186,7 +186,8 @@ describe("buildSessionAttributes", () => {
       inputMessage: "hi",
       serializedContext: {
         ...slackChannelCtx,
-        [AuthKey.name]: userAuth,
+        [AuthKey.name]: { ...userAuth, principalId: "slack:T1:U_CURRENT" },
+        [InitiatorAuthKey.name]: userAuth,
       },
     });
 
@@ -194,6 +195,27 @@ describe("buildSessionAttributes", () => {
       "$eve.user_id": "slack:T1:U1",
     });
     expect(JSON.stringify(attrs)).not.toContain("ada@example.com");
+  });
+
+  it("falls back to current auth when an older context has no initiator slot", () => {
+    const attrs = buildSessionAttributes({
+      inputMessage: "hi",
+      serializedContext: { [AuthKey.name]: userAuth },
+    });
+
+    expect(attrs["$eve.user_id"]).toBe("slack:T1:U1");
+  });
+
+  it("preserves an explicitly anonymous initiator", () => {
+    const attrs = buildSessionAttributes({
+      inputMessage: "hi",
+      serializedContext: {
+        [AuthKey.name]: userAuth,
+        [InitiatorAuthKey.name]: null,
+      },
+    });
+
+    expect(attrs["$eve.user_id"]).toBeUndefined();
   });
 
   it("omits non-user principals", () => {

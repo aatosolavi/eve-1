@@ -27,9 +27,8 @@
  */
 
 import type { SessionAuthContext } from "#channel/types.js";
-import { AuthKey, ChannelRequestIdKey } from "#context/keys.js";
+import { AuthKey, ChannelRequestIdKey, InitiatorAuthKey } from "#context/keys.js";
 import type { EveAttributeValue } from "#runtime/attributes/normalize.js";
-import { toObservableUserIdentity } from "#runtime/sessions/observable-user.js";
 import { isNonEmptyString } from "#shared/guards.js";
 
 /**
@@ -135,18 +134,18 @@ export function readChannelRequestId(
   return isNonEmptyString(channelRequestId) ? channelRequestId : undefined;
 }
 
-function readSessionUserAuth(
-  serializedContext: Record<string, unknown>,
-): SessionAuthContext | null | undefined {
-  return serializedContext[AuthKey.name] as SessionAuthContext | null | undefined;
-}
-
-function buildUserAttributes(
-  auth: SessionAuthContext | null | undefined,
-): Record<string, EveAttributeValue> {
-  const user = toObservableUserIdentity(auth);
-  if (user === undefined) return {};
-  return { "$eve.user_id": user.id };
+function readInitiatingUserId(serializedContext: Record<string, unknown>): string | undefined {
+  const initiator = serializedContext[InitiatorAuthKey.name] as
+    | SessionAuthContext
+    | null
+    | undefined;
+  const auth =
+    initiator === undefined
+      ? (serializedContext[AuthKey.name] as SessionAuthContext | null | undefined)
+      : initiator;
+  return auth?.principalType === "user" && auth.principalId.length > 0
+    ? auth.principalId
+    : undefined;
 }
 
 /**
@@ -225,8 +224,8 @@ export function buildSessionAttributes(input: {
   readonly serializedContext: Record<string, unknown>;
 }): Record<string, EveAttributeValue> {
   return {
-    ...buildUserAttributes(readSessionUserAuth(input.serializedContext)),
     "$eve.channel_request_id": readChannelRequestId(input.serializedContext),
+    "$eve.user_id": readInitiatingUserId(input.serializedContext),
     "$eve.type": "session",
     "$eve.trigger": readChannelKind(input.serializedContext),
     "$eve.title": deriveSessionTitle(input.inputMessage),
