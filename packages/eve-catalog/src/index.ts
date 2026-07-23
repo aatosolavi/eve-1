@@ -229,9 +229,9 @@ export const INTEGRATIONS: readonly IntegrationEntry[] = [
   },
   {
     slug: "kernel",
-    name: "Kernel",
+    name: "KERNEL",
     kind: "extension",
-    tagline: "Add a Kernel cloud browser and browser automation skills to an eve agent.",
+    tagline: "Add a KERNEL cloud browser and browser automation tools to an eve agent.",
     surfaces: { scaffoldable: false, gallery: true },
   },
   {
