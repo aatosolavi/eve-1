@@ -17,6 +17,7 @@ interface TestFlow extends StepFlowTypes {
   readonly rejectedApprovals: string;
   readonly state: string;
   readonly stepInput: { readonly message?: string };
+  readonly turnTrace: string;
 }
 
 interface Scenario {
@@ -71,6 +72,12 @@ function createPorts(scenario: Scenario = {}): {
     resolveActiveModel: async ({ state }) => ({ environment: "env", state }),
     compactIfNeeded: async ({ history, state }) => ({ history, state }),
     assembleModelPrompt: async () => ({ tag: "prompt" }),
+
+    // Trace ports: tracing disabled by default; overridden where asserted.
+    openTurnTrace: () => undefined,
+    bindTurnTrace: ({ state }) => `${state}+traced`,
+    runInTraceContext: (_input, run) => run(),
+    endTurnTrace: () => {},
 
     // Call ports: instrumented for order and decision assertions.
     mode: scenario.mode ?? "conversation",
@@ -212,6 +219,45 @@ describe("generateStep", () => {
 
     await expect(generateStep(ports, input)).resolves.toEqual({
       via: "fail(recoverable,taskError=true)",
+    });
+  });
+
+  it("opens the turn trace on a delivery step, runs inside it, and ends it", async () => {
+    const events: string[] = [];
+    const { ports } = createPorts();
+    const traced: StepPorts<TestFlow> = {
+      ...ports,
+      openTurnTrace(state) {
+        events.push(`open(${state})`);
+        return "trace";
+      },
+      runInTraceContext({ state, trace }, run) {
+        events.push(`context(${state},${String(trace)})`);
+        return run();
+      },
+      endTurnTrace(trace) {
+        events.push(`end(${trace})`);
+      },
+    };
+
+    const outcome = await generateStep(traced, input);
+
+    expect(outcome).toEqual({ via: "settled(result,accounted(result))" });
+    // The flow observes the trace-bound state; the trace closes after it.
+    expect(events).toEqual(["open(s)", "context(s+traced,trace)", "end(trace)"]);
+  });
+
+  it("does not open a trace for a continuation step", async () => {
+    const { ports } = createPorts();
+    const traced: StepPorts<TestFlow> = {
+      ...ports,
+      openTurnTrace() {
+        throw new Error("continuation steps never open a turn trace");
+      },
+    };
+
+    await expect(generateStep(traced, { input: undefined, state: "s" })).resolves.toEqual({
+      via: "settled(result,accounted(result))",
     });
   });
 

@@ -1,4 +1,3 @@
-import type { Span } from "#compiled/@opentelemetry/api/index.js";
 import type { CallPorts } from "#core/turn-call.js";
 import { createErrorId, createLogger, recordErrorOnSpan } from "#internal/logging.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
@@ -26,7 +25,7 @@ import {
 import { createModelCallRunner } from "#harness/model-call.js";
 import { enforceSessionTokenLimit } from "#harness/session-limit-enforcement.js";
 import { summarizeKnownError } from "#harness/semantic-errors/index.js";
-import type { HarnessStepFlow } from "#harness/step-flow.js";
+import type { HarnessStepFlow, TurnSpanCell } from "#harness/step-flow.js";
 import { classifyParkedSession, handleStepResult } from "#harness/step-result.js";
 import {
   accumulateTurnUsage,
@@ -55,8 +54,8 @@ export function createCallPorts(input: {
   readonly agentName: string | undefined;
   readonly config: GenerateConfig;
   readonly telemetryConfig: ReturnType<typeof getInstrumentationConfig>;
-  /** The open turn span, where unrecovered call failures are recorded. */
-  readonly turnSpan?: Span;
+  /** The step's turn-span slot, where unrecovered call failures are recorded. */
+  readonly turnSpan: TurnSpanCell;
 }): CallPorts<HarnessStepFlow> {
   const { agentName, config, telemetryConfig, turnSpan } = input;
   const emit = config.handleEvent;
@@ -161,8 +160,8 @@ export function createCallPorts(input: {
     // traverse `cause`, so the gateway-wrapped upstream 4xx body would
     // otherwise be invisible to OTel providers.
     recordCallFailure(error) {
-      if (turnSpan) {
-        recordErrorOnSpan(turnSpan, error);
+      if (turnSpan.current) {
+        recordErrorOnSpan(turnSpan.current, error);
       }
     },
 

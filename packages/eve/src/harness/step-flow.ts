@@ -1,3 +1,4 @@
+import type { Span } from "#compiled/@opentelemetry/api/index.js";
 import type { LanguageModel, ModelMessage, SystemModelMessage } from "ai";
 import type { AlsContext } from "#context/container.js";
 import type { StepFlowTypes } from "#core/turn-before-call.js";
@@ -27,6 +28,16 @@ export interface HarnessStepFlow extends StepFlowTypes {
   readonly rejectedApprovals: RejectedActionBatch;
   readonly state: HarnessSession;
   readonly stepInput: StepInput;
+  readonly turnTrace: Span;
+}
+
+/**
+ * The step's shared turn-span slot. The trace ports open the span mid-step,
+ * after the flow ports were constructed, so the flow ports read it through
+ * this cell instead of capturing a value.
+ */
+export interface TurnSpanCell {
+  current: Span | undefined;
 }
 
 /** The resolved model call environment threaded through assembly. */

@@ -111,17 +111,57 @@ export interface CallPorts<S extends StepFlowTypes> {
   }): Promise<S["outcome"]>;
 }
 
+/**
+ * The observability envelope of one step. A turn's trace spans all of its
+ * steps: the first step (the one carrying a fresh delivery) opens it, the
+ * open trace is stamped onto the state so continuation steps restore the
+ * parent, and every step runs inside the trace's context.
+ */
+export interface TracePorts<S extends StepFlowTypes> {
+  /** Opens the turn trace; `undefined` when tracing is disabled. */
+  openTurnTrace(state: S["state"]): S["turnTrace"] | undefined;
+  /** Stamps the open trace onto the state for continuation steps. */
+  bindTurnTrace(input: { readonly state: S["state"]; readonly trace: S["turnTrace"] }): S["state"];
+  /** Runs the step inside the trace's (or the restored parent's) context. */
+  runInTraceContext(
+    input: { readonly state: S["state"]; readonly trace: S["turnTrace"] | undefined },
+    run: () => Promise<S["outcome"]>,
+  ): Promise<S["outcome"]>;
+  /** Ends a trace opened by this step. */
+  endTurnTrace(trace: S["turnTrace"]): void;
+}
+
 /** Every port one complete step flow drives. */
-export type StepPorts<S extends StepFlowTypes> = BeforeCallPorts<S> & CallPorts<S>;
+export type StepPorts<S extends StepFlowTypes> = BeforeCallPorts<S> & CallPorts<S> & TracePorts<S>;
 
 /**
- * One complete generate step: pre-call input resolution (may settle),
- * prompt assembly, call preflight (step announcement, workflow-interrupt
- * replay, token budget — the latter two may settle), the model call with
- * its recovery pipeline, and settlement. This is the core shape of the
+ * One complete generate step inside its observability envelope: the first
+ * step of a turn opens the turn trace, every step runs the flow —
+ * pre-call input resolution (may settle), prompt assembly, call preflight
+ * (step announcement, workflow-interrupt replay, token budget — the
+ * latter two may settle), the model call with its recovery pipeline, and
+ * settlement — inside the trace context. This is the core shape of the
  * `generate` port implementations.
  */
 export async function generateStep<S extends StepFlowTypes>(
+  ports: StepPorts<S>,
+  input: { readonly input: S["stepInput"] | undefined; readonly state: S["state"] },
+): Promise<S["outcome"]> {
+  const trace = ports.hasDeliveryInput(input.input) ? ports.openTurnTrace(input.state) : undefined;
+  try {
+    const state =
+      trace === undefined ? input.state : ports.bindTurnTrace({ state: input.state, trace });
+    return await ports.runInTraceContext({ state, trace }, () =>
+      runStepFlow(ports, { input: input.input, state }),
+    );
+  } finally {
+    if (trace !== undefined) {
+      ports.endTurnTrace(trace);
+    }
+  }
+}
+
+async function runStepFlow<S extends StepFlowTypes>(
   ports: StepPorts<S>,
   input: { readonly input: S["stepInput"] | undefined; readonly state: S["state"] },
 ): Promise<S["outcome"]> {

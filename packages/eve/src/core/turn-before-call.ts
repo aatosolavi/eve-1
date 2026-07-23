@@ -44,6 +44,8 @@ export interface StepFlowTypes {
   readonly state: unknown;
   /** One step's input payload. */
   readonly stepInput: unknown;
+  /** The observability trace of one turn, opened on its first step. */
+  readonly turnTrace: unknown;
 }
 
 /** The outcome of {@link resolveTurnInput}: settle the step, or proceed. */

@@ -1,4 +1,3 @@
-import type { Span } from "#compiled/@opentelemetry/api/index.js";
 import {
   type LanguageModel,
   type ModelMessage,
@@ -48,7 +47,7 @@ import { detectPromptCachePath, getAnthropicCacheMarker } from "#harness/prompt-
 import { resolvePendingRuntimeActions } from "#harness/runtime-actions.js";
 import { applySessionLimitContinuation } from "#harness/session-limit-enforcement.js";
 import { convertStaleResponsesToUserMessage } from "#harness/stale-input-responses.js";
-import type { HarnessStepFlow } from "#harness/step-flow.js";
+import type { HarnessStepFlow, TurnSpanCell } from "#harness/step-flow.js";
 import { classifyParkedSession, resolveApprovalKeyFromTools } from "#harness/step-result.js";
 import type { GenerateConfig, HarnessSession } from "#harness/types.js";
 import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#shared/empty-delivery.js";
@@ -63,8 +62,8 @@ import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#shared/empty-delivery.js";
 export function createBeforeCallPorts(input: {
   readonly config: GenerateConfig;
   readonly telemetry: TelemetryOptions | undefined;
-  /** The open turn span, tagged with the turn id once the preamble emits. */
-  readonly turnSpan?: Span;
+  /** The step's turn-span slot, tagged with the turn id once the preamble emits. */
+  readonly turnSpan: TurnSpanCell;
 }): BeforeCallPorts<HarnessStepFlow> {
   const { config, telemetry, turnSpan } = input;
   const emit = config.handleEvent;
@@ -169,9 +168,7 @@ export function createBeforeCallPorts(input: {
     },
 
     onTurnStarted(emissionState) {
-      if (turnSpan) {
-        turnSpan.setAttribute("eve.turn.id", emissionState.turnId);
-      }
+      turnSpan.current?.setAttribute("eve.turn.id", emissionState.turnId);
     },
 
     // A resolved session-limit continuation prompt grants a fresh token
