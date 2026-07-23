@@ -299,6 +299,15 @@ describe("runInitCommand", () => {
     },
   );
 
+  it("suggests a named project directory when the current directory is not empty", async () => {
+    const projectPath = await mkdtemp(join(tmpdir(), "eve-init-non-empty-"));
+    await mkdir(join(projectPath, "test"));
+
+    await expect(
+      runInitCommand(logger(), projectPath, undefined, {}, dependencies()),
+    ).rejects.toThrow("Use an empty directory, or pass a new directory name: `eve init <name>`.");
+  });
+
   it.each([
     ["npm", "overrides", ["exec", "--", "eve", "dev", "--input", "/model"]],
     ["yarn", "resolutions", ["eve", "dev", "--input", "/model"]],
