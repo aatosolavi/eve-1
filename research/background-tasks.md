@@ -92,6 +92,41 @@ Background tasks add the missing third state: work that neither keeps the
 turn active nor gates the conversation, and whose completion re-enters the
 session as input.
 
+## What this unlocks
+
+Capabilities that exist once the slices land, none of which are possible
+today:
+
+- **Fire-and-forget delegation** ([Slice 2]). A parent dispatches a subagent
+  and keeps conversing; the turn ends with the work still running and the
+  outcome re-enters as input. Today the parent turn is held open until every
+  child resolves.
+- **Subagent HITL reaches the parent without blocking it** ([Slice 2]).
+  Today a child's question or approval reaches the user only through the
+  turn-level proxy — which exists precisely because the parent turn is
+  parked awaiting that child, so HITL propagation is coupled to the parent
+  being blocked. A background child's `input_required` notification re-emits
+  `input.requested` on the parent stream whether the parent is parked or
+  mid-turn, the conversation keeps flowing, and the answer routes back
+  through `updateTask`.
+- **Child progress on the parent's surfaces** ([Slice 2]). Today the parent
+  stream carries only `subagent.called` and `subagent.completed`; following
+  a child means separately subscribing to its stream. Task notifications
+  give the parent `statusMessage`-granularity progress: status transitions
+  land on the parent stream as task lifecycle events, and passive observers
+  (a UI, a log sink) register filtered endpoints for the full
+  `task.created`/`task.progress` feed. Progress is per-transition, not a
+  byte stream; the child's own stream remains the full-fidelity feed and
+  stays independently subscribable.
+- **Late answers execute** ([Slice 1]). A response whose request has left
+  the turn that asked it routes to the live task via `updateTask` and the
+  original action runs — instead of degrading to advisory text ("a stale
+  approval cannot authorize an earlier tool call").
+- **Executors without a session** ([Slice 3]). A detached authored tool
+  hands work to an external system and resolves its task from a callback —
+  the task contract stops being subagent-only and covers any long-running
+  integration.
+
 ## Contract
 
 Role-agnostic shapes and operations that both roles read. The record is the
