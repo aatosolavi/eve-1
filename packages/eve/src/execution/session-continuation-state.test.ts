@@ -18,7 +18,7 @@ describe("createSessionContinuationState", () => {
       getConflict: vi.fn(async () => null),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState("session-1");
+    const state = createSessionContinuationState();
 
     await state.apply({
       active: true,
@@ -37,6 +37,51 @@ describe("createSessionContinuationState", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
+  it("disposes a candidate when claiming ownership throws", async () => {
+    const failure = new Error("conflict lookup failed");
+    const dispose = vi.fn();
+    createHookMock.mockReturnValue({
+      dispose,
+      getConflict: vi.fn(async () => {
+        throw failure;
+      }),
+      token: "slack:C1:T1:unsubscribed",
+    });
+    const state = createSessionContinuationState();
+
+    await expect(
+      state.apply({
+        active: true,
+        continuationToken: "slack:C1:T1",
+        key: "unsubscribed",
+        kind: "continuation-state",
+      }),
+    ).rejects.toBe(failure);
+
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rejects and disposes every durable ownership conflict", async () => {
+    const dispose = vi.fn();
+    createHookMock.mockReturnValue({
+      dispose,
+      getConflict: vi.fn(async () => ({ runId: "session-1" })),
+      token: "slack:C1:T1:unsubscribed",
+    });
+    const state = createSessionContinuationState();
+
+    await expect(
+      state.apply({
+        active: true,
+        continuationToken: "slack:C1:T1",
+        key: "unsubscribed",
+        kind: "continuation-state",
+      }),
+    ).rejects.toMatchObject({ name: "HookConflictError" });
+
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("disposes active markers when the session ends", async () => {
     const dispose = vi.fn();
     createHookMock.mockReturnValue({
@@ -44,7 +89,7 @@ describe("createSessionContinuationState", () => {
       getConflict: vi.fn(async () => null),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState("session-1");
+    const state = createSessionContinuationState();
     await state.apply({
       active: true,
       continuationToken: "slack:C1:T1",
@@ -58,7 +103,7 @@ describe("createSessionContinuationState", () => {
   });
 
   it("rejects keys that can escape the continuation namespace", async () => {
-    const state = createSessionContinuationState("session-1");
+    const state = createSessionContinuationState();
 
     await expect(
       state.apply({

@@ -31,6 +31,7 @@ import {
   type SessionDeliveryHook,
 } from "#execution/session-delivery-hook.js";
 import { createSessionContinuationState } from "#execution/session-continuation-state.js";
+import { disposeAll } from "#execution/dispose-all.js";
 import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects
@@ -167,7 +168,7 @@ async function runDriverLoop(input: {
     `${input.sessionState.sessionId}:turn-control:${String(turnDispatchIndex++)}`;
 
   const bufferedDeliveries: DeliverHookPayload[] = [];
-  const continuationState = createSessionContinuationState(input.sessionState.sessionId);
+  const continuationState = createSessionContinuationState();
   const deliveryHook = createSessionDeliveryHook(bufferedDeliveries, (payload) =>
     continuationState.apply(payload),
   );
@@ -303,13 +304,15 @@ async function runDriverLoop(input: {
       });
     }
   } finally {
-    await disposeSettledTurnControl?.();
-    await deliveryHook.dispose();
-    await continuationState.dispose();
-    // Dispose without closing the iterator: a session cancelled while
-    // awaiting authorization can leave a durable read in flight, and an
-    // async iterator only honors `return()` after that read settles.
-    await disposeHook(authHook);
+    await disposeAll([
+      async () => disposeSettledTurnControl?.(),
+      () => deliveryHook.dispose(),
+      () => continuationState.dispose(),
+      // Dispose without closing the iterator: a session cancelled while
+      // awaiting authorization can leave a durable read in flight, and an
+      // async iterator only honors `return()` after that read settles.
+      () => disposeHook(authHook),
+    ]);
   }
 }
 

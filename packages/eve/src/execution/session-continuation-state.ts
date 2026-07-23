@@ -1,7 +1,7 @@
 import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 
 import type { ContinuationStateHookPayload, HookPayload } from "#channel/types.js";
-import { disposeHook } from "#execution/hook-ownership.js";
+import { claimHookOwnership, disposeHook } from "#execution/hook-ownership.js";
 
 /** Derives the durable hook token for one continuation-state key. */
 export function continuationStateToken(continuationToken: string, key: string): string {
@@ -18,7 +18,7 @@ export interface SessionContinuationState {
 }
 
 /** Creates the workflow-owned continuation-state manager for a session. */
-export function createSessionContinuationState(sessionId: string): SessionContinuationState {
+export function createSessionContinuationState(): SessionContinuationState {
   const markers = new Map<string, Hook<HookPayload>>();
 
   return {
@@ -35,11 +35,7 @@ export function createSessionContinuationState(sessionId: string): SessionContin
       if (existing !== undefined) return;
 
       const marker = createHook<HookPayload>({ token });
-      const conflict = await marker.getConflict();
-      if (conflict !== null && conflict.runId !== sessionId) {
-        await disposeHook(marker);
-        throw new Error(`Continuation state "${token}" is owned by another session.`);
-      }
+      await claimHookOwnership(marker);
       markers.set(token, marker);
     },
 
