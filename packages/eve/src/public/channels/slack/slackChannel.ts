@@ -877,6 +877,7 @@ async function handleEventPost(input: {
             kind,
             message,
             resolveActiveSession: input.resolveActiveSession,
+            setSessionContinuationMarker: input.setSessionContinuationMarker,
             send: input.send,
             threadContext: config.threadContext,
             uploadPolicy: input.uploadPolicy,

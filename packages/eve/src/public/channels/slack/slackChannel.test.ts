@@ -1523,7 +1523,7 @@ describe("slackChannel() onMessage", () => {
 
     expect(setSessionContinuationMarker).toHaveBeenCalledWith({
       active: false,
-      continuationToken: "C01:1700000000.000017",
+      continuationToken: "C01:1700000000.000018",
       key: "unsubscribed",
     });
     expect(onMessage).not.toHaveBeenCalled();
@@ -2840,6 +2840,7 @@ describe("slackChannel().receive", () => {
     const waitUntil = vi.fn();
     await post.handler(req, {
       send: inboundSend,
+      resolveActiveSession: vi.fn().mockResolvedValue(undefined),
       setSessionContinuationMarker: vi.fn().mockResolvedValue(undefined),
       waitUntil,
       getSession: vi.fn() as any,
