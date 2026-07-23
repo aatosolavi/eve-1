@@ -36,6 +36,8 @@ export {
   type SlackMentionResultOrPromise,
   type SlackReceiveTarget,
   type SlackSessionTarget,
+  type SlackSubscriptionContext,
+  type SlackSubscriptionState,
   type SlackThread,
   type SlackWebhookVerifier,
   type SlackWorkspaceHandle,

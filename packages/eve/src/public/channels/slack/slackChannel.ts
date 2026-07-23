@@ -1,9 +1,12 @@
 import { parseSlackWebhookBody } from "#compiled/@chat-adapter/slack/webhook.js";
 
+import { defaultDeliverResult, type ChannelAdapter } from "#channel/adapter.js";
+import type { CompiledChannel } from "#channel/compiled-channel.js";
 import type { CrossChannelReceiveOptions } from "#channel/cross-channel-receive.js";
 import type { Session, SessionHandle } from "#channel/session.js";
 import type { CancelTurnResult, SessionAuthContext } from "#channel/types.js";
 import type { CardElement } from "#compiled/chat/index.js";
+import { buildCallbackContext } from "#context/build-callback-context.js";
 import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { ChannelSessionOps } from "#public/definitions/channel.js";
 
@@ -160,12 +163,48 @@ type SlackSessionFailedHandler = (
   channel: SlackEventContext,
 ) => void | Promise<void>;
 
+function defaultResolveSubscription(input: SlackSubscriptionContext): SlackSubscriptionState {
+  return input.isBotMentioned ? "subscribed" : input.current;
+}
+
+function readSlackMessageDeliveryData(value: unknown): SlackMessageDeliveryData | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const data = value as Partial<SlackMessageDeliveryData>;
+  if (
+    data.kind !== "slack-message" ||
+    typeof data.isBotMentioned !== "boolean" ||
+    typeof data.message !== "object" ||
+    data.message === null
+  ) {
+    return undefined;
+  }
+  return data as SlackMessageDeliveryData;
+}
+
 /**
  * JSON-serializable per-session state, stored verbatim across workflow
  * step boundaries. Anything written here must round-trip through
  * `JSON.stringify` / `JSON.parse`.
  */
+export type SlackSubscriptionState = "subscribed" | "unsubscribed";
+
+/** Input to a Slack channel's durable subscription resolver. */
+export interface SlackSubscriptionContext {
+  /** Subscription state persisted from the previous admitted message. */
+  readonly current: SlackSubscriptionState;
+  /** Whether this message explicitly mentions the installed bot. */
+  readonly isBotMentioned: boolean;
+}
+
+interface SlackMessageDeliveryData {
+  readonly isBotMentioned: boolean;
+  readonly kind: "slack-message";
+  readonly message: SlackMessage;
+}
+
 export interface SlackChannelState {
+  /** Whether admitted messages in this thread currently dispatch agent turns. */
+  subscription: SlackSubscriptionState;
   /** Slack channel id seeded by the inbound mention. */
   channelId: string | null;
   /** Slack thread root ts. */
@@ -337,7 +376,10 @@ export interface SlackInboundMessageContext extends SlackContext {
    * `"no_active_turn"` are successful outcomes.
    */
   cancel(options?: SlackCancelOptions): Promise<CancelTurnResult>;
-  /** Returns whether this message belongs to a thread with an active eve session. */
+  /**
+   * Returns whether this message belongs to a thread with an active eve session.
+   * This webhook-side lookup does not read the durable subscription state.
+   */
   isSubscribed(): Promise<boolean>;
   /** Returns whether the inbound event explicitly mentions this bot. */
   isBotMentioned(): boolean;
@@ -486,6 +528,18 @@ export interface SlackChannelConfig {
   readonly threadContext?: LoadThreadContextMessagesOptions;
 
   /**
+   * Resolves durable thread subscription after a message hook admits a message.
+   * Runs inside the owning eve session after Slack and `defineState` state are
+   * hydrated. A `"subscribed"` result dispatches the message to the agent; an
+   * `"unsubscribed"` result persists the state and ignores the message.
+   */
+  resolveSubscription?(
+    subscription: SlackSubscriptionContext,
+    message: SlackMessage,
+    ctx: SessionContext,
+  ): SlackSubscriptionState | Promise<SlackSubscriptionState>;
+
+  /**
    * Handles human-authored Slack messages. Specialized `onAppMention` and
    * `onDirectMessage` handlers take precedence for their event types. Other
    * channel messages are ignored when this hook is omitted.
@@ -608,6 +662,22 @@ export interface SlackChannel extends Channel<
   SlackInstrumentationMetadata
 > {}
 
+function defineSlackChannel(
+  definition: Parameters<
+    typeof defineChannel<
+      SlackChannelState,
+      SlackChannelContext,
+      SlackReceiveTarget,
+      SlackInstrumentationMetadata
+    >
+  >[0] & { readonly deliver: NonNullable<ChannelAdapter["deliver"]> },
+): SlackChannel {
+  const { deliver, ...baseDefinition } = definition;
+  const channel = defineChannel(baseDefinition) as SlackChannel &
+    CompiledChannel<SlackChannelState>;
+  return { ...channel, adapter: { ...channel.adapter, deliver } } as SlackChannel;
+}
+
 /**
  * Slack channel factory. Wires up the webhook route, mention dispatch,
  * interaction handling, and a baseline set of typing / error /
@@ -644,12 +714,7 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
   // Light weight dedup mechanism - not reliable across multiple invocations.
   const handledEvents = new Set<string>();
 
-  return defineChannel<
-    SlackChannelState,
-    SlackChannelContext,
-    SlackReceiveTarget,
-    SlackInstrumentationMetadata
-  >({
+  return defineSlackChannel({
     kindHint: "slack",
     state: {
       channelId: null as string | null,
@@ -660,6 +725,25 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
       lastReasoningTypingAtMs: null,
       lastReasoningTypingStatus: null,
       pendingAuthMessageTs: {},
+      subscription: "subscribed",
+    },
+    deliver: async (payload, adapterCtx) => {
+      const delivery = readSlackMessageDeliveryData(payload.channelData);
+      if (delivery === undefined) return defaultDeliverResult(payload);
+
+      const current = adapterCtx.state.subscription as SlackSubscriptionState;
+      const subscription = await (config.resolveSubscription ?? defaultResolveSubscription)(
+        { current, isBotMentioned: delivery.isBotMentioned },
+        delivery.message,
+        buildCallbackContext(),
+      );
+      if (subscription !== "subscribed" && subscription !== "unsubscribed") {
+        throw new Error(
+          'slackChannel().resolveSubscription must return "subscribed" or "unsubscribed".',
+        );
+      }
+      adapterCtx.state.subscription = subscription;
+      return subscription === "subscribed" ? defaultDeliverResult(payload) : undefined;
     },
     fetchFile: slackFetchFile,
     metadata(state): SlackInstrumentationMetadata {
@@ -767,6 +851,7 @@ async function receiveOnSlack(
     continuationToken: slackContinuationToken(channelId, continuationThreadTs),
     state: {
       channelId,
+      subscription: "subscribed",
       threadTs: threadTs || null,
       teamId: deps.teamId ?? null,
       triggeringUserId: null,
@@ -990,19 +1075,18 @@ async function dispatchSlackMessage(input: {
     threadTs: input.message.threadTs,
     teamId: input.message.teamId,
   });
+  const isBotMentioned =
+    input.kind === "app_mention" ||
+    (input.botUserId !== undefined && input.message.text.includes(`<@${input.botUserId}>`));
   const ctx: SlackInboundMessageContext = {
     cancel: (options = {}) =>
       input.cancel({
         continuationToken,
         turnId: options.turnId,
       }),
-    isBotMentioned: () =>
-      input.kind === "app_mention" ||
-      (input.botUserId !== undefined && input.message.text.includes(`<@${input.botUserId}`)),
+    isBotMentioned: () => isBotMentioned,
     isSubscribed: async () =>
-      (await input.resolveActiveSession({
-        continuationToken,
-      })) !== undefined,
+      (await input.resolveActiveSession({ continuationToken })) !== undefined,
     slack,
     thread,
   };
@@ -1020,6 +1104,7 @@ async function dispatchSlackMessage(input: {
 
   await deliverSlackMessage({
     credentials: input.credentials,
+    isBotMentioned,
     kind: input.kind,
     message: input.message,
     result,
@@ -1111,6 +1196,7 @@ async function verifyInbound(
 
 async function deliverSlackMessage(input: {
   readonly credentials: SlackChannelCredentials | undefined;
+  readonly isBotMentioned: boolean;
   readonly kind: string;
   readonly message: SlackMessage;
   readonly result: Exclude<SlackInboundResult, null>;
@@ -1149,15 +1235,21 @@ async function deliverSlackMessage(input: {
 
     const channelContext = input.result.context ?? [];
 
+    const channelData: SlackMessageDeliveryData = {
+      isBotMentioned: input.isBotMentioned,
+      kind: "slack-message",
+      message: input.message,
+    };
     await input.send(
       channelContext.length === 0
-        ? { message: turnMessage }
-        : { message: turnMessage, context: channelContext },
+        ? { channelData, message: turnMessage }
+        : { channelData, message: turnMessage, context: channelContext },
       {
         auth: input.result.auth,
         continuationToken: slackContinuationToken(message.channelId, message.threadTs),
         state: {
           channelId: message.channelId,
+          subscription: "subscribed",
           threadTs: message.threadTs,
           teamId: message.teamId ?? null,
           triggeringUserId: inboundContext.userId || null,

@@ -1404,7 +1404,7 @@ describe("slackChannel() inbound mention pipeline", () => {
 });
 
 describe("slackChannel() onMessage", () => {
-  it("exposes mention and subscription helpers", async () => {
+  it("exposes mention and active-session helpers", async () => {
     const observed: Array<{ mentioned: boolean; subscribed: boolean }> = [];
     const onMessage = vi.fn(async (ctx) => {
       observed.push({
@@ -1467,6 +1467,83 @@ describe("slackChannel() onMessage", () => {
       expect.objectContaining({ message: expect.any(String) }),
       expect.objectContaining({ continuationToken: "C01:1700000000.000100" }),
     );
+  });
+
+  it("resolves admitted message subscription inside the hydrated session", async () => {
+    const resolveSubscription = vi.fn(() => "unsubscribed" as const);
+    const channel = slackChannel({ resolveSubscription });
+    const adapter = withState(getAdapter(channel), {
+      ...THREAD_STATE,
+      subscription: "subscribed",
+    });
+    const adapterCtx = buildAdapterContext(adapter, stubAccessor());
+    const message = {
+      attachments: [],
+      channelId: "C01",
+      markdown: "handoff to @someone",
+      raw: {},
+      teamId: "T01",
+      text: "handoff to <@U02>",
+      threadTs: "1700000000.000001",
+      ts: "1700000000.000002",
+    };
+
+    const result = await contextStorage.run(stubAlsContext, () =>
+      adapter.deliver!(
+        {
+          channelData: {
+            isBotMentioned: false,
+            kind: "slack-message",
+            message,
+          },
+          message: "attributed message",
+        },
+        adapterCtx,
+      ),
+    );
+
+    expect(result).toBeUndefined();
+    expect(adapterCtx.state.subscription).toBe("unsubscribed");
+    expect(resolveSubscription).toHaveBeenCalledWith(
+      { current: "subscribed", isBotMentioned: false },
+      message,
+      expect.objectContaining({ session: expect.any(Object) }),
+    );
+  });
+
+  it("resubscribes explicit mentions by default", async () => {
+    const adapter = withState(getAdapter(slackChannel()), {
+      ...THREAD_STATE,
+      subscription: "unsubscribed",
+    });
+    const adapterCtx = buildAdapterContext(adapter, stubAccessor());
+    const message = {
+      attachments: [],
+      channelId: "C01",
+      markdown: "@eve come back",
+      raw: {},
+      teamId: "T01",
+      text: "<@U_BOT> come back",
+      threadTs: "1700000000.000001",
+      ts: "1700000000.000002",
+    };
+
+    const result = await contextStorage.run(stubAlsContext, () =>
+      adapter.deliver!(
+        {
+          channelData: {
+            isBotMentioned: true,
+            kind: "slack-message",
+            message,
+          },
+          message: "attributed message",
+        },
+        adapterCtx,
+      ),
+    );
+
+    expect(result).toEqual({ message: "attributed message" });
+    expect(adapterCtx.state.subscription).toBe("subscribed");
   });
 
   it("passes messages from other bots to onMessage", async () => {
@@ -2559,6 +2636,7 @@ describe("slackChannel().receive", () => {
     expect(options.continuationToken).toBe("C123:1700000000.000001");
     expect(options.state).toEqual({
       channelId: "C123",
+      subscription: "subscribed",
       threadTs: "1700000000.000001",
       teamId: null,
       triggeringUserId: null,

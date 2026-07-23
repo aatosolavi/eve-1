@@ -117,6 +117,31 @@ describe("createSendFn", () => {
     });
   });
 
+  it("forwards channel-owned delivery data through deliver and run inputs", async () => {
+    const channelData = { kind: "test-message", value: 1 };
+    const deliverRuntime: Runtime = {
+      cancelTurn: vi.fn(),
+      deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
+      resolveSession: vi.fn(),
+      run: vi.fn().mockResolvedValue(createMockRunHandle()),
+      getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
+    };
+
+    const deliverSend = createSendFn(deliverRuntime, ADAPTER, "test");
+    await deliverSend(
+      { channelData, message: "hello" },
+      { auth: null, continuationToken: "token" },
+    );
+    expect(vi.mocked(deliverRuntime.deliver).mock.calls[0]?.[0].payload.channelData).toEqual(
+      channelData,
+    );
+
+    const runRuntime = createRuntime(new RuntimeNoActiveSessionError("test:token"));
+    const runSend = createSendFn(runRuntime, ADAPTER, "test");
+    await runSend({ channelData, message: "hello" }, { auth: null, continuationToken: "token" });
+    expect(vi.mocked(runRuntime.run).mock.calls[0]?.[0].input.channelData).toEqual(channelData);
+  });
+
   it("adds channel request ids to deliver and run inputs when provided", async () => {
     const deliverRuntime: Runtime = {
       cancelTurn: vi.fn(),
