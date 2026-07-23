@@ -30,6 +30,7 @@ const LINKED: DeploymentInfo = { state: "linked", projectId: "prj_1", orgId: "or
 const NO_REGISTRATIONS: ExistingChannelRegistrations = {
   disabledChannelReasons: {},
   webRouteOwners: [],
+  imessageOwners: [],
   slackOwners: [],
   webAppPresent: false,
 };

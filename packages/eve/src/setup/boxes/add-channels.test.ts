@@ -41,24 +41,34 @@ function makeBox(
 /** Default fakes: every effect succeeds and the slackbot attaches cleanly. */
 function createDeps() {
   return {
-    ensureChannel: vi.fn<AddChannelsDeps["ensureChannel"]>(async (options) =>
-      options.kind === "web"
-        ? {
-            kind: "web",
-            action: "created",
-            filesWritten: ["/tmp/project/app/page.tsx"],
-            filesSkipped: [],
-            packageJsonUpdated: [],
-          }
-        : {
-            kind: "slack",
-            action: "created",
-            filesWritten: ["/tmp/project/agent/channels/slack.ts"],
-            filesSkipped: [],
-            packageJsonUpdated: [],
-            slackConnectorSlug: normalizeSlackConnectorSlug("my-agent"),
-          },
-    ),
+    ensureChannel: vi.fn<AddChannelsDeps["ensureChannel"]>(async (options) => {
+      if (options.kind === "web") {
+        return {
+          kind: "web",
+          action: "created",
+          filesWritten: ["/tmp/project/app/page.tsx"],
+          filesSkipped: [],
+          packageJsonUpdated: [],
+        };
+      }
+      if (options.kind === "imessage") {
+        return {
+          kind: "imessage",
+          action: "created",
+          filesWritten: ["/tmp/project/agent/channels/imessage.ts"],
+          filesSkipped: [],
+          packageJsonUpdated: [],
+        };
+      }
+      return {
+        kind: "slack",
+        action: "created",
+        filesWritten: ["/tmp/project/agent/channels/slack.ts"],
+        filesSkipped: [],
+        packageJsonUpdated: [],
+        slackConnectorSlug: normalizeSlackConnectorSlug("my-agent"),
+      };
+    }),
     deriveSlackConnectorSlug: vi.fn<AddChannelsDeps["deriveSlackConnectorSlug"]>(
       async (_projectRoot, hint) => normalizeSlackConnectorSlug(hint ?? "my-agent"),
     ),
@@ -69,6 +79,13 @@ function createDeps() {
       workspaceName: "Vercel",
     })),
     reconcileSlackUid: vi.fn<AddChannelsDeps["reconcileSlackUid"]>(async () => true),
+    provisionPhotonConnector: vi.fn<NonNullable<AddChannelsDeps["provisionPhotonConnector"]>>(
+      async () => ({ id: "scl_photon", uid: "spectrum.photon.codes/my-agent" }),
+    ),
+    readProjectLink: vi.fn<NonNullable<AddChannelsDeps["readProjectLink"]>>(async () => ({
+      orgId: "team_demo",
+      projectId: "prj_demo",
+    })),
     detectPackageManager: vi.fn<AddChannelsDeps["detectPackageManager"]>(async () => ({
       kind: "pnpm",
       source: "default",
@@ -125,6 +142,34 @@ describe("addChannels box", () => {
     await expect(run).rejects.not.toBeInstanceOf(HumanActionRequiredError);
     expect(deps.ensureChannel).not.toHaveBeenCalled();
     expect(deps.provisionSlackbot).not.toHaveBeenCalled();
+  });
+
+  it("collects Photon credentials separately and provisions iMessage", async () => {
+    const deps = createDeps();
+    const prompter = createFakePrompter({
+      text: () => "project-id",
+      password: () => "project-secret",
+    }).prompter;
+    const box = makeBox({ prompter, deps });
+
+    const result = await runInteractive([box], resolvedState(["imessage"]), silentSink, snapshot);
+
+    expect(result.kind).toBe("done");
+    expect(deps.provisionPhotonConnector).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: { projectId: "project-id", projectSecret: "project-secret" },
+        project: { orgId: "team_demo", projectId: "prj_demo" },
+        projectRoot: "/tmp/project",
+        slug: "my-agent",
+      }),
+    );
+    expect(deps.ensureChannel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: "/tmp/project",
+        kind: "imessage",
+        photonConnectorUid: "spectrum.photon.codes/my-agent",
+      }),
+    );
   });
 
   it("passes the web scaffold options through to ensureChannel", async () => {

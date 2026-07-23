@@ -28,8 +28,11 @@ describe("SCAFFOLDABLE_CHANNELS", () => {
     expect(eve?.kind).toBe("web");
   });
 
-  test("maps slack identity straight through", () => {
+  test("maps provider-backed channel identities to setup kinds", () => {
     const slack = SCAFFOLDABLE_CHANNELS.find((channel) => channel.slug === "slack");
+    const photon = SCAFFOLDABLE_CHANNELS.find((channel) => channel.slug === "chat-sdk-photon");
     expect(slack?.kind).toBe("slack");
+    expect(photon?.kind).toBe("imessage");
+    expect(photon?.requiresVercelProject).toBe(true);
   });
 });

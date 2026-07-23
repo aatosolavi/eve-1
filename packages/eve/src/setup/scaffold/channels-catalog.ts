@@ -37,6 +37,13 @@ interface ChannelScaffold {
 const CHANNEL_SCAFFOLDS: readonly ChannelScaffold[] = [
   { slug: "eve", kind: "web", label: "Web Chat", hint: "Next.js app" },
   {
+    slug: "chat-sdk-photon",
+    kind: "imessage",
+    label: "iMessage",
+    hint: "Connects Photon and deploys to Vercel",
+    requiresVercelProject: true,
+  },
+  {
     slug: "slack",
     kind: "slack",
     label: "Slack",

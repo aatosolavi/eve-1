@@ -3,6 +3,7 @@ import { isEveProject, listAuthoredChannels, type ChannelKind } from "#setup/sca
 import { interactiveAsker } from "#setup/ask.js";
 import { addChannels, type AddChannelsDeps } from "#setup/boxes/add-channels.js";
 import { deployProject, type DeployProjectDeps } from "#setup/boxes/deploy-project.js";
+import { configurePhotonWebhook } from "#setup/boxes/configure-photon-webhook.js";
 import { selectChannels } from "#setup/boxes/select-channels.js";
 import {
   detectDeployment,
@@ -25,7 +26,7 @@ export interface CliLogger {
   log(message: string): void;
 }
 
-const KNOWN_CHANNEL_KINDS: readonly ChannelKind[] = ["slack", "web"];
+const KNOWN_CHANNEL_KINDS: readonly ChannelKind[] = ["imessage", "slack", "web"];
 
 function isChannelKind(value: string): value is ChannelKind {
   return KNOWN_CHANNEL_KINDS.includes(value as ChannelKind);
@@ -109,7 +110,11 @@ async function runAddChannelsFlow(
       presetChannels: kind === undefined ? undefined : [kind],
       disabledChannelReasons,
       validateSelection: async (selectedChannels) => {
-        if (!selectedChannels.includes("web") && !selectedChannels.includes("slack")) {
+        if (
+          !selectedChannels.includes("imessage") &&
+          !selectedChannels.includes("web") &&
+          !selectedChannels.includes("slack")
+        ) {
           return;
         }
         assertCanAddSelectedChannels(selectedChannels, await inspectRegistrations());
@@ -128,6 +133,10 @@ async function runAddChannelsFlow(
       configureVercelServices: true,
       ensureLinkedProject: "interactive-vercel-link",
       deps: dependencies.addChannelsDeps,
+    }),
+    configurePhotonWebhook({
+      asker: interactiveAsker(prompter),
+      prompter,
     }),
     deployProject({
       prompter,

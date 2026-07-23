@@ -81,8 +81,8 @@ export function connectionProtocols(connection: ConnectionIdentity): ConnectionP
  * carries only shared identity; the scaffolder and docs overlay their own
  * surface-specific data keyed by {@link IntegrationEntry.slug}.
  *
- * `surfaces.scaffoldable` reflects what the CLI can scaffold today: Slack and
- * Web Chat for channels, and every curated connection. The remaining
+ * `surfaces.scaffoldable` reflects what the CLI can scaffold today: iMessage,
+ * Slack, and Web Chat for channels, and every curated connection. The remaining
  * channels are runtime modules that are still configured by hand, so they
  * appear in the gallery but not the CLI picker.
  */
@@ -224,8 +224,8 @@ export const INTEGRATIONS: readonly IntegrationEntry[] = [
     slug: "chat-sdk-photon",
     name: "Photon",
     kind: "channel",
-    tagline: "Cloud, self-hosted, and local iMessage messaging through Photon.",
-    surfaces: { scaffoldable: false, gallery: true },
+    tagline: "Cloud and self-hosted iMessage messaging through Photon.",
+    surfaces: { scaffoldable: true, gallery: true },
   },
   {
     slug: "chat-sdk-dial",

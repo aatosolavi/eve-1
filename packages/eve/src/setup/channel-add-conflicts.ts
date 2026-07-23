@@ -8,6 +8,7 @@ import { discoverAgent } from "#discover/discover-agent.js";
 import { EVE_CREATE_SESSION_ROUTE_PATH } from "#protocol/routes.js";
 
 const SCAFFOLDED_WEB_CHANNEL_LOGICAL_PATH = "channels/eve.ts";
+const SCAFFOLDED_IMESSAGE_CHANNEL_LOGICAL_PATH = "channels/imessage.ts";
 const SCAFFOLDED_SLACK_CHANNEL_LOGICAL_PATH = "channels/slack.ts";
 
 /**
@@ -17,6 +18,7 @@ const SCAFFOLDED_SLACK_CHANNEL_LOGICAL_PATH = "channels/slack.ts";
 export interface ExistingChannelRegistrations {
   readonly disabledChannelReasons: DisabledChannelReasons;
   readonly webRouteOwners: readonly string[];
+  readonly imessageOwners: readonly string[];
   readonly slackOwners: readonly string[];
   /**
    * Whether the Next.js Web Chat app is already in place (the project depends
@@ -40,6 +42,7 @@ export async function inspectExistingChannelRegistrations(
     isNextJsProject(projectRoot),
   ]);
   const webRouteOwners = new Set<string>();
+  const imessageOwners = new Set<string>();
   const slackOwners = new Set<string>();
 
   for (const source of manifest.channels) {
@@ -55,6 +58,9 @@ export async function inspectExistingChannelRegistrations(
       if (definition.adapterKind === "slack") {
         slackOwners.add(source.logicalPath);
       }
+      if (definition.adapterKind === "chat-sdk" && definition.urlPath === "/eve/v1/imessage") {
+        imessageOwners.add(source.logicalPath);
+      }
     }
   }
 
@@ -64,6 +70,9 @@ export async function inspectExistingChannelRegistrations(
   ) {
     disabledChannelReasons.web = `POST ${EVE_CREATE_SESSION_ROUTE_PATH} already registered`;
   }
+  if (imessageOwners.size > 0) {
+    disabledChannelReasons.imessage = "iMessage channel already registered";
+  }
   if (slackOwners.size > 0) {
     disabledChannelReasons.slack = "Slack channel already registered";
   }
@@ -71,6 +80,7 @@ export async function inspectExistingChannelRegistrations(
   return {
     disabledChannelReasons,
     webRouteOwners: [...webRouteOwners],
+    imessageOwners: [...imessageOwners],
     slackOwners: [...slackOwners],
     webAppPresent,
   };
@@ -91,6 +101,17 @@ export function assertCanAddSelectedChannels(
     if (conflictingOwner !== undefined) {
       throw new Error(
         `Cannot scaffold Web Chat because agent/${conflictingOwner} already defines POST ${EVE_CREATE_SESSION_ROUTE_PATH}. Web Chat scaffolds the same eve session routes.`,
+      );
+    }
+  }
+
+  if (selectedChannels.includes("imessage")) {
+    const conflictingOwner = registrations.imessageOwners.find(
+      (logicalPath) => logicalPath !== SCAFFOLDED_IMESSAGE_CHANNEL_LOGICAL_PATH,
+    );
+    if (conflictingOwner !== undefined) {
+      throw new Error(
+        `Cannot scaffold iMessage because agent/${conflictingOwner} already defines the Photon webhook route.`,
       );
     }
   }

@@ -4,6 +4,7 @@ import { toErrorMessage } from "#shared/errors.js";
 import { interactiveAsker } from "../ask.js";
 import { addChannels, type AddChannelsDeps } from "../boxes/add-channels.js";
 import { CHANNELS_PROMPT_MESSAGE, selectChannels } from "../boxes/select-channels.js";
+import { configurePhotonWebhook } from "../boxes/configure-photon-webhook.js";
 import {
   assertCanAddSelectedChannels,
   inspectExistingChannelRegistrations,
@@ -88,7 +89,9 @@ function channelAlreadyAdded(
   registrations: ExistingChannelRegistrations,
   channel: ChannelKind,
 ): boolean {
-  return channel === "web" ? registrations.webAppPresent : registrations.slackOwners.length > 0;
+  if (channel === "web") return registrations.webAppPresent;
+  if (channel === "imessage") return registrations.imessageOwners.length > 0;
+  return registrations.slackOwners.length > 0;
 }
 
 function appendChannel(channels: readonly ChannelKind[], channel: ChannelKind): ChannelKind[] {
@@ -308,6 +311,10 @@ export async function runChannelsFlow(input: {
         prompter,
         configureVercelServices: true,
         deps: deps.addChannels,
+      }),
+      configurePhotonWebhook({
+        asker: interactiveAsker(prompter),
+        prompter,
       }),
     ];
     let result: Awaited<ReturnType<typeof runInteractive<SetupState>>>;

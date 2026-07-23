@@ -269,7 +269,9 @@ describe("runChannelsAddCommand", () => {
     );
 
     expect(detectDeployment).not.toHaveBeenCalled();
-    expect(logger.errors).toEqual(["Pass a channel kind: `eve channels add <slack|web>`."]);
+    expect(logger.errors).toEqual([
+      "Pass a channel kind: `eve channels add <imessage|slack|web>`.",
+    ]);
     expect(process.exitCode).toBe(1);
   });
 
@@ -484,6 +486,7 @@ describe("runChannelsAddCommand", () => {
         disabled: true,
         disabledReason: "POST /eve/v1/session already registered",
       }),
+      expect.objectContaining({ value: "imessage", disabled: undefined }),
       expect.objectContaining({
         value: "slack",
         disabled: true,
