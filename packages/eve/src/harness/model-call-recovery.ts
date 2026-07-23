@@ -127,7 +127,7 @@ export function buildModelCallFailureLogFields(input: {
  * repeats the same call shape instead of silently restoring state the
  * earlier recovery removed (e.g. a provider tool the gateway rejected).
  */
-type RecoveryRetryCallOptions = {
+export type RecoveryRetryCallOptions = {
   readonly disabledProviderTools?: ReadonlySet<string>;
   readonly extraSystemNote?: string;
 };
