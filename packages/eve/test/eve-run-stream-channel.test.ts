@@ -186,7 +186,6 @@ function createArgs(input: {
   return {
     send: vi.fn(),
     resolveActiveSession: async () => undefined,
-    setContinuationState: vi.fn(),
     cancel: vi.fn(),
     getSession: input.getSession,
     receive: vi.fn() as any,

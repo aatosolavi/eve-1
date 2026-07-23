@@ -9,7 +9,6 @@ function createRuntime(overrides?: Partial<Runtime>): Runtime {
     deliver: vi.fn(),
     getEventStream: vi.fn(),
     resolveSession: vi.fn().mockResolvedValue({ sessionId: "sess_1" }),
-    setContinuationState: vi.fn(),
     run: vi.fn(),
     ...overrides,
   };

@@ -14,7 +14,6 @@ function makeRuntime(): Runtime {
     deliver: vi.fn(),
     getEventStream: vi.fn(),
     resolveSession: vi.fn(),
-    setContinuationState: vi.fn(),
     run: vi.fn(),
   };
 }

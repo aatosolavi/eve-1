@@ -334,7 +334,7 @@ describe("workflowEntry integration", () => {
           compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
         });
 
-        await workflowRuntime.setContinuationState({
+        await workflowRuntime.setContinuationState!({
           active: true,
           continuationToken,
           key: "unsubscribed",
@@ -347,7 +347,7 @@ describe("workflowEntry integration", () => {
           sessionId: run.runId,
         });
 
-        await workflowRuntime.setContinuationState({
+        await workflowRuntime.setContinuationState!({
           active: false,
           continuationToken,
           key: "unsubscribed",
@@ -358,7 +358,7 @@ describe("workflowEntry integration", () => {
           sessionId: run.runId,
         });
 
-        await workflowRuntime.setContinuationState({
+        await workflowRuntime.setContinuationState!({
           active: true,
           continuationToken,
           key: "unsubscribed",

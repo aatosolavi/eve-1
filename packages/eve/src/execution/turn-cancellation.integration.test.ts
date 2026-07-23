@@ -249,7 +249,6 @@ function createCancelRouteCaller(): (
           throw new Error("cancel route must not send");
         },
         resolveActiveSession: async () => undefined,
-        setContinuationState: async () => {},
         cancel: () => {
           throw new Error("cancel route must not use the channel cancel helper");
         },

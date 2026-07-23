@@ -63,9 +63,6 @@ function createCapturingRuntime(captured: CapturedRun[]): Runtime {
     async resolveSession() {
       throw new Error("resolveSession should not be called in this scenario");
     },
-    async setContinuationState() {
-      throw new Error("setContinuationState should not be called in this scenario");
-    },
     async run(input) {
       captured.push({
         adapter: input.adapter,

@@ -405,7 +405,7 @@ export interface Runtime {
   resolveSession(continuationToken: string): Promise<{ sessionId: string } | undefined>;
 
   /** Adds or removes workflow-owned state on an active continuation. */
-  setContinuationState(input: {
+  setContinuationState?(input: {
     readonly active: boolean;
     readonly continuationToken: string;
     readonly key: string;

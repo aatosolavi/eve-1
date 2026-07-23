@@ -818,11 +818,13 @@ async function handleEventPost(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationState: (options: {
-    readonly active: boolean;
-    readonly continuationToken: string;
-    readonly key: string;
-  }) => Promise<void>;
+  readonly setContinuationState:
+    | ((options: {
+        readonly active: boolean;
+        readonly continuationToken: string;
+        readonly key: string;
+      }) => Promise<void>)
+    | undefined;
   readonly waitUntil: (task: Promise<unknown>) => void;
   readonly config: SlackChannelConfig;
   readonly uploadPolicy: UploadPolicy;
@@ -987,11 +989,13 @@ async function dispatchSlackMessage(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationState: (options: {
-    readonly active: boolean;
-    readonly continuationToken: string;
-    readonly key: string;
-  }) => Promise<void>;
+  readonly setContinuationState:
+    | ((options: {
+        readonly active: boolean;
+        readonly continuationToken: string;
+        readonly key: string;
+      }) => Promise<void>)
+    | undefined;
   readonly send: SendFn<SlackChannelState>;
   readonly threadContext: LoadThreadContextMessagesOptions | undefined;
   readonly uploadPolicy: UploadPolicy;
@@ -1021,12 +1025,16 @@ async function dispatchSlackMessage(input: {
       (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) === undefined,
     slack,
     thread,
-    unsubscribe: async () =>
-      input.setContinuationState({
+    unsubscribe: async () => {
+      if (input.setContinuationState === undefined) {
+        throw new Error("The active runtime does not support Slack thread unsubscribe.");
+      }
+      await input.setContinuationState({
         active: true,
         continuationToken,
         key: "unsubscribed",
-      }),
+      });
+    },
   };
 
   let result;
@@ -1036,6 +1044,9 @@ async function dispatchSlackMessage(input: {
       (await input.resolveActiveSession({ continuationToken })) !== undefined &&
       (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) !== undefined
     ) {
+      if (input.setContinuationState === undefined) {
+        throw new Error("The active runtime does not support Slack thread unsubscribe.");
+      }
       await input.setContinuationState({
         active: false,
         continuationToken,

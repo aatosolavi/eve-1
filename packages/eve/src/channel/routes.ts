@@ -26,7 +26,7 @@ export interface RouteHandlerArgs<TState = undefined> {
    */
   resolveActiveSession: ResolveActiveSessionFn;
   /** Adds or removes workflow-owned state on an active continuation. */
-  setContinuationState: SetContinuationStateFn;
+  setContinuationState?: SetContinuationStateFn;
   cancel: CancelFn;
   getSession: GetSessionFn;
   /**

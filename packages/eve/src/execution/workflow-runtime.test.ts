@@ -143,7 +143,7 @@ describe("createWorkflowRuntime#setContinuationState", () => {
     resumeHookMock.mockResolvedValue({ runId: "owner-session" });
 
     await expect(
-      buildRuntime().setContinuationState({
+      buildRuntime().setContinuationState!({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",
@@ -163,7 +163,7 @@ describe("createWorkflowRuntime#setContinuationState", () => {
     resumeHookMock.mockRejectedValue(new HookNotFoundError("slack:C1:T1"));
 
     await expect(
-      buildRuntime().setContinuationState({
+      buildRuntime().setContinuationState!({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",
