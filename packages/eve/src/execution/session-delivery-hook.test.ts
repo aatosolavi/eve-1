@@ -74,7 +74,7 @@ describe("createSessionDeliveryHook", () => {
           done: false,
           value: {
             active: true,
-            kind: "continuation-state",
+            kind: "session-continuation-marker",
             continuationToken: "slack:C1:T1",
             key: "unsubscribed",
           },
@@ -94,11 +94,11 @@ describe("createSessionDeliveryHook", () => {
       active: true,
       continuationToken: "slack:C1:T1",
       key: "unsubscribed",
-      kind: "continuation-state",
+      kind: "session-continuation-marker",
     });
   });
 
-  it("rejects the next delivery read when continuation-state processing fails", async () => {
+  it("rejects the next delivery read when session-continuation-marker processing fails", async () => {
     const failure = new Error("marker creation failed");
     const hook = createMockHook({
       reads: [
@@ -108,7 +108,7 @@ describe("createSessionDeliveryHook", () => {
             active: true,
             continuationToken: "slack:C1:T1",
             key: "unsubscribed",
-            kind: "continuation-state",
+            kind: "session-continuation-marker",
           },
         }),
       ],

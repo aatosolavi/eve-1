@@ -252,13 +252,13 @@ async function firePost(
   overrides: {
     readonly cancel?: ReturnType<typeof vi.fn>;
     readonly resolveActiveSession?: ReturnType<typeof vi.fn>;
-    readonly setContinuationState?: ReturnType<typeof vi.fn>;
+    readonly setSessionContinuationMarker?: ReturnType<typeof vi.fn>;
   } = {},
 ): Promise<{
   cancel: ReturnType<typeof vi.fn>;
   response: Response;
   send: ReturnType<typeof vi.fn>;
-  setContinuationState: ReturnType<typeof vi.fn>;
+  setSessionContinuationMarker: ReturnType<typeof vi.fn>;
   waitUntil: ReturnType<typeof vi.fn>;
 }> {
   const compiled = asCompiled(channel);
@@ -268,8 +268,8 @@ async function firePost(
   }
   const cancel = overrides.cancel ?? vi.fn().mockResolvedValue({ status: "accepted" });
   const send = vi.fn().mockResolvedValue({ id: "s1", continuationToken: "ct" });
-  const setContinuationState =
-    overrides.setContinuationState ?? vi.fn().mockResolvedValue(undefined);
+  const setSessionContinuationMarker =
+    overrides.setSessionContinuationMarker ?? vi.fn().mockResolvedValue(undefined);
   const waitUntil = vi.fn();
 
   const response = await post.handler(request, {
@@ -280,7 +280,7 @@ async function firePost(
       vi.fn(async ({ continuationToken }: { continuationToken: string }) =>
         continuationToken.endsWith(":unsubscribed") ? undefined : { sessionId: "s1" },
       ),
-    setContinuationState,
+    setSessionContinuationMarker,
     waitUntil,
     getSession: vi.fn() as any,
     params: {},
@@ -294,7 +294,7 @@ async function firePost(
     await Promise.allSettled(pending);
   }
 
-  return { cancel, response, send, setContinuationState, waitUntil };
+  return { cancel, response, send, setSessionContinuationMarker, waitUntil };
 }
 
 describe("slackChannel() default event handlers", () => {
@@ -1484,13 +1484,13 @@ describe("slackChannel() onMessage", () => {
       { authorizations: [{ is_bot: true, user_id: "U_BOT" }] },
     );
 
-    const { send, setContinuationState } = await firePost(
+    const { send, setSessionContinuationMarker } = await firePost(
       channel,
       buildSignedRequest({ body: reply }),
     );
 
     expect(send).not.toHaveBeenCalled();
-    expect(setContinuationState).toHaveBeenCalledWith({
+    expect(setSessionContinuationMarker).toHaveBeenCalledWith({
       active: true,
       continuationToken: "C01:1700000000.000100",
       key: "unsubscribed",
@@ -1514,14 +1514,14 @@ describe("slackChannel() onMessage", () => {
     const mention = buildMentionBody({ text: "<@U_BOT> come back" });
     const failure = new Error("marker removal failed");
     const resolveActiveSession = vi.fn().mockResolvedValue({ sessionId: "s1" });
-    const setContinuationState = vi.fn().mockRejectedValue(failure);
+    const setSessionContinuationMarker = vi.fn().mockRejectedValue(failure);
 
     const { send } = await firePost(channel, buildSignedRequest({ body: mention.body }), {
       resolveActiveSession,
-      setContinuationState,
+      setSessionContinuationMarker,
     });
 
-    expect(setContinuationState).toHaveBeenCalledWith({
+    expect(setSessionContinuationMarker).toHaveBeenCalledWith({
       active: false,
       continuationToken: "C01:1700000000.000017",
       key: "unsubscribed",
@@ -2840,7 +2840,7 @@ describe("slackChannel().receive", () => {
     const waitUntil = vi.fn();
     await post.handler(req, {
       send: inboundSend,
-      setContinuationState: vi.fn().mockResolvedValue(undefined),
+      setSessionContinuationMarker: vi.fn().mockResolvedValue(undefined),
       waitUntil,
       getSession: vi.fn() as any,
       receive: vi.fn() as any,

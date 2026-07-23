@@ -88,7 +88,7 @@ export default slackChannel({
 
 `isBotMentioned()` identifies an explicit mention. `isSubscribed()` checks whether the message belongs to an active eve session that has not been unsubscribed.
 
-For a more selective policy, unsubscribe when someone hands the thread to another person. The fixed acknowledgement is posted directly to Slack and does not invoke the agent:
+For example, the following policy treats mentioning another person without mentioning the bot as a handoff and unsubscribes the bot from the thread:
 
 ```ts title="agent/channels/slack.ts"
 export default slackChannel({
@@ -110,7 +110,7 @@ export default slackChannel({
 });
 ```
 
-`ctx.unsubscribe()` silences automatic replies while preserving the session and its history. Explicitly mentioning the bot clears the marker and resumes the same session. Marker updates are processed by the session workflow, so an unsubscribe may take effect after an in-flight turn finishes. Mention detection is only a routing signal: adapt the condition if references such as “summarize what @Alex said” should not count as a handoff.
+`ctx.unsubscribe()` silences automatic replies while preserving the session and its history. Explicitly mentioning the bot clears the marker and resumes the same session.
 
 For Vercel Connect, open **Advanced** when creating the connector and add `message.channels` under **Trigger Event Types** and `channels:history` under **Bot Scopes**. Private channels additionally need `message.groups` and `groups:history`.
 

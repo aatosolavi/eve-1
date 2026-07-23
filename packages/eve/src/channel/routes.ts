@@ -26,7 +26,7 @@ export interface RouteHandlerArgs<TState = undefined> {
    */
   resolveActiveSession: ResolveActiveSessionFn;
   /** Adds or removes workflow-owned state on an active continuation. */
-  setContinuationState?: SetContinuationStateFn;
+  setSessionContinuationMarker?: SetSessionContinuationMarkerFn;
   cancel: CancelFn;
   getSession: GetSessionFn;
   /**
@@ -76,7 +76,7 @@ export type ResolveActiveSessionFn = (options: {
 }) => Promise<{ readonly sessionId: string } | undefined>;
 
 /** Adds or removes state owned by the continuation's workflow session. */
-export type SetContinuationStateFn = (options: {
+export type SetSessionContinuationMarkerFn = (options: {
   readonly active: boolean;
   readonly continuationToken: string;
   readonly key: string;

@@ -30,7 +30,7 @@ import {
   createSessionDeliveryHook,
   type SessionDeliveryHook,
 } from "#execution/session-delivery-hook.js";
-import { createSessionContinuationState } from "#execution/session-continuation-state.js";
+import { createSessionContinuationMarkers } from "#execution/session-continuation-markers.js";
 import { disposeAll } from "#execution/dispose-all.js";
 import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
 
@@ -168,9 +168,9 @@ async function runDriverLoop(input: {
     `${input.sessionState.sessionId}:turn-control:${String(turnDispatchIndex++)}`;
 
   const bufferedDeliveries: DeliverHookPayload[] = [];
-  const continuationState = createSessionContinuationState();
+  const continuationMarkers = createSessionContinuationMarkers();
   const deliveryHook = createSessionDeliveryHook(bufferedDeliveries, (payload) =>
-    continuationState.apply(payload),
+    continuationMarkers.apply(payload),
   );
 
   // Control-hook disposal is deferred one turn — see DispatchedTurn.
@@ -307,7 +307,7 @@ async function runDriverLoop(input: {
     await disposeAll([
       async () => disposeSettledTurnControl?.(),
       () => deliveryHook.dispose(),
-      () => continuationState.dispose(),
+      () => continuationMarkers.dispose(),
       // Dispose without closing the iterator: a session cancelled while
       // awaiting authorization can leave a durable read in flight, and an
       // async iterator only honors `return()` after that read settles.

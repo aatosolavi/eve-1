@@ -1,7 +1,7 @@
 import type { Runtime } from "#channel/types.js";
 
 /** Builds channel-scoped controls for workflow-owned continuation state. */
-export function createSetContinuationStateFn(
+export function createSetSessionContinuationMarkerFn(
   runtime: Runtime,
   channelName: string,
 ):
@@ -11,11 +11,11 @@ export function createSetContinuationStateFn(
       readonly key: string;
     }) => Promise<void>)
   | undefined {
-  const setContinuationState = runtime.setContinuationState;
-  if (setContinuationState === undefined) return undefined;
+  const setSessionContinuationMarker = runtime.setSessionContinuationMarker;
+  if (setSessionContinuationMarker === undefined) return undefined;
 
   return async (options): Promise<void> => {
-    await setContinuationState({
+    await setSessionContinuationMarker({
       active: options.active,
       continuationToken: `${channelName}:${options.continuationToken}`,
       key: options.key,

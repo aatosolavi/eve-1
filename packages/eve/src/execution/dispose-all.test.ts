@@ -7,8 +7,8 @@ describe("disposeAll", () => {
     const firstFailure = new Error("turn control disposal failed");
     const laterFailure = new Error("delivery disposal failed");
     const calls: string[] = [];
-    const continuationStateDispose = vi.fn(async () => {
-      calls.push("continuation-state");
+    const continuationMarkersDispose = vi.fn(async () => {
+      calls.push("session-continuation-marker");
     });
     const authDispose = vi.fn(async () => {
       calls.push("auth");
@@ -24,13 +24,13 @@ describe("disposeAll", () => {
           calls.push("delivery");
           throw laterFailure;
         },
-        continuationStateDispose,
+        continuationMarkersDispose,
         authDispose,
       ]),
     ).rejects.toBe(firstFailure);
 
-    expect(calls).toEqual(["turn-control", "delivery", "continuation-state", "auth"]);
-    expect(continuationStateDispose).toHaveBeenCalledOnce();
+    expect(calls).toEqual(["turn-control", "delivery", "session-continuation-marker", "auth"]);
+    expect(continuationMarkersDispose).toHaveBeenCalledOnce();
     expect(authDispose).toHaveBeenCalledOnce();
   });
 });

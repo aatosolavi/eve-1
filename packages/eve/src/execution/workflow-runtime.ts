@@ -221,13 +221,13 @@ export function createWorkflowRuntime(config: {
       }
     },
 
-    async setContinuationState(input): Promise<void> {
+    async setSessionContinuationMarker(input): Promise<void> {
       try {
         await resumeHook(input.continuationToken, {
           active: input.active,
           continuationToken: input.continuationToken,
           key: input.key,
-          kind: "continuation-state",
+          kind: "session-continuation-marker",
         });
       } catch (error) {
         if (HookNotFoundError.is(error)) {

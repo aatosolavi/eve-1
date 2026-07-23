@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createSessionContinuationState } from "#execution/session-continuation-state.js";
+import { createSessionContinuationMarkers } from "#execution/session-continuation-markers.js";
 
 const createHookMock = vi.fn();
 
@@ -8,7 +8,7 @@ vi.mock("#compiled/@workflow/core/index.js", () => ({
   createHook: (...args: unknown[]) => createHookMock(...args),
 }));
 
-describe("createSessionContinuationState", () => {
+describe("createSessionContinuationMarkers", () => {
   beforeEach(() => createHookMock.mockReset());
 
   it("derives marker tokens and disposes them on removal", async () => {
@@ -18,13 +18,13 @@ describe("createSessionContinuationState", () => {
       getConflict: vi.fn(async () => null),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState();
+    const state = createSessionContinuationMarkers();
 
     await state.apply({
       active: true,
       continuationToken: "slack:C1:T1",
       key: "unsubscribed",
-      kind: "continuation-state",
+      kind: "session-continuation-marker",
     });
     expect(createHookMock).toHaveBeenCalledWith({ token: "slack:C1:T1:unsubscribed" });
 
@@ -32,7 +32,7 @@ describe("createSessionContinuationState", () => {
       active: false,
       continuationToken: "slack:C1:T1",
       key: "unsubscribed",
-      kind: "continuation-state",
+      kind: "session-continuation-marker",
     });
     expect(dispose).toHaveBeenCalledOnce();
   });
@@ -47,14 +47,14 @@ describe("createSessionContinuationState", () => {
       }),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState();
+    const state = createSessionContinuationMarkers();
 
     await expect(
       state.apply({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",
-        kind: "continuation-state",
+        kind: "session-continuation-marker",
       }),
     ).rejects.toBe(failure);
 
@@ -68,14 +68,14 @@ describe("createSessionContinuationState", () => {
       getConflict: vi.fn(async () => ({ runId: "session-1" })),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState();
+    const state = createSessionContinuationMarkers();
 
     await expect(
       state.apply({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",
-        kind: "continuation-state",
+        kind: "session-continuation-marker",
       }),
     ).rejects.toMatchObject({ name: "HookConflictError" });
 
@@ -89,12 +89,12 @@ describe("createSessionContinuationState", () => {
       getConflict: vi.fn(async () => null),
       token: "slack:C1:T1:unsubscribed",
     });
-    const state = createSessionContinuationState();
+    const state = createSessionContinuationMarkers();
     await state.apply({
       active: true,
       continuationToken: "slack:C1:T1",
       key: "unsubscribed",
-      kind: "continuation-state",
+      kind: "session-continuation-marker",
     });
 
     await state.dispose();
@@ -103,14 +103,14 @@ describe("createSessionContinuationState", () => {
   });
 
   it("rejects keys that can escape the continuation namespace", async () => {
-    const state = createSessionContinuationState();
+    const state = createSessionContinuationMarkers();
 
     await expect(
       state.apply({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "other:token",
-        kind: "continuation-state",
+        kind: "session-continuation-marker",
       }),
     ).rejects.toThrow(/cannot contain colons/);
     expect(createHookMock).not.toHaveBeenCalled();

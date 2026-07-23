@@ -138,11 +138,11 @@ export interface DeliverHookPayload {
 }
 
 /** Adds or removes workflow-owned state for an active continuation. */
-export interface ContinuationStateHookPayload {
+export interface SessionContinuationMarkerHookPayload {
   readonly active: boolean;
   readonly continuationToken: string;
   readonly key: string;
-  readonly kind: "continuation-state";
+  readonly kind: "session-continuation-marker";
 }
 
 /**
@@ -207,7 +207,7 @@ export interface SubagentAuthorizationEventHookPayload {
  * Serializable payload sent through the workflow `resumeHook`.
  */
 export type HookPayload =
-  | ContinuationStateHookPayload
+  | SessionContinuationMarkerHookPayload
   | DeliverHookPayload
   | RuntimeActionResultHookPayload
   | SubagentAuthorizationEventHookPayload
@@ -405,7 +405,7 @@ export interface Runtime {
   resolveSession(continuationToken: string): Promise<{ sessionId: string } | undefined>;
 
   /** Adds or removes workflow-owned state on an active continuation. */
-  setContinuationState?(input: {
+  setSessionContinuationMarker?(input: {
     readonly active: boolean;
     readonly continuationToken: string;
     readonly key: string;

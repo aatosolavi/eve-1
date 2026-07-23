@@ -134,7 +134,7 @@ describe("createWorkflowRuntime#deliver", () => {
   });
 });
 
-describe("createWorkflowRuntime#setContinuationState", () => {
+describe("createWorkflowRuntime#setSessionContinuationMarker", () => {
   function buildRuntime() {
     return createWorkflowRuntime({ compiledArtifactsSource: {} as RuntimeCompiledArtifactsSource });
   }
@@ -143,7 +143,7 @@ describe("createWorkflowRuntime#setContinuationState", () => {
     resumeHookMock.mockResolvedValue({ runId: "owner-session" });
 
     await expect(
-      buildRuntime().setContinuationState!({
+      buildRuntime().setSessionContinuationMarker!({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",
@@ -154,7 +154,7 @@ describe("createWorkflowRuntime#setContinuationState", () => {
       active: true,
       continuationToken: "slack:C1:T1",
       key: "unsubscribed",
-      kind: "continuation-state",
+      kind: "session-continuation-marker",
     });
   });
 
@@ -163,7 +163,7 @@ describe("createWorkflowRuntime#setContinuationState", () => {
     resumeHookMock.mockRejectedValue(new HookNotFoundError("slack:C1:T1"));
 
     await expect(
-      buildRuntime().setContinuationState!({
+      buildRuntime().setSessionContinuationMarker!({
         active: true,
         continuationToken: "slack:C1:T1",
         key: "unsubscribed",

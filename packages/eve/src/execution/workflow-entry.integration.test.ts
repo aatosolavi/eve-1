@@ -310,7 +310,9 @@ describe("workflowEntry integration", () => {
   });
 
   it("creates and removes continuation state without replacing the owning session", async () => {
-    const runtime = createTestRuntime({ agent: { name: "workflow-entry-continuation-state" } });
+    const runtime = createTestRuntime({
+      agent: { name: "workflow-entry-session-continuation-marker" },
+    });
     const continuationToken = "slack:C1:T1";
     const stateToken = `${continuationToken}:unsubscribed`;
 
@@ -334,7 +336,7 @@ describe("workflowEntry integration", () => {
           compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
         });
 
-        await workflowRuntime.setContinuationState!({
+        await workflowRuntime.setSessionContinuationMarker!({
           active: true,
           continuationToken,
           key: "unsubscribed",
@@ -347,7 +349,7 @@ describe("workflowEntry integration", () => {
           sessionId: run.runId,
         });
 
-        await workflowRuntime.setContinuationState!({
+        await workflowRuntime.setSessionContinuationMarker!({
           active: false,
           continuationToken,
           key: "unsubscribed",
@@ -358,7 +360,7 @@ describe("workflowEntry integration", () => {
           sessionId: run.runId,
         });
 
-        await workflowRuntime.setContinuationState!({
+        await workflowRuntime.setSessionContinuationMarker!({
           active: true,
           continuationToken,
           key: "unsubscribed",

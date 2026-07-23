@@ -680,7 +680,10 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
     routes: [
       POST<SlackChannelState>(
         config.route ?? SLACK_CHANNEL_DEFAULT_ROUTE,
-        async (req, { cancel, resolveActiveSession, send, setContinuationState, waitUntil }) => {
+        async (
+          req,
+          { cancel, resolveActiveSession, send, setSessionContinuationMarker, waitUntil },
+        ) => {
           const body = await verifyInbound(req, config.credentials);
           if (body === null) return new Response("unauthorized", { status: 401 });
 
@@ -697,7 +700,7 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
             cancel,
             send,
             resolveActiveSession,
-            setContinuationState,
+            setSessionContinuationMarker,
             waitUntil,
             config,
             uploadPolicy,
@@ -818,7 +821,7 @@ async function handleEventPost(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationState:
+  readonly setSessionContinuationMarker:
     | ((options: {
         readonly active: boolean;
         readonly continuationToken: string;
@@ -891,7 +894,7 @@ async function handleEventPost(input: {
             kind,
             message,
             resolveActiveSession: input.resolveActiveSession,
-            setContinuationState: input.setContinuationState,
+            setSessionContinuationMarker: input.setSessionContinuationMarker,
             send: input.send,
             threadContext: config.threadContext,
             uploadPolicy: input.uploadPolicy,
@@ -920,7 +923,7 @@ async function handleEventPost(input: {
             kind: "channel_message",
             message,
             resolveActiveSession: input.resolveActiveSession,
-            setContinuationState: input.setContinuationState,
+            setSessionContinuationMarker: input.setSessionContinuationMarker,
             send: input.send,
             threadContext: config.threadContext,
             uploadPolicy: input.uploadPolicy,
@@ -989,7 +992,7 @@ async function dispatchSlackMessage(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationState:
+  readonly setSessionContinuationMarker:
     | ((options: {
         readonly active: boolean;
         readonly continuationToken: string;
@@ -1026,10 +1029,10 @@ async function dispatchSlackMessage(input: {
     slack,
     thread,
     unsubscribe: async () => {
-      if (input.setContinuationState === undefined) {
+      if (input.setSessionContinuationMarker === undefined) {
         throw new Error("The active runtime does not support Slack thread unsubscribe.");
       }
-      await input.setContinuationState({
+      await input.setSessionContinuationMarker({
         active: true,
         continuationToken,
         key: "unsubscribed",
@@ -1044,10 +1047,10 @@ async function dispatchSlackMessage(input: {
       (await input.resolveActiveSession({ continuationToken })) !== undefined &&
       (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) !== undefined
     ) {
-      if (input.setContinuationState === undefined) {
+      if (input.setSessionContinuationMarker === undefined) {
         throw new Error("The active runtime does not support Slack thread unsubscribe.");
       }
-      await input.setContinuationState({
+      await input.setSessionContinuationMarker({
         active: false,
         continuationToken,
         key: "unsubscribed",

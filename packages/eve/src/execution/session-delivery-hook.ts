@@ -1,7 +1,7 @@
 import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 
 import type {
-  ContinuationStateHookPayload,
+  SessionContinuationMarkerHookPayload,
   DeliverHookPayload,
   HookPayload,
 } from "#channel/types.js";
@@ -50,7 +50,7 @@ export interface SessionDeliveryHookHandle extends SessionDeliveryHook {
  */
 export function createSessionDeliveryHook(
   bufferedDeliveries: DeliverHookPayload[],
-  onContinuationState?: (payload: ContinuationStateHookPayload) => Promise<void>,
+  onSessionContinuationMarker?: (payload: SessionContinuationMarkerHookPayload) => Promise<void>,
 ): SessionDeliveryHookHandle {
   let active: SessionDeliveryHookState | undefined;
   const retired: SessionDeliveryHookState[] = [];
@@ -87,8 +87,8 @@ export function createSessionDeliveryHook(
       : state.iterator.next();
     void next.then(
       (result) => {
-        if (!result.done && result.value.kind === "continuation-state") {
-          void Promise.resolve(onContinuationState?.(result.value)).then(
+        if (!result.done && result.value.kind === "session-continuation-marker") {
+          void Promise.resolve(onSessionContinuationMarker?.(result.value)).then(
             () => {
               state.pending = false;
               arm(state);
