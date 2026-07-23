@@ -118,6 +118,7 @@ async function firePost(
     {
       getSession: vi.fn() as any,
       resolveActiveSession: async () => undefined,
+      setContinuationState: vi.fn(),
       cancel: vi.fn(),
       params: {},
       receive: vi.fn() as any,
@@ -174,6 +175,7 @@ describe("chatSdkChannel", () => {
       {
         getSession: vi.fn() as any,
         resolveActiveSession: async () => undefined,
+        setContinuationState: vi.fn(),
         cancel: vi.fn(),
         params: {},
         receive: vi.fn() as any,

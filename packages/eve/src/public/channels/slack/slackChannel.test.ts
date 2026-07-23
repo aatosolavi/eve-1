@@ -252,13 +252,13 @@ async function firePost(
   overrides: {
     readonly cancel?: ReturnType<typeof vi.fn>;
     readonly resolveActiveSession?: ReturnType<typeof vi.fn>;
-    readonly setContinuationMarker?: ReturnType<typeof vi.fn>;
+    readonly setContinuationState?: ReturnType<typeof vi.fn>;
   } = {},
 ): Promise<{
   cancel: ReturnType<typeof vi.fn>;
   response: Response;
   send: ReturnType<typeof vi.fn>;
-  setContinuationMarker: ReturnType<typeof vi.fn>;
+  setContinuationState: ReturnType<typeof vi.fn>;
   waitUntil: ReturnType<typeof vi.fn>;
 }> {
   const compiled = asCompiled(channel);
@@ -268,8 +268,8 @@ async function firePost(
   }
   const cancel = overrides.cancel ?? vi.fn().mockResolvedValue({ status: "accepted" });
   const send = vi.fn().mockResolvedValue({ id: "s1", continuationToken: "ct" });
-  const setContinuationMarker =
-    overrides.setContinuationMarker ?? vi.fn().mockResolvedValue(undefined);
+  const setContinuationState =
+    overrides.setContinuationState ?? vi.fn().mockResolvedValue(undefined);
   const waitUntil = vi.fn();
 
   const response = await post.handler(request, {
@@ -280,7 +280,7 @@ async function firePost(
       vi.fn(async ({ continuationToken }: { continuationToken: string }) =>
         continuationToken.endsWith(":unsubscribed") ? undefined : { sessionId: "s1" },
       ),
-    setContinuationMarker,
+    setContinuationState,
     waitUntil,
     getSession: vi.fn() as any,
     params: {},
@@ -294,7 +294,7 @@ async function firePost(
     await Promise.allSettled(pending);
   }
 
-  return { cancel, response, send, setContinuationMarker, waitUntil };
+  return { cancel, response, send, setContinuationState, waitUntil };
 }
 
 describe("slackChannel() default event handlers", () => {
@@ -1484,16 +1484,16 @@ describe("slackChannel() onMessage", () => {
       { authorizations: [{ is_bot: true, user_id: "U_BOT" }] },
     );
 
-    const { send, setContinuationMarker } = await firePost(
+    const { send, setContinuationState } = await firePost(
       channel,
       buildSignedRequest({ body: reply }),
     );
 
     expect(send).not.toHaveBeenCalled();
-    expect(setContinuationMarker).toHaveBeenCalledWith({
+    expect(setContinuationState).toHaveBeenCalledWith({
       active: true,
       continuationToken: "C01:1700000000.000100",
-      markerToken: "C01:1700000000.000100:unsubscribed",
+      key: "unsubscribed",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -1503,6 +1503,31 @@ describe("slackChannel() onMessage", () => {
       markdown_text: acknowledgement,
       thread_ts: "1700000000.000100",
     });
+  });
+
+  it("logs and drops a mention when resubscription fails", async () => {
+    const onMessage = vi.fn(() => ({ auth: null }));
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
+      onMessage,
+    });
+    const mention = buildMentionBody({ text: "<@U_BOT> come back" });
+    const failure = new Error("marker removal failed");
+    const resolveActiveSession = vi.fn().mockResolvedValue({ sessionId: "s1" });
+    const setContinuationState = vi.fn().mockRejectedValue(failure);
+
+    const { send } = await firePost(channel, buildSignedRequest({ body: mention.body }), {
+      resolveActiveSession,
+      setContinuationState,
+    });
+
+    expect(setContinuationState).toHaveBeenCalledWith({
+      active: false,
+      continuationToken: "C01:1700000000.000017",
+      key: "unsubscribed",
+    });
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("allows a simple mention-or-subscription policy", async () => {
@@ -2815,7 +2840,7 @@ describe("slackChannel().receive", () => {
     const waitUntil = vi.fn();
     await post.handler(req, {
       send: inboundSend,
-      setContinuationMarker: vi.fn().mockResolvedValue(undefined),
+      setContinuationState: vi.fn().mockResolvedValue(undefined),
       waitUntil,
       getSession: vi.fn() as any,
       receive: vi.fn() as any,

@@ -30,6 +30,7 @@ import {
   createSessionDeliveryHook,
   type SessionDeliveryHook,
 } from "#execution/session-delivery-hook.js";
+import { createSessionContinuationState } from "#execution/session-continuation-state.js";
 import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects
@@ -166,26 +167,10 @@ async function runDriverLoop(input: {
     `${input.sessionState.sessionId}:turn-control:${String(turnDispatchIndex++)}`;
 
   const bufferedDeliveries: DeliverHookPayload[] = [];
-  const markerHooks = new Map<string, ReturnType<typeof createHook<HookPayload>>>();
-  const deliveryHook = createSessionDeliveryHook(bufferedDeliveries, async (payload) => {
-    const existing = markerHooks.get(payload.markerToken);
-    if (!payload.active) {
-      if (existing !== undefined) {
-        await disposeHook(existing);
-        markerHooks.delete(payload.markerToken);
-      }
-      return;
-    }
-    if (existing !== undefined) return;
-
-    const marker = createHook<HookPayload>({ token: payload.markerToken });
-    const conflict = await marker.getConflict();
-    if (conflict !== null && conflict.runId !== input.sessionState.sessionId) {
-      await disposeHook(marker);
-      throw new Error(`Continuation marker "${payload.markerToken}" is owned by another session.`);
-    }
-    markerHooks.set(payload.markerToken, marker);
-  });
+  const continuationState = createSessionContinuationState(input.sessionState.sessionId);
+  const deliveryHook = createSessionDeliveryHook(bufferedDeliveries, (payload) =>
+    continuationState.apply(payload),
+  );
 
   // Control-hook disposal is deferred one turn — see DispatchedTurn.
   let disposeSettledTurnControl: (() => Promise<void>) | undefined;
@@ -320,7 +305,7 @@ async function runDriverLoop(input: {
   } finally {
     await disposeSettledTurnControl?.();
     await deliveryHook.dispose();
-    await Promise.all([...markerHooks.values()].map((marker) => disposeHook(marker)));
+    await continuationState.dispose();
     // Dispose without closing the iterator: a session cancelled while
     // awaiting authorization can leave a durable read in flight, and an
     // async iterator only honors `return()` after that read settles.

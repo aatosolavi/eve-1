@@ -219,6 +219,7 @@ function createNoopRuntime(): Runtime {
     cancelTurn: vi.fn(),
     deliver: vi.fn(),
     resolveSession: vi.fn(),
+    setContinuationState: vi.fn(),
     run: vi.fn().mockRejectedValue(new Error("runtime.run should not be called in this test")),
     getEventStream: vi
       .fn()

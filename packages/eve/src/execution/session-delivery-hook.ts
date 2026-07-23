@@ -1,7 +1,7 @@
 import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 
 import type {
-  ContinuationMarkerHookPayload,
+  ContinuationStateHookPayload,
   DeliverHookPayload,
   HookPayload,
 } from "#channel/types.js";
@@ -21,6 +21,11 @@ interface SessionDeliveryHookState {
   pending: boolean;
   retired: boolean;
   resolved?: HookRead;
+}
+
+interface HookFailure {
+  readonly error: unknown;
+  readonly order: number;
 }
 
 /** Reads and rekeys the public delivery hook for one session driver. */
@@ -45,11 +50,12 @@ export interface SessionDeliveryHookHandle extends SessionDeliveryHook {
  */
 export function createSessionDeliveryHook(
   bufferedDeliveries: DeliverHookPayload[],
-  onMarker?: (payload: ContinuationMarkerHookPayload) => Promise<void>,
+  onContinuationState?: (payload: ContinuationStateHookPayload) => Promise<void>,
 ): SessionDeliveryHookHandle {
   let active: SessionDeliveryHookState | undefined;
   const retired: SessionDeliveryHookState[] = [];
   const ready: HookRead[] = [];
+  const failures: HookFailure[] = [];
   let nextOrder = 0;
   let offered: Promise<IteratorResult<HookPayload>> | null = null;
   let offeredRead: HookRead | undefined;
@@ -80,11 +86,21 @@ export function createSessionDeliveryHook(
         )
       : state.iterator.next();
     void next.then(
-      async (result) => {
-        if (!result.done && result.value.kind === "continuation-marker") {
-          state.pending = false;
-          await onMarker?.(result.value);
-          arm(state);
+      (result) => {
+        if (!result.done && result.value.kind === "continuation-state") {
+          void Promise.resolve(onContinuationState?.(result.value)).then(
+            () => {
+              state.pending = false;
+              arm(state);
+            },
+            (error) => {
+              state.pending = false;
+              failures.push({ error, order: nextOrder++ });
+              failures.sort((left, right) => left.order - right.order);
+              wake?.();
+              wake = undefined;
+            },
+          );
           return;
         }
         const read: HookRead = {
@@ -174,11 +190,14 @@ export function createSessionDeliveryHook(
       }
 
       offered = (async () => {
-        while (ready.length === 0) {
+        while (ready.length === 0 && failures.length === 0) {
           await new Promise<void>((resolve) => {
             wake = resolve;
           });
         }
+
+        const failure = failures.shift();
+        if (failure !== undefined) throw failure.error;
 
         const read = ready.shift()!;
         offeredRead = read;

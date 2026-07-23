@@ -680,10 +680,7 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
     routes: [
       POST<SlackChannelState>(
         config.route ?? SLACK_CHANNEL_DEFAULT_ROUTE,
-        async (req, { cancel, resolveActiveSession, send, setContinuationMarker, waitUntil }) => {
-          if (setContinuationMarker === undefined) {
-            throw new Error("The active runtime does not support continuation markers.");
-          }
+        async (req, { cancel, resolveActiveSession, send, setContinuationState, waitUntil }) => {
           const body = await verifyInbound(req, config.credentials);
           if (body === null) return new Response("unauthorized", { status: 401 });
 
@@ -700,7 +697,7 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
             cancel,
             send,
             resolveActiveSession,
-            setContinuationMarker,
+            setContinuationState,
             waitUntil,
             config,
             uploadPolicy,
@@ -821,10 +818,10 @@ async function handleEventPost(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationMarker: (options: {
+  readonly setContinuationState: (options: {
     readonly active: boolean;
     readonly continuationToken: string;
-    readonly markerToken: string;
+    readonly key: string;
   }) => Promise<void>;
   readonly waitUntil: (task: Promise<unknown>) => void;
   readonly config: SlackChannelConfig;
@@ -892,7 +889,7 @@ async function handleEventPost(input: {
             kind,
             message,
             resolveActiveSession: input.resolveActiveSession,
-            setContinuationMarker: input.setContinuationMarker,
+            setContinuationState: input.setContinuationState,
             send: input.send,
             threadContext: config.threadContext,
             uploadPolicy: input.uploadPolicy,
@@ -921,7 +918,7 @@ async function handleEventPost(input: {
             kind: "channel_message",
             message,
             resolveActiveSession: input.resolveActiveSession,
-            setContinuationMarker: input.setContinuationMarker,
+            setContinuationState: input.setContinuationState,
             send: input.send,
             threadContext: config.threadContext,
             uploadPolicy: input.uploadPolicy,
@@ -990,10 +987,10 @@ async function dispatchSlackMessage(input: {
   readonly resolveActiveSession: (options: {
     readonly continuationToken: string;
   }) => Promise<{ readonly sessionId: string } | undefined>;
-  readonly setContinuationMarker: (options: {
+  readonly setContinuationState: (options: {
     readonly active: boolean;
     readonly continuationToken: string;
-    readonly markerToken: string;
+    readonly key: string;
   }) => Promise<void>;
   readonly send: SendFn<SlackChannelState>;
   readonly threadContext: LoadThreadContextMessagesOptions | undefined;
@@ -1008,7 +1005,7 @@ async function dispatchSlackMessage(input: {
     teamId: input.message.teamId,
   });
   const continuationToken = slackContinuationToken(input.message.channelId, input.message.threadTs);
-  const markerToken = `${continuationToken}:unsubscribed`;
+  const unsubscribeToken = `${continuationToken}:unsubscribed`;
   const isBotMentioned =
     input.kind === "app_mention" ||
     (input.botUserId !== undefined && input.message.text.includes(`<@${input.botUserId}`));
@@ -1021,29 +1018,31 @@ async function dispatchSlackMessage(input: {
     isBotMentioned: () => isBotMentioned,
     isSubscribed: async () =>
       (await input.resolveActiveSession({ continuationToken })) !== undefined &&
-      (await input.resolveActiveSession({ continuationToken: markerToken })) === undefined,
+      (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) === undefined,
     slack,
     thread,
     unsubscribe: async () =>
-      input.setContinuationMarker({
+      input.setContinuationState({
         active: true,
         continuationToken,
-        markerToken,
+        key: "unsubscribed",
       }),
   };
 
-  if (isBotMentioned) {
-    await input
-      .setContinuationMarker({
-        active: false,
-        continuationToken,
-        markerToken,
-      })
-      .catch(() => undefined);
-  }
-
   let result;
   try {
+    if (
+      isBotMentioned &&
+      (await input.resolveActiveSession({ continuationToken })) !== undefined &&
+      (await input.resolveActiveSession({ continuationToken: unsubscribeToken })) !== undefined
+    ) {
+      await input.setContinuationState({
+        active: false,
+        continuationToken,
+        key: "unsubscribed",
+      });
+    }
+
     result = await input.handler(ctx, input.message);
   } catch (error) {
     logError(log, `${input.kind} handler failed`, error, {

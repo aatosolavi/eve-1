@@ -235,6 +235,7 @@ describe("dispatchChannelRequest", () => {
       cancelTurn: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
       resolveSession: vi.fn(),
+      setContinuationState: vi.fn(),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn(),
     };
@@ -282,6 +283,7 @@ describe("dispatchChannelRequest", () => {
       cancelTurn: vi.fn(),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_route" }),
       resolveSession: vi.fn(),
+      setContinuationState: vi.fn(),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn(),
     };
@@ -324,6 +326,7 @@ describe("dispatchChannelRequest", () => {
       cancelTurn: vi.fn().mockResolvedValue({ status: "accepted" }),
       deliver: vi.fn().mockResolvedValue({ sessionId: "sess_deliver" }),
       resolveSession: vi.fn(),
+      setContinuationState: vi.fn(),
       getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
       run: vi.fn().mockResolvedValue({
         continuationToken: "route-token",

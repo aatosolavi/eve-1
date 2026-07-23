@@ -9,7 +9,7 @@ import type { RouteHandlerArgs, WebSocketRouteHooks } from "#channel/routes.js";
 import { createCancelFn } from "#channel/cancel.js";
 import { createSendFn } from "#channel/send.js";
 import { createResolveActiveSessionFn } from "#channel/resolve-active-session.js";
-import { createSetContinuationMarkerFn } from "#channel/continuation-marker.js";
+import { createSetContinuationStateFn } from "#channel/continuation-state.js";
 import { createGetSessionFn } from "#channel/session.js";
 import { createLogger, logError } from "#internal/logging.js";
 import { readTrustedDevelopmentClientAddress } from "#internal/nitro/dev-client-address.js";
@@ -191,7 +191,7 @@ function buildRouteArgs(
   const agent = createRouteAgent(bundle.runtime, requestId);
   const send = createSendFn(bundle.runtime, adapter, channelName, { requestId });
   const resolveActiveSession = createResolveActiveSessionFn(bundle.runtime, channelName);
-  const setContinuationMarker = createSetContinuationMarkerFn(bundle.runtime, channelName);
+  const setContinuationState = createSetContinuationStateFn(bundle.runtime, channelName);
   const cancel = createCancelFn(bundle.runtime, channelName);
   const getSession = createGetSessionFn(bundle.runtime);
   const receive = createCrossChannelReceiveFn(
@@ -204,7 +204,7 @@ function buildRouteArgs(
       {
         send,
         resolveActiveSession,
-        setContinuationMarker,
+        setContinuationState,
         cancel,
         getSession,
         receive,

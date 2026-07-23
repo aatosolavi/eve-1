@@ -221,20 +221,21 @@ export function createWorkflowRuntime(config: {
       }
     },
 
-    async setContinuationMarker(input): Promise<void> {
+    async setContinuationState(input): Promise<void> {
       try {
         await resumeHook(input.continuationToken, {
           active: input.active,
-          kind: "continuation-marker",
-          markerToken: input.markerToken,
+          continuationToken: input.continuationToken,
+          key: input.key,
+          kind: "continuation-state",
         });
       } catch (error) {
         if (HookNotFoundError.is(error)) {
           throw new RuntimeNoActiveSessionError(input.continuationToken);
         }
-        logError(log, "failed to update continuation marker", error, {
+        logError(log, "failed to update continuation state", error, {
           continuationToken: input.continuationToken,
-          markerToken: input.markerToken,
+          key: input.key,
         });
         throw error;
       }

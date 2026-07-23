@@ -9,6 +9,7 @@ function runtime(): Runtime {
     deliver: vi.fn(),
     getEventStream: vi.fn().mockResolvedValue(new ReadableStream()),
     resolveSession: vi.fn(),
+    setContinuationState: vi.fn(),
     run: vi.fn(),
   };
 }

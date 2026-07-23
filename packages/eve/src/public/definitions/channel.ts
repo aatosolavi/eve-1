@@ -36,6 +36,7 @@ export type {
   SendOptions,
   SendPayload,
   ResolveActiveSessionFn,
+  SetContinuationStateFn,
   GetSessionFn,
   WebSocketMessage,
   WebSocketPeer,
