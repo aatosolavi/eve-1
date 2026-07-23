@@ -29,6 +29,19 @@ export {
   type WebPackageVersions,
 } from "./update/channels.js";
 
+export {
+  encodePhotonConnectCredential,
+  parseCreatedPhotonConnector,
+  PHOTON_CONNECT_SERVICE,
+  PHOTON_CONNECTOR_TYPE,
+  PHOTON_TRIGGER_PATH,
+  provisionPhotonConnector,
+  type PhotonConnectorRef,
+  type PhotonProjectCredentials,
+  type ProvisionPhotonConnectorDeps,
+  type ProvisionPhotonConnectorOptions,
+} from "../photon-connect.js";
+
 export { SCAFFOLDABLE_CHANNELS, type ScaffoldableChannel } from "./channels-catalog.js";
 
 export {

@@ -106,6 +106,46 @@ describe("ensureChannel", () => {
     );
   });
 
+  test("writes a Connect-backed Photon iMessage channel", async () => {
+    const projectRoot = await createTempDir();
+    await mkdir(join(projectRoot, "agent"), { recursive: true });
+    await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
+
+    const result = await ensureChannel({
+      projectRoot,
+      kind: "imessage",
+      photonConnectorUid: "spectrum.photon.codes/imessage0",
+      connectPackageVersion: "0.0.0-connect",
+      chatPackageVersion: "0.0.0-chat",
+      chatStateMemoryPackageVersion: "0.0.0-state",
+      photonAdapterPackageVersion: "0.0.0-photon",
+    });
+
+    expect(result.kind).toBe("imessage");
+    expect(result.action).toBe("created");
+    const source = await readFile(join(projectRoot, "agent/channels/imessage.ts"), "utf8");
+    expect(source).toContain('getToken("spectrum.photon.codes/imessage0"');
+    expect(source).toContain("credentials: photonCredentials");
+    const packageJson = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    expect(packageJson.dependencies).toMatchObject({
+      "@chat-adapter/state-memory": "0.0.0-state",
+      "@photon-ai/chat-adapter-imessage": "0.0.0-photon",
+      "@vercel/connect": "0.0.0-connect",
+      chat: "0.0.0-chat",
+    });
+  });
+
+  test("requires a Photon connector UID for iMessage", async () => {
+    const projectRoot = await createTempDir();
+    await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
+
+    await expect(ensureChannel({ projectRoot, kind: "imessage" })).rejects.toThrow(
+      "Photon connector UID is required",
+    );
+  });
+
   test("skips an existing Slack channel unless force is set", async () => {
     const projectRoot = await createTempDir();
     const channelPath = join(projectRoot, "agent/channels/slack.ts");

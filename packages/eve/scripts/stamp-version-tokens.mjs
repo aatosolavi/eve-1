@@ -43,6 +43,11 @@ const replacements = {
   __EVE_PACKAGE_VERSION__: packageJson.version,
   __NODE_ENGINE__: nodeEngine,
   __AI_SDK_VERSION__: await resolveCatalogVersion("ai"),
+  __CHAT_SDK_VERSION__: await resolveCatalogVersion("chat"),
+  __CHAT_SDK_STATE_MEMORY_VERSION__: await resolveCatalogVersion("@chat-adapter/state-memory"),
+  __PHOTON_IMESSAGE_ADAPTER_VERSION__: await resolveCatalogVersion(
+    "@photon-ai/chat-adapter-imessage",
+  ),
   __VERCEL_CONNECT_VERSION__: await resolveCatalogVersion("@vercel/connect"),
   __NEXT_VERSION__: await resolveCatalogVersion("next"),
   __REACT_VERSION__: await resolveCatalogVersion("react"),

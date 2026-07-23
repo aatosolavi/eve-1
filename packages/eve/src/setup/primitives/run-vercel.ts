@@ -50,6 +50,8 @@ export interface RunVercelOptions {
   extraEnv?: Readonly<Record<string, string>>;
   /** Pass `--non-interactive` and close stdin so automation cannot stop on a prompt. */
   nonInteractive?: boolean;
+  /** UTF-8 data written to stdin, used to keep connector secrets out of argv. */
+  stdin?: string;
   /** Streams command output to a parent-owned renderer instead of writing outside it. */
   onOutput?: ProcessOutputHandler;
   /** Aborts the Vercel CLI subprocess when its parent setup flow is interrupted. */
@@ -158,11 +160,21 @@ export function resolveVercelInvocation(
     : { command: localBinary, commandArgs: args };
 }
 
+function stdinMode(options: RunVercelOptions): "inherit" | "ignore" | "pipe" {
+  if (options.stdin !== undefined) return "pipe";
+  return options.nonInteractive ? "ignore" : "inherit";
+}
+
+function writeStdin(child: ChildProcess, input: string | undefined): void {
+  if (input === undefined) return;
+  child.stdin?.end(input, "utf8");
+}
+
 function stdioForRun(
   options: RunVercelOptions,
-): ["inherit" | "ignore", "pipe", "pipe"] | "inherit" {
-  if (options.onOutput) {
-    return [options.nonInteractive ? "ignore" : "inherit", "pipe", "pipe"];
+): ["inherit" | "ignore" | "pipe", "pipe", "pipe"] | "inherit" {
+  if (options.onOutput || options.stdin !== undefined) {
+    return [stdinMode(options), "pipe", "pipe"];
   }
   return options.nonInteractive ? ["ignore", "pipe", "pipe"] : "inherit";
 }
@@ -187,6 +199,7 @@ export async function runVercel(args: string[], options: RunVercelOptions): Prom
       signal: options.signal,
     });
     const disarmAbort = armProcessAbort(child, options.signal);
+    writeStdin(child, options.stdin);
     child.stdout?.on("data", (chunk: Buffer) => outputBuffer?.write("stdout", chunk));
     child.stderr?.on("data", (chunk: Buffer) => outputBuffer?.write("stderr", chunk));
 
@@ -269,16 +282,13 @@ export async function runVercelCaptureStdout(
     const outputBuffer = options.onOutput && createProcessOutputBuffer(options.onOutput);
     const child = spawn(invocation.command, invocation.commandArgs, {
       cwd,
-      stdio: [
-        options.nonInteractive ? "ignore" : "inherit",
-        "pipe",
-        options.onOutput ? "pipe" : "inherit",
-      ],
+      stdio: [stdinMode(options), "pipe", options.onOutput ? "pipe" : "inherit"],
       env: buildSpawnEnv(options.extraEnv ?? {}),
       shell: invocation.shell,
       signal: options.signal,
     });
     const disarmAbort = armProcessAbort(child, options.signal);
+    writeStdin(child, options.stdin);
     const chunks: string[] = [];
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk.toString("utf8")));
     child.stderr?.on("data", (chunk: Buffer) => outputBuffer?.write("stderr", chunk));
@@ -385,12 +395,13 @@ export async function captureVercel(
     const outputBuffer = options.onOutput && createProcessOutputBuffer(options.onOutput);
     const child = spawn(invocation.command, invocation.commandArgs, {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       env: buildSpawnEnv(options.extraEnv ?? {}),
       shell: invocation.shell,
       signal: options.signal,
     });
     const disarmAbort = armProcessAbort(child, options.signal);
+    writeStdin(child, options.stdin);
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk.toString("utf8")));

@@ -25,6 +25,9 @@ export const SLACK_CHANNEL_DEFAULT_ROUTE = "/eve/v1/slack";
 export const DEFAULT_SLACK_CONNECTOR_SLUG = "my-agent";
 
 const DEFAULT_CONNECT_PACKAGE_VERSION = "__VERCEL_CONNECT_VERSION__";
+const DEFAULT_CHAT_PACKAGE_VERSION = "__CHAT_SDK_VERSION__";
+const DEFAULT_CHAT_STATE_MEMORY_PACKAGE_VERSION = "__CHAT_SDK_STATE_MEMORY_VERSION__";
+const DEFAULT_PHOTON_ADAPTER_PACKAGE_VERSION = "__PHOTON_IMESSAGE_ADAPTER_VERSION__";
 const DEFAULT_AI_PACKAGE_VERSION = "__AI_SDK_VERSION__";
 const DEFAULT_NEXT_PACKAGE_VERSION = "__NEXT_VERSION__";
 const DEFAULT_REACT_PACKAGE_VERSION = "__REACT_VERSION__";
@@ -35,6 +38,9 @@ const NEXT_TYPESCRIPT_PACKAGE_VERSION = "6.0.3";
 const DEFAULT_TYPES_REACT_PACKAGE_VERSION = "__TYPES_REACT_VERSION__";
 const DEFAULT_TYPES_REACT_DOM_PACKAGE_VERSION = "__TYPES_REACT_DOM_VERSION__";
 const CONNECT_PACKAGE_NAME = "@vercel/connect";
+const CHAT_PACKAGE_NAME = "chat";
+const CHAT_STATE_MEMORY_PACKAGE_NAME = "@chat-adapter/state-memory";
+const PHOTON_ADAPTER_PACKAGE_NAME = "@photon-ai/chat-adapter-imessage";
 const NEXT_PACKAGE_NAME = "next";
 const PACKAGE_DEPENDENCY_FIELDS = ["dependencies", "devDependencies"] as const;
 const USER_AUTHORED_CHANNEL_DIR = "agent/channels";
@@ -54,7 +60,7 @@ const WEB_COMPETING_NEXT_CONFIG_PATHS = SUPPORTED_NEXT_CONFIG_PATHS.filter(
 
 declare const slackConnectorSlugBrand: unique symbol;
 
-export type ChannelKind = "slack" | "web";
+export type ChannelKind = "imessage" | "slack" | "web";
 export type SlackConnectorSlug = string & { readonly [slackConnectorSlugBrand]: true };
 
 export interface PackageJsonMutation {
@@ -66,7 +72,10 @@ export interface PackageJsonMutation {
 
 export type ChannelMutationAction = "created" | "overwritten" | "skipped";
 
-export type ChannelMutationResult = SlackChannelMutationResult | WebChannelMutationResult;
+export type ChannelMutationResult =
+  | IMessageChannelMutationResult
+  | SlackChannelMutationResult
+  | WebChannelMutationResult;
 
 interface SlackChannelWrittenResult {
   kind: "slack";
@@ -88,6 +97,26 @@ interface SlackChannelSkippedResult {
 }
 
 type SlackChannelMutationResult = SlackChannelWrittenResult | SlackChannelSkippedResult;
+
+interface IMessageChannelWrittenResult {
+  kind: "imessage";
+  action: "created" | "overwritten";
+  filesWritten: [string];
+  filesOverwritten?: [string];
+  filesSkipped: [];
+  packageJsonUpdated: PackageJsonMutation[];
+}
+
+interface IMessageChannelSkippedResult {
+  kind: "imessage";
+  action: "skipped";
+  filesWritten: [];
+  filesOverwritten?: [];
+  filesSkipped: [string];
+  packageJsonUpdated: [];
+}
+
+type IMessageChannelMutationResult = IMessageChannelWrittenResult | IMessageChannelSkippedResult;
 
 interface WebChannelWrittenResult {
   kind: "web";
@@ -379,6 +408,50 @@ export async function deriveSlackConnectorSlug(
   return normalizeSlackConnectorSlug(dir || DEFAULT_SLACK_CONNECTOR_SLUG);
 }
 
+function buildIMessageTemplate(connectorUid: string): string {
+  return `import { createMemoryState } from "@chat-adapter/state-memory";
+import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
+import { getToken } from "@vercel/connect";
+import type { Message, Thread } from "chat";
+import { chatSdkChannel } from "eve/channels/chat-sdk";
+
+async function photonCredentials() {
+  const credential = await getToken(${JSON.stringify(connectorUid)}, {
+    subject: { type: "app" },
+  });
+  const separator = credential.indexOf(":");
+  if (separator < 1) throw new Error("Photon connector returned invalid credentials.");
+  return {
+    projectId: credential.slice(0, separator),
+    projectSecret: credential.slice(separator + 1),
+  };
+}
+
+export const { bot, channel, send } = chatSdkChannel({
+  userName: "eve",
+  adapters: {
+    imessage: createiMessageAdapter({
+      credentials: photonCredentials,
+      webhookSecret: process.env.IMESSAGE_WEBHOOK_SECRET,
+    }),
+  },
+  state: createMemoryState(),
+  streaming: false,
+});
+
+bot.onNewMention(async (thread: Thread, message: Message) => {
+  await thread.subscribe();
+  await send(message.text, { thread });
+});
+
+bot.onSubscribedMessage(async (thread: Thread, message: Message) => {
+  await send(message.text, { thread });
+});
+
+export default channel;
+`;
+}
+
 function buildSlackTemplate(connectorUid: string): string {
   if (!connectorUid.startsWith("slack/") || connectorUid.length === "slack/".length) {
     throw new Error(`Invalid Slack connector UID "${connectorUid}".`);
@@ -450,7 +523,12 @@ export interface EnsureChannelOptions {
   /** Exact UID returned by Vercel Connect; takes precedence over the derived slug. */
   slackConnectorUid?: string;
   slackConnectorSlug?: SlackConnectorSlug;
+  /** Exact Photon API-key connector UID used by the iMessage channel. */
+  photonConnectorUid?: string;
   connectPackageVersion?: string;
+  chatPackageVersion?: string;
+  chatStateMemoryPackageVersion?: string;
+  photonAdapterPackageVersion?: string;
   webPackageVersions?: WebPackageVersions;
   /** When false, Web Chat leaves Vercel Services config unwritten for preview-only scaffolds. */
   configureVercelServices?: boolean;
@@ -471,6 +549,8 @@ export interface WebPackageVersions {
 
 export async function ensureChannel(options: EnsureChannelOptions): Promise<ChannelMutationResult> {
   switch (options.kind) {
+    case "imessage":
+      return ensureIMessageChannel({ ...options, kind: "imessage" });
     case "slack":
       return ensureSlackChannel({ ...options, kind: "slack" });
     case "web":
@@ -570,6 +650,74 @@ async function ensureWebChannel(
   if (packageJsonPatch.nodeEngineOverride !== undefined) {
     result.nodeEngineOverride = packageJsonPatch.nodeEngineOverride;
   }
+  return result;
+}
+
+async function ensureIMessageChannel(
+  options: Omit<EnsureChannelOptions, "kind"> & { kind: "imessage" },
+): Promise<IMessageChannelMutationResult> {
+  const filePath = join(options.projectRoot, "agent/channels/imessage.ts");
+  const fileAlreadyExists = await pathExists(filePath);
+  if (!options.force && fileAlreadyExists) {
+    return {
+      kind: "imessage",
+      action: "skipped",
+      filesWritten: [],
+      filesSkipped: [filePath],
+      packageJsonUpdated: [],
+    };
+  }
+  if (!options.photonConnectorUid) {
+    throw new Error("Photon connector UID is required to scaffold the iMessage channel.");
+  }
+
+  const packageJsonPath = join(options.projectRoot, "package.json");
+  const dependencies = [
+    [
+      CONNECT_PACKAGE_NAME,
+      resolveVersionToken(
+        "connectPackageVersion",
+        options.connectPackageVersion ?? DEFAULT_CONNECT_PACKAGE_VERSION,
+      ),
+    ],
+    [
+      CHAT_PACKAGE_NAME,
+      resolveVersionToken(
+        "chatPackageVersion",
+        options.chatPackageVersion ?? DEFAULT_CHAT_PACKAGE_VERSION,
+      ),
+    ],
+    [
+      CHAT_STATE_MEMORY_PACKAGE_NAME,
+      resolveVersionToken(
+        "chatStateMemoryPackageVersion",
+        options.chatStateMemoryPackageVersion ?? DEFAULT_CHAT_STATE_MEMORY_PACKAGE_VERSION,
+      ),
+    ],
+    [
+      PHOTON_ADAPTER_PACKAGE_NAME,
+      resolveVersionToken(
+        "photonAdapterPackageVersion",
+        options.photonAdapterPackageVersion ?? DEFAULT_PHOTON_ADAPTER_PACKAGE_VERSION,
+      ),
+    ],
+  ] as const;
+  const packageJsonUpdated: PackageJsonMutation[] = [];
+  for (const [name, version] of dependencies) {
+    packageJsonUpdated.push(...(await ensurePackageDependency(packageJsonPath, name, version)));
+  }
+
+  await writeTextFile(filePath, buildIMessageTemplate(options.photonConnectorUid), {
+    force: options.force,
+  });
+  const result: IMessageChannelWrittenResult = {
+    kind: "imessage",
+    action: fileAlreadyExists ? "overwritten" : "created",
+    filesWritten: [filePath],
+    filesSkipped: [],
+    packageJsonUpdated,
+  };
+  if (fileAlreadyExists) result.filesOverwritten = [filePath];
   return result;
 }
 
