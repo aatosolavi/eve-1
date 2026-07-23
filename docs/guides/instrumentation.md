@@ -131,8 +131,6 @@ Structural tags describe each run's place in the tree:
 - `$eve.title`: truncated title derived from the first user message
 - `$eve.user_id`: stable id of the authenticated user who started a top-level session (session runs only)
 
-User tags are omitted for non-user principals and unauthenticated sessions. eve never copies arbitrary auth attributes or claims into workflow tags. Some provider identifiers are personal data, so account for them in observability access and retention policies.
-
 Per-turn usage tags are written on each step of a turn, accumulating cumulative totals (last write wins):
 
 - `$eve.model`: model id for the turn
