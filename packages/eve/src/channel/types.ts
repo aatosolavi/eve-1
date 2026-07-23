@@ -137,6 +137,13 @@ export interface DeliverHookPayload {
   readonly payloads: readonly DeliverPayload[];
 }
 
+/** Adds or removes a workflow-owned marker for an active continuation. */
+export interface ContinuationMarkerHookPayload {
+  readonly active: boolean;
+  readonly kind: "continuation-marker";
+  readonly markerToken: string;
+}
+
 /**
  * Runtime-action results resumed back into a parked parent workflow.
  */
@@ -199,6 +206,7 @@ export interface SubagentAuthorizationEventHookPayload {
  * Serializable payload sent through the workflow `resumeHook`.
  */
 export type HookPayload =
+  | ContinuationMarkerHookPayload
   | DeliverHookPayload
   | RuntimeActionResultHookPayload
   | SubagentAuthorizationEventHookPayload
@@ -394,6 +402,13 @@ export interface Runtime {
    * owns the token.
    */
   resolveSession(continuationToken: string): Promise<{ sessionId: string } | undefined>;
+
+  /** Adds or removes a workflow-owned marker on an active continuation. */
+  setContinuationMarker?(input: {
+    readonly active: boolean;
+    readonly continuationToken: string;
+    readonly markerToken: string;
+  }): Promise<void>;
 
   /**
    * Returns a readable stream of lifecycle events for an existing session.

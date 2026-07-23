@@ -1,6 +1,10 @@
 import { createHook, type Hook } from "#compiled/@workflow/core/index.js";
 
-import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
+import type {
+  ContinuationMarkerHookPayload,
+  DeliverHookPayload,
+  HookPayload,
+} from "#channel/types.js";
 import { claimHookOwnership, disposeHook } from "#execution/hook-ownership.js";
 
 interface HookRead {
@@ -41,6 +45,7 @@ export interface SessionDeliveryHookHandle extends SessionDeliveryHook {
  */
 export function createSessionDeliveryHook(
   bufferedDeliveries: DeliverHookPayload[],
+  onMarker?: (payload: ContinuationMarkerHookPayload) => Promise<void>,
 ): SessionDeliveryHookHandle {
   let active: SessionDeliveryHookState | undefined;
   const retired: SessionDeliveryHookState[] = [];
@@ -75,7 +80,13 @@ export function createSessionDeliveryHook(
         )
       : state.iterator.next();
     void next.then(
-      (result) => {
+      async (result) => {
+        if (!result.done && result.value.kind === "continuation-marker") {
+          state.pending = false;
+          await onMarker?.(result.value);
+          arm(state);
+          return;
+        }
         const read: HookRead = {
           order: nextOrder++,
           result,

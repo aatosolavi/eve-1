@@ -66,6 +66,36 @@ describe("createSessionDeliveryHook", () => {
     ]);
   });
 
+  it("handles continuation markers without exposing them as deliveries", async () => {
+    const onMarker = vi.fn(async () => undefined);
+    const hook = createMockHook({
+      reads: [
+        Promise.resolve({
+          done: false,
+          value: {
+            active: true,
+            kind: "continuation-marker",
+            markerToken: "slack:C1:T1:unsubscribed",
+          },
+        }),
+        Promise.resolve(delivery("next")),
+      ],
+      token: "active",
+    });
+    installHooks(hook);
+    const deliveryHook = createSessionDeliveryHook([], onMarker);
+
+    await deliveryHook.rekey("active");
+    await expect(deliveryHook.next()).resolves.toEqual(delivery("next"));
+    deliveryHook.consumeNext();
+
+    expect(onMarker).toHaveBeenCalledWith({
+      active: true,
+      kind: "continuation-marker",
+      markerToken: "slack:C1:T1:unsubscribed",
+    });
+  });
+
   it("disposes a conflicting candidate without releasing the active hook", async () => {
     const oldHook = createMockHook({ token: "old" });
     const candidateHook = createMockHook({
