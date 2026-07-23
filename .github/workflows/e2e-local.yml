@@ -77,6 +77,7 @@ jobs:
     env:
       AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       EVE_E2E_MODEL: ${{ matrix.model.id }}
+      EVE_E2E_FIXTURE_DIR: ${{ matrix.fixture.dir }}
       EVE_EVAL_JUNIT_DIR: ${{ github.workspace }}/.junit
 
     steps:
@@ -111,12 +112,15 @@ jobs:
         if: needs.changes.outputs.relevant == 'true'
         # Extension fixtures ship no committed `dist/`; produce it here so
         # consuming fixtures resolve the built artifacts. `--if-present` skips
-        # extension fixtures without a build script. The update re-packs the
-        # `file:`-protocol store copies so they pick up the fresh dist —
-        # a plain reinstall short-circuits and leaves them stale.
+        # extension fixtures without a build script.
+        run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
+
+      - name: Pack extensions with pnpm and install them with npm
+        if: needs.changes.outputs.relevant == 'true' && matrix.fixture.name == 'dist-extensions'
         run: |
-          pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
-          pnpm --filter dist-extensions update gizmo-extension gadget-extension
+          consumer_root="$RUNNER_TEMP/dist-extensions-npm-consumer"
+          bash e2e/fixtures/dist-extensions/prepare-npm-consumer.sh "$consumer_root"
+          echo "EVE_E2E_FIXTURE_DIR=$consumer_root" >> "$GITHUB_ENV"
 
       - name: Stage workspace extension fixtures as dist-only
         if: needs.changes.outputs.relevant == 'true'
@@ -131,7 +135,7 @@ jobs:
         if: needs.changes.outputs.relevant == 'true'
         run: |
           mkdir -p "$EVE_EVAL_JUNIT_DIR"
-          cd "${{ matrix.fixture.dir }}"
+          cd "$EVE_E2E_FIXTURE_DIR"
           pnpm exec eve eval --strict --verbose \
             --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}.xml"
 
@@ -144,6 +148,7 @@ jobs:
             .junit
             e2e/fixtures/*/.eve/evals
             apps/fixtures/*/.eve/evals
+            ${{ runner.temp }}/dist-extensions-npm-consumer/.eve/evals
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

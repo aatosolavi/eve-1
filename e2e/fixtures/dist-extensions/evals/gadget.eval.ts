@@ -2,7 +2,7 @@ import { defineEval } from "eve/evals";
 
 export default defineEval({
   description:
-    "An agent-shaped dist extension with a registry-style store layout loads and its tool runs.",
+    "A pnpm-packed extension installed with npm loads from dist and its dependency-backed tool runs.",
   async test(t) {
     await t.send("Call `gadget__gadget_echo` with message 'eve'. Report the output.");
 

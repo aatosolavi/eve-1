@@ -76,11 +76,13 @@ jobs:
 
     env:
       EVE_E2E_MODEL: ${{ matrix.model.id }}
+      EVE_E2E_FIXTURE_DIR: ${{ matrix.fixture.dir }}
       EVE_EVAL_JUNIT_DIR: ${{ github.workspace }}/.junit
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_USE_EXPERIMENTAL_FRAMEWORKS: "1"
+      VERCEL_CLI: ${{ github.workspace }}/node_modules/.bin/vc
 
     steps:
       - name: Checkout code
@@ -114,12 +116,15 @@ jobs:
         if: needs.changes.outputs.relevant == 'true'
         # Extension fixtures ship no committed `dist/`; produce it here so
         # consuming fixtures resolve the built artifacts. `--if-present` skips
-        # extension fixtures without a build script. The update re-packs the
-        # `file:`-protocol store copies so they pick up the fresh dist —
-        # a plain reinstall short-circuits and leaves them stale.
+        # extension fixtures without a build script.
+        run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
+
+      - name: Pack extensions with pnpm and install them with npm
+        if: needs.changes.outputs.relevant == 'true' && matrix.fixture.name == 'dist-extensions'
         run: |
-          pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
-          pnpm --filter dist-extensions update gizmo-extension gadget-extension
+          consumer_root="$RUNNER_TEMP/dist-extensions-npm-consumer"
+          bash e2e/fixtures/dist-extensions/prepare-npm-consumer.sh "$consumer_root"
+          echo "EVE_E2E_FIXTURE_DIR=$consumer_root" >> "$GITHUB_ENV"
 
       - name: Stage workspace extension fixtures as dist-only
         if: needs.changes.outputs.relevant == 'true'
@@ -137,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$EVE_EVAL_JUNIT_DIR"
-          cd "${{ matrix.fixture.dir }}"
+          cd "$EVE_E2E_FIXTURE_DIR"
 
           token_args=()
           if [ -n "${VERCEL_TOKEN:-}" ]; then
@@ -150,8 +155,8 @@ jobs:
             scope_args=(--scope "$VERCEL_ORG_ID")
           fi
 
-          pnpm exec vc link --yes --project "$VERCEL_PROJECT_ID" "${team_args[@]}" "${token_args[@]}"
-          pnpm exec vc env pull --yes --environment=preview "${token_args[@]}"
+          "$VERCEL_CLI" link --yes --project "$VERCEL_PROJECT_ID" "${team_args[@]}" "${token_args[@]}"
+          "$VERCEL_CLI" env pull --yes --environment=preview "${token_args[@]}"
           # Sandbox templates key on VERCEL_PROJECT_ID (present at build and
           # runtime). Do not add VERCEL_TEAM_ID: it does not exist at runtime,
           # so the deployed function could not resolve a team-scoped template.
@@ -160,7 +165,7 @@ jobs:
             VERCEL_TARGET_ENV=preview \
             VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             pnpm exec eve build --profile "$EVE_BUILD_PROFILE"
-          DEPLOYMENT_URL="$(pnpm exec vc deploy --prebuilt --yes --target=preview \
+          DEPLOYMENT_URL="$("$VERCEL_CLI" deploy --prebuilt --yes --target=preview \
             --env "EVE_E2E_MODEL=$EVE_E2E_MODEL" "${token_args[@]}" | tail -n 1)"
 
           npx eve eval --strict --verbose --url "$DEPLOYMENT_URL" \
@@ -175,7 +180,7 @@ jobs:
             ALIAS="eve-e2e-${{ matrix.fixture.name }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ strategy.job-index }}.vercel.app"
             # vc alias does not infer the team from the project link the way
             # link/deploy do, so pass the scope explicitly.
-            pnpm exec vc alias set "$DEPLOYMENT_URL" "$ALIAS" "${token_args[@]}" "${scope_args[@]}"
+            "$VERCEL_CLI" alias set "$DEPLOYMENT_URL" "$ALIAS" "${token_args[@]}" "${scope_args[@]}"
             EVE_E2E_REDEPLOY_ALIAS="$ALIAS" \
               npx eve eval --tag redeploy --strict --verbose \
               --url "https://$ALIAS" \
@@ -204,6 +209,7 @@ jobs:
             .junit
             e2e/fixtures/*/.eve/evals
             apps/fixtures/*/.eve/evals
+            ${{ runner.temp }}/dist-extensions-npm-consumer/.eve/evals
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
