@@ -546,6 +546,9 @@ describe("application Nitro creation", () => {
 
     for (const call of createNitroMock.mock.calls.slice(0, 3)) {
       const traceDeps = call[0].traceDeps;
+      expect(call[0].traceOpts).toEqual({
+        nft: { readFile: expect.any(Function) },
+      });
       expect(traceDeps).toEqual(
         expect.arrayContaining(["@napi-rs/keyring", "sharp", "fixture-external"]),
       );
