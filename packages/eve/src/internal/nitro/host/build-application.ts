@@ -31,6 +31,7 @@ import { createProductionApplicationNitro } from "#internal/nitro/host/create-ap
 import { emitVercelAgentSummary } from "#internal/nitro/host/build-vercel-agent-summary.js";
 import { tryReadExtensionBuildConfig } from "#internal/nitro/host/build-extension.js";
 import { copyHostMiddlewareFunctions } from "#internal/nitro/host/copy-host-middleware.js";
+import { normalizeVercelServiceCrons } from "#internal/nitro/host/normalize-vercel-service-crons.js";
 import { prepareProductionApplicationHost } from "#internal/nitro/host/prepare-application-host.js";
 import { runVercelBuildPrewarm } from "#internal/nitro/host/vercel-build-prewarm.js";
 import type {
@@ -545,6 +546,12 @@ async function buildApplicationInWorkspace(
     }
     const vercelServiceOutput = options.vercelServiceOutput;
     if (vercelServiceOutput !== undefined) {
+      await measureBuildPhase(profiler, "vercel.service-crons.normalize", () =>
+        normalizeVercelServiceCrons({
+          publicRoutePrefix: options.publicRoutePrefix,
+          serviceOutputDirectory: workspace.publication.output.stagedDir,
+        }),
+      );
       await measureBuildPhase(profiler, "vercel.host-middleware.copy", () =>
         copyHostMiddlewareFunctions({
           hostOutputDirectory: vercelServiceOutput.hostOutputDirectory,
