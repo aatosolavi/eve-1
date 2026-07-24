@@ -7,6 +7,8 @@ import {
   trace,
 } from "#compiled/@opentelemetry/api/index.js";
 
+type TelemetryEvent<TKey extends keyof Telemetry> = Parameters<NonNullable<Telemetry[TKey]>>[0];
+
 /**
  * An eve-owned AI SDK `Telemetry` implementation that emits GenAI semantic
  * convention spans directly, replacing `@ai-sdk/otel`'s `OpenTelemetry`.
@@ -124,7 +126,7 @@ function normalizeProviderName(provider: string): string {
   return provider;
 }
 
-class EveOtelBridge {
+class EveOtelBridge implements Telemetry {
   readonly #tracer = trace.getTracer("eve");
   readonly #callStates = new Map<string, CallState>();
 
@@ -157,7 +159,7 @@ class EveOtelBridge {
     return otelContext.with(toolState.context, options.execute);
   }
 
-  onStart(event: unknown): void {
+  onStart(event: TelemetryEvent<"onStart">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const operationId = readString(event, "operationId") ?? "ai.streamText";
@@ -181,6 +183,18 @@ class EveOtelBridge {
 
     if (functionId !== undefined) {
       attributes["gen_ai.agent.name"] = functionId;
+    }
+
+    // Stamp eve.* runtime context attributes so the LocalSpanProcessor can
+    // group spans by session id. The AI SDK passes these via the
+    // runtimeContext field on the telemetry event.
+    const runtimeContext = readObject(event, "runtimeContext");
+    if (runtimeContext !== undefined) {
+      for (const [key, value] of Object.entries(runtimeContext)) {
+        if (value !== undefined && value !== null) {
+          attributes[`ai.settings.context.${key}`] = value;
+        }
+      }
     }
 
     const temp = readNumber(event, "temperature");
@@ -229,20 +243,20 @@ class EveOtelBridge {
     });
   }
 
-  onStepStart(): void {
+  onStepStart(_event: TelemetryEvent<"onStepStart">): void {
     // Intentionally a no-op — eve's bridge does not create the intermediate
     // `step {n}` span. Chat and tool spans nest directly under invoke_agent.
   }
 
-  onStepEnd(): void {
+  onStepEnd(_event: TelemetryEvent<"onStepEnd">): void {
     // No-op — see onStepStart.
   }
 
-  onStepFinish(): void {
+  onStepFinish(_event: TelemetryEvent<"onStepFinish">): void {
     // Deprecated alias for onStepEnd.
   }
 
-  onLanguageModelCallStart(event: unknown): void {
+  onLanguageModelCallStart(event: TelemetryEvent<"onLanguageModelCallStart">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -299,7 +313,7 @@ class EveOtelBridge {
     state.inferenceContext = trace.setSpan(state.rootContext, span);
   }
 
-  onLanguageModelCallEnd(event: unknown): void {
+  onLanguageModelCallEnd(event: TelemetryEvent<"onLanguageModelCallEnd">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -354,7 +368,7 @@ class EveOtelBridge {
     state.inferenceContext = undefined;
   }
 
-  onToolExecutionStart(event: unknown): void {
+  onToolExecutionStart(event: TelemetryEvent<"onToolExecutionStart">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -390,7 +404,7 @@ class EveOtelBridge {
     state.toolSpans.set(toolCallId, { span, context: ctx });
   }
 
-  onToolExecutionEnd(event: unknown): void {
+  onToolExecutionEnd(event: TelemetryEvent<"onToolExecutionEnd">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -425,7 +439,7 @@ class EveOtelBridge {
     state.toolSpans.delete(toolCallId);
   }
 
-  onEnd(event: unknown): void {
+  onEnd(event: TelemetryEvent<"onEnd">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -461,7 +475,7 @@ class EveOtelBridge {
     this.#cleanupCallState(callId);
   }
 
-  onAbort(event: unknown): void {
+  onAbort(event: TelemetryEvent<"onAbort">): void {
     const callId = readString(event, "callId");
     if (callId === undefined) return;
     const state = this.#getCallState(callId);
@@ -504,10 +518,9 @@ class EveOtelBridge {
 
 /**
  * Creates the eve-owned telemetry bridge that replaces `@ai-sdk/otel`.
- * The `unknown` event params are contravariantly compatible with the AI
- * SDK's specific event types (a function accepting `unknown` accepts any
- * argument the caller provides).
+ * Event parameter types are derived directly from AI SDK's `Telemetry`
+ * contract so changes to that contract fail at compile time.
  */
 export function createEveOtelBridge(): Telemetry {
-  return new EveOtelBridge() as Telemetry;
+  return new EveOtelBridge();
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { context as otelContext, trace } from "#compiled/@opentelemetry/api/index.js";
+import { createEveOtelBridge } from "#harness/eve-otel-bridge.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
 import {
   registerLocalDevTracing,
@@ -75,5 +76,56 @@ describe("registerLocalDevTracing", () => {
     expect(summary.sessionId).toBe("sess-xyz");
     expect(summary.inputTokens).toBe(150);
     expect(summary.outputTokens).toBe(60);
+  });
+
+  it("keeps AI SDK bridge spans in the session-keyed run", async () => {
+    const tracer = trace.getTracer("eve");
+    const session = tracer.startSpan("ai.eve.session", {
+      attributes: { "eve.session.id": "sess-bridge" },
+    });
+    const sessionContext = trace.setSpan(otelContext.active(), session);
+
+    let turn: ReturnType<typeof tracer.startSpan> | undefined;
+    otelContext.with(sessionContext, () => {
+      turn = tracer.startSpan("ai.eve.turn", {
+        attributes: { "eve.session.id": "sess-bridge" },
+      });
+    });
+    const turnContext = trace.setSpan(sessionContext, turn!);
+    const bridge = createEveOtelBridge();
+
+    otelContext.with(turnContext, () => {
+      Reflect.apply(bridge.onStart!, bridge, [
+        {
+          callId: "call-bridge",
+          operationId: "ai.streamText",
+          provider: "anthropic",
+          modelId: "claude-test",
+          runtimeContext: { "eve.session.id": "sess-bridge" },
+        },
+      ]);
+      Reflect.apply(bridge.onEnd!, bridge, [
+        {
+          callId: "call-bridge",
+          finishReason: "stop",
+          usage: { inputTokens: 10, outputTokens: 5 },
+        },
+      ]);
+    });
+
+    turn!.end();
+    session.end();
+    await handle.flush();
+
+    const spans = await handle.store.read("sess-bridge");
+    expect(spans).toBeDefined();
+    const turnSpan = spans!.find((span) => span.name === "ai.eve.turn")!;
+    const invokeSpan = spans!.find((span) => span.name === "invoke_agent claude-test")!;
+    expect(invokeSpan.parentSpanId).toBe(turnSpan.spanId);
+    expect(invokeSpan.traceId).toBe(turnSpan.traceId);
+
+    // Without eve.session.id from runtimeContext, the processor would create
+    // a second run keyed by the underlying OTel trace id.
+    expect(await handle.store.read(invokeSpan.traceId)).toBeUndefined();
   });
 });
