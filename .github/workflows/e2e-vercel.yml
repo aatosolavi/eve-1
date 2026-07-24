@@ -76,7 +76,8 @@ jobs:
 
     env:
       EVE_E2E_MODEL: ${{ matrix.model.id }}
-      EVE_E2E_FIXTURE_DIR: ${{ matrix.fixture.dir }}
+      EVE_E2E_FIXTURE_DIR: ${{ github.workspace }}/${{ matrix.fixture.dir }}
+      EVE_E2E_ADDITIONAL_FIXTURE_DIR: ""
       EVE_EVAL_JUNIT_DIR: ${{ github.workspace }}/.junit
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -119,12 +120,13 @@ jobs:
         # extension fixtures without a build script.
         run: pnpm --filter "./e2e/fixtures/*-extension" run --if-present build
 
-      - name: Pack extensions with pnpm and install them with npm
+      - name: Cross-publish and install extensions with pnpm and npm
         if: needs.changes.outputs.relevant == 'true' && matrix.fixture.name == 'dist-extensions'
         run: |
-          consumer_root="$RUNNER_TEMP/dist-extensions-npm-consumer"
-          bash e2e/fixtures/dist-extensions/prepare-npm-consumer.sh "$consumer_root"
-          echo "EVE_E2E_FIXTURE_DIR=$consumer_root" >> "$GITHUB_ENV"
+          output_root="$RUNNER_TEMP/dist-extensions-publish"
+          bash e2e/fixtures/dist-extensions/prepare-publish-consumers.sh "$output_root"
+          echo "EVE_E2E_FIXTURE_DIR=$output_root/pnpm-publish-npm-install" >> "$GITHUB_ENV"
+          echo "EVE_E2E_ADDITIONAL_FIXTURE_DIR=$output_root/npm-publish-pnpm-install" >> "$GITHUB_ENV"
 
       - name: Stage workspace extension fixtures as dist-only
         if: needs.changes.outputs.relevant == 'true'
@@ -142,7 +144,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$EVE_EVAL_JUNIT_DIR"
-          cd "$EVE_E2E_FIXTURE_DIR"
 
           token_args=()
           if [ -n "${VERCEL_TOKEN:-}" ]; then
@@ -155,37 +156,51 @@ jobs:
             scope_args=(--scope "$VERCEL_ORG_ID")
           fi
 
-          "$VERCEL_CLI" link --yes --project "$VERCEL_PROJECT_ID" "${team_args[@]}" "${token_args[@]}"
-          "$VERCEL_CLI" env pull --yes --environment=preview "${token_args[@]}"
-          # Sandbox templates key on VERCEL_PROJECT_ID (present at build and
-          # runtime). Do not add VERCEL_TEAM_ID: it does not exist at runtime,
-          # so the deployed function could not resolve a team-scoped template.
-          VERCEL=1 \
-            VERCEL_ENV=preview \
-            VERCEL_TARGET_ENV=preview \
-            VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-            pnpm exec eve build --profile "$EVE_BUILD_PROFILE"
-          DEPLOYMENT_URL="$("$VERCEL_CLI" deploy --prebuilt --yes --target=preview \
-            --env "EVE_E2E_MODEL=$EVE_E2E_MODEL" "${token_args[@]}" | tail -n 1)"
-
-          npx eve eval --strict --verbose --url "$DEPLOYMENT_URL" \
-            --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}.xml"
-
-          # Redeploy-tagged evals rebuild and redeploy the fixture from inside
-          # the eval body, repointing a run-scoped alias at each new
-          # deployment. They run against the alias (immutable deployment URLs
-          # never change what they serve) and are skipped in the main suite
-          # above because EVE_E2E_REDEPLOY_ALIAS is unset there.
-          if npx eve eval --tag redeploy --list >/dev/null 2>&1; then
-            ALIAS="eve-e2e-${{ matrix.fixture.name }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ strategy.job-index }}.vercel.app"
-            # vc alias does not infer the team from the project link the way
-            # link/deploy do, so pass the scope explicitly.
-            "$VERCEL_CLI" alias set "$DEPLOYMENT_URL" "$ALIAS" "${token_args[@]}" "${scope_args[@]}"
-            EVE_E2E_REDEPLOY_ALIAS="$ALIAS" \
-              npx eve eval --tag redeploy --strict --verbose \
-              --url "https://$ALIAS" \
-              --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-redeploy.xml"
+          fixture_dirs=("$EVE_E2E_FIXTURE_DIR")
+          if [ -n "$EVE_E2E_ADDITIONAL_FIXTURE_DIR" ]; then
+            fixture_dirs+=("$EVE_E2E_ADDITIONAL_FIXTURE_DIR")
           fi
+          for fixture_index in "${!fixture_dirs[@]}"; do
+            fixture_dir="${fixture_dirs[$fixture_index]}"
+            fixture_label="$(basename "$fixture_dir")"
+            profile_path="$EVE_BUILD_PROFILE"
+            if [ "$fixture_index" -gt 0 ]; then
+              profile_path="${EVE_BUILD_PROFILE%.json}-$fixture_label.json"
+            fi
+            cd "$fixture_dir"
+
+            "$VERCEL_CLI" link --yes --project "$VERCEL_PROJECT_ID" "${team_args[@]}" "${token_args[@]}"
+            "$VERCEL_CLI" env pull --yes --environment=preview "${token_args[@]}"
+            # Sandbox templates key on VERCEL_PROJECT_ID (present at build and
+            # runtime). Do not add VERCEL_TEAM_ID: it does not exist at runtime,
+            # so the deployed function could not resolve a team-scoped template.
+            VERCEL=1 \
+              VERCEL_ENV=preview \
+              VERCEL_TARGET_ENV=preview \
+              VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+              pnpm exec eve build --profile "$profile_path"
+            DEPLOYMENT_URL="$("$VERCEL_CLI" deploy --prebuilt --yes --target=preview \
+              --env "EVE_E2E_MODEL=$EVE_E2E_MODEL" "${token_args[@]}" | tail -n 1)"
+
+            npx eve eval --strict --verbose --url "$DEPLOYMENT_URL" \
+              --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-$fixture_label.xml"
+
+            # Redeploy-tagged evals rebuild and redeploy the fixture from inside
+            # the eval body, repointing a run-scoped alias at each new
+            # deployment. They run against the alias (immutable deployment URLs
+            # never change what they serve) and are skipped in the main suite
+            # above because EVE_E2E_REDEPLOY_ALIAS is unset there.
+            if npx eve eval --tag redeploy --list >/dev/null 2>&1; then
+              ALIAS="eve-e2e-${{ matrix.fixture.name }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ strategy.job-index }}.vercel.app"
+              # vc alias does not infer the team from the project link the way
+              # link/deploy do, so pass the scope explicitly.
+              "$VERCEL_CLI" alias set "$DEPLOYMENT_URL" "$ALIAS" "${token_args[@]}" "${scope_args[@]}"
+              EVE_E2E_REDEPLOY_ALIAS="$ALIAS" \
+                npx eve eval --tag redeploy --strict --verbose \
+                --url "https://$ALIAS" \
+                --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-redeploy.xml"
+            fi
+          done
 
       - name: Log deployable build timing
         if: needs.changes.outputs.relevant == 'true'
@@ -209,7 +224,7 @@ jobs:
             .junit
             e2e/fixtures/*/.eve/evals
             apps/fixtures/*/.eve/evals
-            ${{ runner.temp }}/dist-extensions-npm-consumer/.eve/evals
+            ${{ runner.temp }}/dist-extensions-publish/*/.eve/evals
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

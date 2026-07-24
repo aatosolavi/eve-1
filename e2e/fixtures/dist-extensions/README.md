@@ -1,17 +1,21 @@
 # dist-extensions
 
-Proves extensions packaged with pnpm can be installed with npm and run by a
-consuming eve agent.
+Proves extension packages work across npm-compatible package managers in both
+directions:
 
-The e2e workflows build `eve`, `gizmo-extension`, and `gadget-extension`, then
-run `prepare-npm-consumer.sh`. The script packages all three with `pnpm pack`,
-which produces the artifact `pnpm publish` would upload, and installs those
-tarballs into an isolated consumer with `npm install`. The fixture evals run
-from that consumer rather than the pnpm workspace.
+- `gadget-extension`: `pnpm publish` → `npm install`
+- `gizmo-extension`: `npm publish` → `pnpm install`
 
-This exercises the published package entrypoints and agent-shaped
-`dist/extension` trees with npm's physical `node_modules` layout. No extension
-author source or pnpm workspace link is available to the consuming agent.
+The e2e workflows build the packages, then run
+`prepare-publish-consumers.sh`. The script starts a loopback-only Verdaccio
+registry, publishes each extension with its assigned package manager, and
+installs it into an isolated consumer with the other package manager. Each
+consumer gets only one extension and runs that extension's eval.
+
+This exercises both npm's physical `node_modules` layout and pnpm's virtual
+store layout using the published package entrypoints and agent-shaped
+`dist/extension` trees. No extension author source or workspace link is
+available to either consuming agent.
 
 The checked-in `file:` dependencies keep the fixture usable during ordinary
 workspace development, but CI replaces that installation before running its

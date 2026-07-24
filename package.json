@@ -48,6 +48,7 @@
     "turbo": "2.9.18",
     "typescript": "catalog:",
     "vercel": "54.14.2",
+    "verdaccio": "6.8.0",
     "vitest": "catalog:"
   },
   "simple-git-hooks": {

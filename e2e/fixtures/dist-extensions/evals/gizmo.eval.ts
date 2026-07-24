@@ -1,8 +1,7 @@
 import { defineEval } from "eve/evals";
 
 export default defineEval({
-  description:
-    "A pnpm-packed extension installed with npm mounts in eve and its dist-only tool runs.",
+  description: "An extension published with npm and installed with pnpm mounts in eve and runs.",
   async test(t) {
     await t.send("Call `gizmo__gizmo_search` with query 'eve'. Report the output.");
 
