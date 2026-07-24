@@ -1,4 +1,4 @@
 {
   "title": "Tools",
-  "pages": ["overview", "human-in-the-loop"]
+  "pages": ["overview", "human-in-the-loop", "authorization"]
 }

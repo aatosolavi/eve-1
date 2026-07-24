@@ -35,6 +35,15 @@ export {
   type MatchedToolResult,
   type ToolResultFromFn,
 } from "#public/tool-result-narrowing.js";
+export {
+  type AuthorizationChallenge,
+  type AuthorizationResult,
+  type AuthorizationSignal,
+  getAuthorizationResult,
+  getHookUrl,
+  isAuthorizationSignal,
+  requestAuthorization,
+} from "#harness/authorization.js";
 export { type DefineBashToolInput, defineBashTool } from "#public/tools/define-bash-tool.js";
 export { type DefineGlobToolInput, defineGlobTool } from "#public/tools/define-glob-tool.js";
 export { type DefineGrepToolInput, defineGrepTool } from "#public/tools/define-grep-tool.js";
