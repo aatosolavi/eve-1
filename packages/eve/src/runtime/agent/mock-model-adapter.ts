@@ -207,6 +207,7 @@ function createSkillLoadResult(
 
 const SUBAGENT_TOOL_NAME = "agent";
 const SUBAGENT_DELEGATION_DIRECTIVE = /\bdelegate\s+to\s+a\s+subagent\s*:\s*(.+)$/iu;
+const BACKGROUND_DELEGATION_DIRECTIVE = /\bdelegate\s+to\s+a\s+background\s+subagent\s*:\s*(.+)$/iu;
 const PARALLEL_AUTHORED_TOOLS_DIRECTIVE = /^call tools in parallel:\s*(.+)$/imu;
 
 function createParallelAuthoredToolCallsResult(
@@ -270,7 +271,8 @@ function createSubagentDelegationResult(
     return null;
   }
 
-  const directive = SUBAGENT_DELEGATION_DIRECTIVE.exec(lastUserMessage);
+  const backgroundDirective = BACKGROUND_DELEGATION_DIRECTIVE.exec(lastUserMessage);
+  const directive = backgroundDirective ?? SUBAGENT_DELEGATION_DIRECTIVE.exec(lastUserMessage);
 
   if (directive?.[1] === undefined) {
     return null;
@@ -282,7 +284,10 @@ function createSubagentDelegationResult(
     return null;
   }
 
-  const toolInput = { message: directive[1].trim() };
+  const toolInput =
+    backgroundDirective === null
+      ? { message: directive[1].trim() }
+      : { message: directive[1].trim(), task: {} };
 
   return createToolCallGenerateResult({
     input: toolInput,

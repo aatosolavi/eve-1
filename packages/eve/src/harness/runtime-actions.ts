@@ -3,6 +3,8 @@ import type { ModelMessage, ToolSet, TypedToolCall } from "ai";
 import { createActionResultEvent, type HandleMessageStreamEvent } from "#protocol/message.js";
 import { getRuntimeActionRequestKey, getRuntimeActionResultKey } from "#runtime/actions/keys.js";
 import type { RuntimeActionRequest, RuntimeActionResult } from "#runtime/actions/types.js";
+import { taskElectionSchema, type TaskElection } from "#runtime/tasks/election.js";
+import { isCreateTaskResultShaped } from "#runtime/tasks/types.js";
 import { parseJsonObject, type JsonObject } from "#shared/json.js";
 import { clearProxyInputRequestsForChild } from "#harness/proxy-input-requests.js";
 import {
@@ -40,6 +42,10 @@ interface PendingRuntimeActionEventMetadata {
  * `childContinuationTokens` lets the harness clear local proxy-input entries
  * on result resolution. `childSessionIds` lets the turn workflow cancel every
  * successfully adopted local or remote child before dropping the batch.
+ * `taskElections` records, per `callId`, a validated background election
+ * read off the call input — kept on the batch (session-internal state)
+ * rather than the action request, whose type is part of the extension
+ * capability contracts.
  */
 export interface PendingRuntimeActionBatch {
   readonly actions: readonly RuntimeActionRequest[];
@@ -47,6 +53,7 @@ export interface PendingRuntimeActionBatch {
   readonly childSessionIds?: Readonly<Record<string, string>>;
   readonly event: PendingRuntimeActionEventMetadata;
   readonly responseMessages: readonly ModelMessage[];
+  readonly taskElections?: Readonly<Record<string, TaskElection>>;
 }
 
 /**
@@ -106,13 +113,16 @@ export function setPendingRuntimeActionBatch(input: {
   readonly event: PendingRuntimeActionEventMetadata;
   readonly responseMessages: readonly ModelMessage[];
   readonly session: HarnessSession;
+  readonly taskElections?: Readonly<Record<string, TaskElection>>;
 }): HarnessSession {
-  const state = { ...input.session.state };
-  state[PENDING_RUNTIME_ACTION_BATCH_KEY] = {
+  const batch: PendingRuntimeActionBatch = {
     actions: [...input.actions],
     event: input.event,
     responseMessages: [...input.responseMessages],
-  } satisfies PendingRuntimeActionBatch;
+  };
+  const state = { ...input.session.state };
+  state[PENDING_RUNTIME_ACTION_BATCH_KEY] =
+    input.taskElections === undefined ? batch : { ...batch, taskElections: input.taskElections };
 
   return { ...input.session, state };
 }
@@ -259,7 +269,13 @@ export async function resolvePendingRuntimeActions(input: {
 
   if (input.emit !== undefined) {
     for (const result of readyResults) {
-      if (result.kind === "subagent-result" && result.isError !== true) {
+      if (
+        result.kind === "subagent-result" &&
+        result.isError !== true &&
+        // A background-election placeholder is not a completion — the
+        // work just started; task lifecycle events cover it instead.
+        !isCreateTaskResultShaped(result.output)
+      ) {
         await input.emit({
           data: {
             callId: result.callId,
@@ -414,6 +430,35 @@ export function createRuntimeActionRequestFromToolCall(input: {
     kind: "tool-call",
     toolName: input.toolCall.toolName,
   };
+}
+
+/**
+ * Collects valid `task` elections off the batch's call inputs, keyed by
+ * `callId` — only for tools whose definition declares `taskSupport`.
+ * Undeclared tools never surface an election, whatever the model sent.
+ */
+export function collectTaskElections(input: {
+  readonly toolCalls: readonly TypedToolCall<ToolSet>[];
+  readonly tools: HarnessToolMap;
+}): Readonly<Record<string, TaskElection>> | undefined {
+  const elections: Record<string, TaskElection> = {};
+
+  for (const toolCall of input.toolCalls) {
+    const definition = input.tools.get(toolCall.toolName);
+    if (definition?.runtimeAction?.taskSupport !== "optional") {
+      continue;
+    }
+    const resolvedInput = resolveToolCallInputObject(toolCall.input, {
+      callId: toolCall.toolCallId,
+      toolName: toolCall.toolName,
+    });
+    const parsed = taskElectionSchema.safeParse(resolvedInput.task);
+    if (parsed.success) {
+      elections[toolCall.toolCallId] = parsed.data;
+    }
+  }
+
+  return Object.keys(elections).length > 0 ? elections : undefined;
 }
 
 /**

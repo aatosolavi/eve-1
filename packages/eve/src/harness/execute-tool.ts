@@ -14,6 +14,13 @@ export type HarnessRuntimeActionDefinition = {
   readonly nodeId: string;
   readonly remoteAgentName?: string;
   readonly subagentName: string;
+  /**
+   * Background-task election gate. When `"optional"`, a `task` field on
+   * the call input elects background execution
+   * (`#runtime/tasks/election.js`). Internal until the Slice 2 `task:`
+   * combinators land — no authoring surface writes it yet.
+   */
+  readonly taskSupport?: "optional";
 };
 
 /**

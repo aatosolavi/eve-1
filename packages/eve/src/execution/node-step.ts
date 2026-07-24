@@ -19,7 +19,11 @@ import { AGENT_TOOL_DESCRIPTION, AGENT_TOOL_NAME } from "#runtime/framework-tool
 import { ROOT_RUNTIME_AGENT_NODE_ID, type ResolvedRuntimeAgentNode } from "#runtime/graph.js";
 
 import type { PreparedRuntimeTool } from "#runtime/sessions/turn.js";
-import { SUBAGENT_TOOL_INPUT_SCHEMA } from "#runtime/subagents/registry.js";
+import {
+  SUBAGENT_TOOL_INPUT_SCHEMA,
+  SUBAGENT_TOOL_INPUT_SCHEMA_WITH_TASK,
+} from "#runtime/subagents/registry.js";
+import { isInternalBackgroundTaskElectionEnabled } from "#runtime/tasks/election.js";
 import { findRegisteredRuntimeTool } from "#runtime/tools/registry.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 import { preserveFrameworkStateOnCompaction } from "#execution/compaction.js";
@@ -181,15 +185,19 @@ export function createNodeHarnessTools(input: {
     !input.node.agent.disabledFrameworkTools.includes(AGENT_TOOL_NAME) &&
     !tools.has(AGENT_TOOL_NAME)
   ) {
+    // Slice 1 internal gate: the env flag is the only elector until the
+    // Slice 2 `task:` combinators land (`#runtime/tasks/election.js`).
+    const taskElection = isInternalBackgroundTaskElectionEnabled();
+    const runtimeAction: HarnessToolDefinition["runtimeAction"] = {
+      kind: "subagent-call",
+      nodeId: input.node.nodeId,
+      subagentName: AGENT_TOOL_NAME,
+    };
     tools.set(AGENT_TOOL_NAME, {
       description: AGENT_TOOL_DESCRIPTION,
-      inputSchema: SUBAGENT_TOOL_INPUT_SCHEMA,
+      inputSchema: taskElection ? SUBAGENT_TOOL_INPUT_SCHEMA_WITH_TASK : SUBAGENT_TOOL_INPUT_SCHEMA,
       name: AGENT_TOOL_NAME,
-      runtimeAction: {
-        kind: "subagent-call",
-        nodeId: input.node.nodeId,
-        subagentName: AGENT_TOOL_NAME,
-      },
+      runtimeAction: taskElection ? { ...runtimeAction, taskSupport: "optional" } : runtimeAction,
     });
   }
 

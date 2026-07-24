@@ -153,6 +153,7 @@ import {
 } from "#harness/prompt-cache.js";
 import { resolveFrameworkToolFromUpstreamType } from "#harness/provider-tools.js";
 import {
+  collectTaskElections,
   createRuntimeActionRequestFromToolCall,
   resolvePendingRuntimeActions,
   setPendingRuntimeActionBatch,
@@ -1877,7 +1878,7 @@ async function handleStepResult(input: {
     session: baseSession,
     tools: config.tools,
   });
-  const pendingRuntimeActions = ((result.toolCalls ?? []) as TypedToolCall<ToolSet>[])
+  const runtimeActionToolCalls = ((result.toolCalls ?? []) as TypedToolCall<ToolSet>[])
     .filter((toolCall) => !invalidInputToolCallIds.has(toolCall.toolCallId))
     .filter((toolCall) => config.tools.get(toolCall.toolName)?.runtimeAction !== undefined)
     .filter((toolCall) => {
@@ -1890,13 +1891,13 @@ async function handleStepResult(input: {
         toolName: toolCall.toolName,
       });
       return false;
-    })
-    .map((toolCall) =>
-      createRuntimeActionRequestFromToolCall({
-        toolCall,
-        tools: advertisedRuntimeActionTools,
-      }),
-    );
+    });
+  const pendingRuntimeActions = runtimeActionToolCalls.map((toolCall) =>
+    createRuntimeActionRequestFromToolCall({
+      toolCall,
+      tools: advertisedRuntimeActionTools,
+    }),
+  );
 
   if (pendingRuntimeActions.length > 0) {
     // Stamp the live emission state onto the parked session so the
@@ -1917,6 +1918,10 @@ async function handleStepResult(input: {
           },
           responseMessages,
           session: { ...baseSession, history: [...promptMessages] },
+          taskElections: collectTaskElections({
+            toolCalls: runtimeActionToolCalls,
+            tools: advertisedRuntimeActionTools,
+          }),
         }),
         emissionState,
       ),

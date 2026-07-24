@@ -41,6 +41,7 @@ import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { parseNdjsonStream } from "#execution/ndjson-stream.js";
+import { sanitizeInboundDeliverPayload } from "#execution/tasks/delivery.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import {
   sessionCancelHookToken,
@@ -178,7 +179,9 @@ export function createWorkflowRuntime(config: {
       const hookPayload: Extract<HookPayload, { kind: "deliver" }> = {
         auth: input.auth,
         kind: "deliver",
-        payloads: [input.payload],
+        // Channel callers can never forge a task notification; the
+        // reserved field only enters through the callback route.
+        payloads: [sanitizeInboundDeliverPayload(input.payload)],
         requestId: input.requestId,
       };
       try {

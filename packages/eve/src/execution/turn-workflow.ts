@@ -317,6 +317,7 @@ async function waitForRuntimeActionResults(input: {
         auth: value.delivery.auth,
         parentWritable: input.cursor.parentWritable,
         payloads: value.delivery.payloads,
+        serializedContext: input.cursor.serializedContext,
         sessionState: input.cursor.sessionState,
       });
       if (remainder !== undefined) {

@@ -12,6 +12,7 @@ import {
 import {
   AuthKey,
   CapabilitiesKey,
+  InitiatorAuthKey,
   ModeKey,
   SessionDynamicToolRuntimeRevisionKey,
 } from "#context/keys.js";
@@ -68,6 +69,14 @@ import {
 } from "#execution/durable-session-migrations/turn-workflow.js";
 import { buildRuntimeIdentity, createExecutionNodeStep } from "#execution/node-step.js";
 import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
+import {
+  formatTaskOutcomeMessage,
+  payloadCarriesTaskNotifications,
+  splitTaskNotifications,
+} from "#execution/tasks/delivery.js";
+import { routeLateResponsesToLiveTasks, routeTaskNotifications } from "#execution/tasks/routing.js";
+import { hasLiveTasks, removeLiveTaskFromState } from "#harness/task-state.js";
+import { isTerminalStatus, type DetailedTask } from "#runtime/tasks/types.js";
 import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
@@ -203,10 +212,49 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
     }
   }
 
+  // Task notifications: strip the reserved field before the adapter
+  // deliver loop (adapters never see it). Terminal outcomes clear the
+  // live-task index here — the only index writer besides election —
+  // and project into turn input below.
+  const taskOutcomes: DetailedTask[] = [];
+  let sawTaskNotifications = false;
+  if (input.input?.kind === "deliver") {
+    const strippedPayloads: DeliverPayload[] = [];
+    for (const payload of input.input.payloads) {
+      const { notifications, rest } = splitTaskNotifications(payload);
+      if (notifications.length > 0) {
+        sawTaskNotifications = true;
+      }
+      for (const notification of notifications) {
+        if (isTerminalStatus(notification.task.status)) {
+          taskOutcomes.push(notification.task);
+          durableSession = {
+            ...durableSession,
+            state: removeLiveTaskFromState(durableSession.state, notification.task.taskId),
+          };
+        }
+      }
+      if (rest !== undefined) {
+        strippedPayloads.push(rest);
+      }
+    }
+    if (sawTaskNotifications) {
+      input = { ...input, input: { ...input.input, payloads: strippedPayloads } };
+    }
+  }
+
   // Apply deliver-time auth ferried via `resumeHook` (initial-turn
   // input has no auth; it was seeded by buildRunContext).
   if (input.input?.kind === "deliver" && input.input.auth !== undefined) {
     ctx.set(AuthKey, input.input.auth ?? null);
+  } else if (
+    input.input?.kind === "deliver" &&
+    sawTaskNotifications &&
+    input.input.auth === undefined
+  ) {
+    // A task delivery carries no channel auth (loopback POST); the
+    // re-alived session runs under the principal that started it.
+    ctx.set(AuthKey, ctx.get(InitiatorAuthKey) ?? null);
   }
 
   const initialSession = hydrateDurableSession({
@@ -237,6 +285,38 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
   } else if (input.input?.kind === "runtime-action-result") {
     recordSubagentUsageSpans(input.input.results);
     resolved = { runtimeActionResults: input.input.results };
+  }
+
+  // Terminal task outcomes enter as new input — the call position was
+  // terminalized with the placeholder at election (never completed by
+  // the result).
+  if (taskOutcomes.length > 0) {
+    resolved = coalesceTurnInputs(resolved ?? {}, {
+      message: taskOutcomes.map(formatTaskOutcomeMessage).join("\n\n"),
+    });
+  }
+
+  // Step-0 late responses: answers to a live input_required task route
+  // to `updateTask` and never reach the model step, so they run before
+  // stale conversion by construction. `resolved` drops to `undefined`
+  // when nothing else remains — the no-turn re-park arm below.
+  if (
+    input.input?.kind === "deliver" &&
+    resolved?.inputResponses !== undefined &&
+    resolved.inputResponses.length > 0 &&
+    hasLiveTasks(durableSession.state)
+  ) {
+    const { remaining } = await routeLateResponsesToLiveTasks({
+      inputResponses: resolved.inputResponses,
+      state: durableSession.state,
+    });
+    if (remaining.length !== resolved.inputResponses.length) {
+      const { inputResponses: _routed, ...restInput } = resolved;
+      resolved = remaining.length > 0 ? { ...restInput, inputResponses: remaining } : restInput;
+      if (Object.values(resolved).every((value) => value === undefined)) {
+        resolved = undefined;
+      }
+    }
   }
 
   // Pin adapter-state mutations back onto ctx so they survive the
@@ -545,13 +625,16 @@ export interface RoutedDeliverResult {
 
 /**
  * Splits an inbound deliver payload into parent-local and
- * proxied-child buckets and forwards the child buckets via
- * `resumeHook`. Read-only: never appends a snapshot.
+ * proxied-child buckets, forwards the child buckets via `resumeHook`,
+ * and discriminates any task notifications aboard the parent-local
+ * remainder (`#execution/tasks/routing.js`). Read-only on the session:
+ * never appends a snapshot.
  */
 export async function routeProxiedDeliverStep(input: {
   readonly auth?: SessionAuthContext | null;
   readonly parentWritable: WritableStream<Uint8Array>;
   readonly payload: DeliverPayload;
+  readonly serializedContext?: Record<string, unknown>;
   readonly sessionState: DurableSessionState;
 }): Promise<RoutedDeliverResult> {
   "use step";
@@ -570,7 +653,19 @@ export async function routeProxiedDeliverStep(input: {
     });
   }
 
-  return { remainder: routed.forSelf };
+  let remainder = routed.forSelf;
+  if (remainder !== undefined && payloadCarriesTaskNotifications(remainder)) {
+    remainder = await routeTaskNotifications({
+      auth: input.auth,
+      durableSession,
+      emissionState: input.sessionState.emissionState,
+      parentWritable: input.parentWritable,
+      payload: remainder,
+      serializedContext: input.serializedContext,
+    });
+  }
+
+  return { remainder };
 }
 
 /** Starts a per-turn child workflow for the current driver session. */

@@ -32,6 +32,12 @@ import type {
   RuntimeSubagentCallActionRequest,
   RuntimeSubagentResultActionResult,
 } from "#runtime/actions/types.js";
+import { readBackgroundElection } from "#runtime/tasks/election.js";
+import { toCreateTaskResult } from "#runtime/tasks/types.js";
+import { createEveCallbackRoutePath } from "#protocol/routes.js";
+import { createTask } from "#execution/tasks/service.js";
+import { createWorkflowCallbackUrl } from "#execution/workflow-callback-url.js";
+import { addLiveTask } from "#harness/task-state.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
@@ -111,6 +117,47 @@ export async function dispatchRuntimeActionsStep(input: {
         });
         results.push(createRecursiveAgentRootOnlyResult(action));
         continue;
+      }
+
+      if (action.kind === "subagent-call" || action.kind === "remote-agent-call") {
+        const election = readBackgroundElection(batch.taskElections?.[action.callId]);
+        if (election !== undefined) {
+          // Background election: create the task record, register the
+          // session's driver endpoint, and terminalize the call position
+          // with the CreateTaskResult placeholder. No child is started in
+          // Slice 1 (inert mode) — the executor arrives with Slice 2.
+          const callbackUrl =
+            input.callbackBaseUrl === undefined || session.continuationToken.length === 0
+              ? undefined
+              : createWorkflowCallbackUrl(
+                  input.callbackBaseUrl,
+                  createEveCallbackRoutePath(session.continuationToken),
+                );
+          const record = await createTask({
+            createdBy:
+              initiatorAuth === null
+                ? null
+                : {
+                    authenticator: initiatorAuth.authenticator,
+                    principalId: initiatorAuth.principalId,
+                  },
+            endpoints: callbackUrl === undefined ? [] : [{ url: callbackUrl }],
+            sessionId: session.sessionId,
+            ttlMs: election.ttlMs,
+          });
+          nextSession = addLiveTask(nextSession, {
+            taskId: record.task.taskId,
+            taskRunId: record.taskRunId,
+          });
+          results.push({
+            callId: action.callId,
+            kind: "subagent-result",
+            output: toCreateTaskResult(record.task),
+            subagentName:
+              action.kind === "subagent-call" ? action.subagentName : action.remoteAgentName,
+          });
+          continue;
+        }
       }
 
       let childSessionId: string;

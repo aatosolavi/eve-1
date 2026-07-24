@@ -288,6 +288,7 @@ async function runDriverLoop(input: {
         auth: nextDeliver.auth,
         parentWritable: input.driverWritable,
         payloads: nextDeliver.payloads,
+        serializedContext: action.serializedContext,
         sessionState: action.sessionState,
       });
 

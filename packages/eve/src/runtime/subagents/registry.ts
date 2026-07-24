@@ -1,6 +1,7 @@
 import { z } from "#compiled/zod/index.js";
 
 import { RuntimeRegistry, RuntimeRegistryError } from "#internal/runtime-registry.js";
+import { taskElectionSchema } from "#runtime/tasks/election.js";
 import type { PreparedRuntimeDelegationTool } from "#runtime/sessions/turn.js";
 import type { ResolvedRuntimeDelegationNode } from "#runtime/types.js";
 import { serializeInputSchema } from "#shared/tool-schema.js";
@@ -36,6 +37,20 @@ export const SUBAGENT_TOOL_INPUT_SCHEMA = z.strictObject({
     .looseObject({})
     .describe(
       "Only provide a non-empty JSON Schema when the caller explicitly requests structured output; otherwise omit this field. The subagent must match a provided schema, and that structured output becomes the tool result.",
+    )
+    .optional(),
+});
+
+/**
+ * {@link SUBAGENT_TOOL_INPUT_SCHEMA} augmented with the background
+ * `task` election field. Lowered only when a tool's election gate is on
+ * (`taskSupport`) — declared here so the augmentation matches the
+ * request-side contract (`#runtime/tasks/election.js`).
+ */
+export const SUBAGENT_TOOL_INPUT_SCHEMA_WITH_TASK = SUBAGENT_TOOL_INPUT_SCHEMA.extend({
+  task: taskElectionSchema
+    .describe(
+      "Provide to run this delegation as a background task: the call returns a task placeholder immediately and the outcome arrives later as new input.",
     )
     .optional(),
 });

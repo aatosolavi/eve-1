@@ -3,6 +3,7 @@ import { EVE_CALLBACK_ROUTE_PATTERN } from "#protocol/routes.js";
 import type { ChannelMethod, RouteContext } from "#public/definitions/channel.js";
 import type { ResolvedChannelDefinition } from "#runtime/types.js";
 import type { RuntimeSubagentResultActionResult } from "#runtime/actions/types.js";
+import { taskNotificationSchema } from "#runtime/tasks/types.js";
 import type { JsonValue } from "#shared/json.js";
 import { tokenUsageSchema, type TokenUsage } from "#shared/token-usage.js";
 
@@ -68,6 +69,10 @@ export async function handleSessionCallbackRequest(
     return Response.json({ error: "Invalid JSON body.", ok: false }, { status: 400 });
   }
 
+  if (isTaskNotificationBody(body)) {
+    return await resumeTaskNotification(token, body);
+  }
+
   const result = projectSessionCallbackResult(body);
   if (result instanceof Response) {
     return result;
@@ -77,6 +82,39 @@ export async function handleSessionCallbackRequest(
     await resumeHook(token, {
       kind: "runtime-action-result",
       results: [result],
+    });
+  } catch {
+    return Response.json({ error: "Session callback not pending.", ok: false }, { status: 404 });
+  }
+
+  return Response.json({ ok: true }, { status: 202 });
+}
+
+function isTaskNotificationBody(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { kind?: unknown }).kind === "string" &&
+    (value as { kind: string }).kind.startsWith("task.")
+  );
+}
+
+/**
+ * Resumes a task notification as an ordinary `deliver` payload so the
+ * target's driver — which skips every non-`deliver` hook payload while
+ * parked — wakes and routes it. The 404 arm is the gone-subscriber
+ * signal the notify fan-out consumes to mark an endpoint dead.
+ */
+async function resumeTaskNotification(token: string, body: unknown): Promise<Response> {
+  const parsed = taskNotificationSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: "Invalid task notification body.", ok: false }, { status: 400 });
+  }
+
+  try {
+    await resumeHook(token, {
+      kind: "deliver",
+      payloads: [{ taskNotifications: [parsed.data] }],
     });
   } catch {
     return Response.json({ error: "Session callback not pending.", ok: false }, { status: 404 });

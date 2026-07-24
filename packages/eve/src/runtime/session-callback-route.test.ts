@@ -136,6 +136,73 @@ describe("session callback route", () => {
     });
   });
 
+  it("resumes a task notification as a deliver payload", async () => {
+    resumeHookMock.mockResolvedValue(undefined);
+
+    const notification = {
+      kind: "task.terminal",
+      task: {
+        createdAt: "2026-07-23T00:00:00.000Z",
+        lastUpdatedAt: "2026-07-23T00:00:01.000Z",
+        result: { ok: true },
+        status: "completed",
+        taskId: "task_1",
+        ttlMs: null,
+      },
+    };
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify(notification),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(resumeHookMock).toHaveBeenCalledWith("tok123", {
+      kind: "deliver",
+      payloads: [{ taskNotifications: [notification] }],
+    });
+  });
+
+  it("rejects a malformed task notification with 400 without resuming", async () => {
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({ kind: "task.terminal", task: { taskId: "task_1" } }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(resumeHookMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for a task notification whose hook is gone", async () => {
+    resumeHookMock.mockRejectedValue(new Error("no hook"));
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          kind: "task.status",
+          task: {
+            createdAt: "2026-07-23T00:00:00.000Z",
+            inputRequests: [],
+            lastUpdatedAt: "2026-07-23T00:00:01.000Z",
+            status: "input_required",
+            taskId: "task_1",
+            ttlMs: null,
+          },
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
   it("drops malformed usage but still resumes the result", async () => {
     resumeHookMock.mockResolvedValue(undefined);
 

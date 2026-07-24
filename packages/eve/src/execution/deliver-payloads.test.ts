@@ -6,7 +6,34 @@ const SECOND_MESSAGE = "Proceed after the synthetic health check passes.";
 const FIRST_CALLBACK_CONTEXT = "Release policy: use the synthetic staging environment only.";
 const SECOND_CALLBACK_CONTEXT = "Release policy: wait for the synthetic health check.";
 
+const TASK_NOTIFICATION_A = {
+  kind: "task.terminal" as const,
+  task: {
+    createdAt: "2026-07-23T00:00:00.000Z",
+    lastUpdatedAt: "2026-07-23T00:00:01.000Z",
+    result: "a",
+    status: "completed" as const,
+    taskId: "task_a",
+    ttlMs: null,
+  },
+};
+
+const TASK_NOTIFICATION_B = {
+  ...TASK_NOTIFICATION_A,
+  task: { ...TASK_NOTIFICATION_A.task, result: "b", taskId: "task_b" },
+};
+
 describe("coalesceDeliverPayloads", () => {
+  it("concat-merges task notifications instead of last-write-wins", () => {
+    const result = coalesceDeliverPayloads([
+      { taskNotifications: [TASK_NOTIFICATION_A] },
+      { message: "hello", taskNotifications: [TASK_NOTIFICATION_B] },
+    ]);
+
+    expect(result.taskNotifications).toEqual([TASK_NOTIFICATION_A, TASK_NOTIFICATION_B]);
+    expect(result.message).toBe("hello");
+  });
+
   it("preserves messages and authored callback context in arrival order", () => {
     const result = coalesceDeliverPayloads([
       {
