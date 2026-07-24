@@ -4,6 +4,7 @@ import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
 import {
   createCompactionConfig,
   createSession,
+  DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
   DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION,
   hydrateDurableSession,
   mintSubagentContinuationToken,
@@ -198,19 +199,20 @@ describe("createSession", () => {
     });
   });
 
-  it("defaults root sessions to the root input token budget", () => {
+  it("applies the root session defaults", () => {
     const session = createSession({
       continuationToken: "root-token",
       sessionId: "sess-root",
       turnAgent: createTestTurnAgent(),
     });
 
+    expect(session.limits?.maxConsecutiveToolErrors).toBe(DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS);
     expect(session.limits?.maxInputTokensPerSession).toBe(
       DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION,
     );
   });
 
-  it("leaves delegated subagent sessions uncapped by default", () => {
+  it("applies the tool-error default without a subagent token default", () => {
     const session = createSession({
       continuationToken: "subagent-token",
       sessionId: "sess-child",
@@ -218,10 +220,12 @@ describe("createSession", () => {
       turnAgent: createTestTurnAgent(),
     });
 
-    expect(session.limits).toEqual({});
+    expect(session.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
-  it("uncaps a root session when the authored limit is false", () => {
+  it("uncaps a root token budget when the authored limit is false", () => {
     const session = createSession({
       continuationToken: "root-token",
       limits: { maxInputTokensPerSession: false },
@@ -229,10 +233,12 @@ describe("createSession", () => {
       turnAgent: createTestTurnAgent(),
     });
 
-    expect(session.limits).toEqual({});
+    expect(session.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
-  it("uncaps a delegated subagent session when the authored limit is false", () => {
+  it("uncaps a delegated token budget when the authored limit is false", () => {
     const session = createSession({
       continuationToken: "subagent-token",
       limits: { maxInputTokensPerSession: false },
@@ -241,10 +247,12 @@ describe("createSession", () => {
       turnAgent: createTestTurnAgent(),
     });
 
-    expect(session.limits).toEqual({});
+    expect(session.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
-  it("treats a durable session without stored limits as uncapped on hydration", () => {
+  it("applies the tool-error default when hydrating a session without stored limits", () => {
     const hydrated = hydrateDurableSession({
       durable: {
         agent: { system: "You are a helpful assistant." },
@@ -255,10 +263,12 @@ describe("createSession", () => {
       turnAgent: createTestTurnAgent(),
     });
 
-    expect(hydrated.limits).toBeUndefined();
+    expect(hydrated.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
-  it("rehydrates persisted limits verbatim without re-applying defaults", () => {
+  it("fills the tool-error default without re-applying token defaults", () => {
     const hydrated = hydrateDurableSession({
       durable: {
         agent: { system: "You are a helpful assistant." },
@@ -271,9 +281,11 @@ describe("createSession", () => {
       turnAgent: createTestTurnAgent(),
     });
 
-    // An uncapped session (resolved limits `{}`) must stay uncapped across
-    // rehydration instead of picking up the root default again.
-    expect(hydrated.limits).toEqual({});
+    // Resolved token axes stay uncapped across rehydration instead of picking
+    // up the root token default again.
+    expect(hydrated.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
   it("persists run outputSchema through durable session projection and hydration", () => {

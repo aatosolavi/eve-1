@@ -157,7 +157,9 @@ export interface AgentLimitsDefinition {
    * the limit is reached, eve stops the turn before another model call:
    * conversation sessions remain resumable, while task sessions fail.
    *
-   * Omit this field to allow unlimited consecutive tool errors.
+   * Omit this field to use the default of 10.
+   *
+   * @default 10
    */
   readonly maxConsecutiveToolErrors?: number;
   /**

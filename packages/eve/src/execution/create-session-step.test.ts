@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
-import { DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION } from "#execution/session.js";
+import {
+  DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+  DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION,
+} from "#execution/session.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
 
@@ -18,7 +21,7 @@ const TestTurnAgent: RuntimeTurnAgent = {
 };
 
 describe("createSessionStep", () => {
-  it("defaults root sessions to the root input token budget", async () => {
+  it("applies the root session defaults", async () => {
     vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue({
       resolvedAgent: {
         config: {},
@@ -32,6 +35,9 @@ describe("createSessionStep", () => {
       sessionId: "sess-root",
     });
 
+    expect(state.snapshot?.session.limits?.maxConsecutiveToolErrors).toBe(
+      DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    );
     expect(state.snapshot?.session.limits?.maxInputTokensPerSession).toBe(
       DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION,
     );
@@ -54,11 +60,12 @@ describe("createSessionStep", () => {
     });
 
     expect(state.snapshot?.session.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
       maxInputTokensPerSession: 3_000_000,
     });
   });
 
-  it("leaves delegated subagent sessions uncapped with uncapped inherited axes", async () => {
+  it("leaves delegated token axes uncapped with uncapped inherited axes", async () => {
     vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue({
       resolvedAgent: {
         config: {},
@@ -74,7 +81,9 @@ describe("createSessionStep", () => {
       subagentDepth: 1,
     });
 
-    expect(state.snapshot?.session.limits).toEqual({});
+    expect(state.snapshot?.session.limits).toEqual({
+      maxConsecutiveToolErrors: DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
+    });
   });
 
   it("caps configured child token limits at the inherited token budget", async () => {
