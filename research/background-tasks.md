@@ -330,16 +330,30 @@ result:
 { "taskId": "…", "status": "working", "createdAt": "…", "lastUpdatedAt": "…", "ttlMs": null }
 ```
 
-The turn then proceeds and may end with tasks still live. Records live on the
-durable session state (as `pendingInputBatch` does today) and ride the
-existing step-result persistence boundary.
+The turn then proceeds and may end with tasks still live. Each record is
+owned by a dedicated durable **task run** — a single-writer actor: every
+write is a command resumed onto the run's hook, applied under the
+transition legality rules, and appended as a full snapshot to the run's
+own stream; readers tail-read that stream cross-run. Session state cannot
+own the record — it is threaded through step results, while transitions
+must be writable from paths that hold no threadable state (the routing
+step while the session is parked, the callback route, a detached
+executor). The caller keeps only a live-task index (`taskId → task run`)
+on session state; its two writers — election and terminal consumption —
+sit on the threaded path. The recorded election likewise rides the
+pending action batch rather than the action request, whose type is part
+of the extension capability contracts.
 
 ### Consumer registration
 
 At background dispatch, the caller registers its **session entry point** as a
 consumer — a hook URL keyed by the public continuation token, targeting the
-session's driver rather than any turn hook — on the child task. Registration and
-storage are session-state operations; no new persistence.
+session's driver rather than any turn hook — on the child task. Consumers are
+handed to the task at creation and live on its record, delivery state
+included; the caller's own bookkeeping is the session-state live-task index.
+One inert-mode edge: the registered URL embeds the continuation token current
+at election, so token rotation orphans the consumer — the notify guard marks
+it dead and drops. A session-stable callback alias is a [Slice 2] concern.
 
 Registration is framework-internal through [Slice 2]: the only writer is
 background dispatch itself. [Slice 3] exposes registration to authored
