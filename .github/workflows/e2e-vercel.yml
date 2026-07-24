@@ -167,6 +167,7 @@ jobs:
             if [ "$fixture_index" -gt 0 ]; then
               profile_path="${EVE_BUILD_PROFILE%.json}-$fixture_label.json"
             fi
+            eve_cli="$fixture_dir/node_modules/.bin/eve"
             cd "$fixture_dir"
 
             "$VERCEL_CLI" link --yes --project "$VERCEL_PROJECT_ID" "${team_args[@]}" "${token_args[@]}"
@@ -178,11 +179,11 @@ jobs:
               VERCEL_ENV=preview \
               VERCEL_TARGET_ENV=preview \
               VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              pnpm exec eve build --profile "$profile_path"
+              "$eve_cli" build --profile "$profile_path"
             DEPLOYMENT_URL="$("$VERCEL_CLI" deploy --prebuilt --yes --target=preview \
               --env "EVE_E2E_MODEL=$EVE_E2E_MODEL" "${token_args[@]}" | tail -n 1)"
 
-            npx eve eval --strict --verbose --url "$DEPLOYMENT_URL" \
+            "$eve_cli" eval --strict --verbose --url "$DEPLOYMENT_URL" \
               --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-$fixture_label.xml"
 
             # Redeploy-tagged evals rebuild and redeploy the fixture from inside
@@ -190,13 +191,13 @@ jobs:
             # deployment. They run against the alias (immutable deployment URLs
             # never change what they serve) and are skipped in the main suite
             # above because EVE_E2E_REDEPLOY_ALIAS is unset there.
-            if npx eve eval --tag redeploy --list >/dev/null 2>&1; then
+            if "$eve_cli" eval --tag redeploy --list >/dev/null 2>&1; then
               ALIAS="eve-e2e-${{ matrix.fixture.name }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ strategy.job-index }}.vercel.app"
               # vc alias does not infer the team from the project link the way
               # link/deploy do, so pass the scope explicitly.
               "$VERCEL_CLI" alias set "$DEPLOYMENT_URL" "$ALIAS" "${token_args[@]}" "${scope_args[@]}"
               EVE_E2E_REDEPLOY_ALIAS="$ALIAS" \
-                npx eve eval --tag redeploy --strict --verbose \
+                "$eve_cli" eval --tag redeploy --strict --verbose \
                 --url "https://$ALIAS" \
                 --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-redeploy.xml"
             fi

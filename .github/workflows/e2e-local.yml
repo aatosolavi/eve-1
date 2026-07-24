@@ -144,7 +144,7 @@ jobs:
           for fixture_dir in "${fixture_dirs[@]}"; do
             fixture_label="$(basename "$fixture_dir")"
             cd "$fixture_dir"
-            pnpm exec eve eval --strict --verbose \
+            "$fixture_dir/node_modules/.bin/eve" eval --strict --verbose \
               --junit "$EVE_EVAL_JUNIT_DIR/${{ matrix.fixture.name }}-${{ matrix.model.name }}-$fixture_label.xml"
           done
 
