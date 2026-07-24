@@ -170,6 +170,58 @@ describe("stream following over real sockets", () => {
     expect(firstConnectionClosed).toBe(true);
   });
 
+  it("keeps following a stream the server holds open across a silent step", async () => {
+    // eve emits no bytes at all between `actions.requested` and `action.result`,
+    // so a slow step looks exactly like this to the client.
+    const silentConnections = 4;
+    let connections = 0;
+    const host = await listen(
+      createServer((_req, res) => {
+        connections += 1;
+        res.writeHead(200, { "content-type": "application/x-ndjson" });
+        res.write("\n");
+
+        if (connections > silentConnections) {
+          res.end(`${JSON.stringify({ type: "session.completed", data: {} })}\n`);
+        }
+      }),
+    );
+
+    const received: string[] = [];
+    for await (const event of follow(host, {
+      streamIdleReconnectPolicy: { baseDelayMs: 1, maxAttempts: 2, maxDelayMs: 1 },
+      streamIdleTimeoutMs: 25,
+    })) {
+      received.push(event.type);
+      if (event.type === "session.completed") break;
+    }
+
+    expect(received).toEqual(["session.completed"]);
+    expect(connections).toBe(silentConnections + 1);
+  }, 30_000);
+
+  it("still stops following when reconnects keep ending without events", async () => {
+    let connections = 0;
+    const host = await listen(
+      createServer((_req, res) => {
+        connections += 1;
+        res.writeHead(200, { "content-type": "application/x-ndjson" });
+        res.end("\n");
+      }),
+    );
+
+    const received: string[] = [];
+    for await (const event of follow(host, {
+      streamIdleReconnectPolicy: { baseDelayMs: 1, maxAttempts: 2, maxDelayMs: 1 },
+      streamIdleTimeoutMs: 25,
+    })) {
+      received.push(event.type);
+    }
+
+    expect(received).toEqual([]);
+    expect(connections).toBe(3);
+  });
+
   it("does not apply idle-read reconnects to tail-relative streams", async () => {
     let connections = 0;
     const host = await listen(

@@ -38,6 +38,18 @@ class StreamIdleTimeoutError extends Error {
   }
 }
 
+/**
+ * Returns true when a stream ended because it stopped delivering bytes rather
+ * than because the transport ended.
+ *
+ * An open stream that goes quiet says nothing about whether the run is still
+ * progressing, so callers must not treat it as evidence of an exhausted
+ * session the way they treat a connection that ends without events.
+ */
+export function isStreamIdleTimeoutError(error: unknown): boolean {
+  return error instanceof StreamIdleTimeoutError;
+}
+
 interface ReadNdjsonStreamOptions {
   readonly idleTimeoutMs?: number;
 }

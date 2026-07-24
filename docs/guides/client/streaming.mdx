@@ -105,17 +105,16 @@ If you support refresh while an authorization prompt is pending, keep the sessio
 
 HTTP connections can end—or remain open without delivering more bytes—before a run does. The client reconnects from the number of events already consumed, so long turns continue without replaying events. By default, an open stream that produces no bytes for 30 seconds is cancelled and reopened from the durable cursor. It stops at a turn boundary, when aborted, or when the stream can no longer make progress.
 
-Configure the idle-read deadline and the no-progress retry budget together:
+Tune the idle-read deadline with `streamIdleTimeoutMs`:
 
 ```ts
 const response = await session.send({
   message: "Run the long operation.",
-  streamReconnectPolicy: {
-    streamIdleTimeoutMs: 15_000,
-    streamIdleReconnectPolicy: { maxAttempts: 10 },
-  },
+  streamReconnectPolicy: { streamIdleTimeoutMs: 15_000 },
 });
 ```
+
+A step can legitimately run for minutes without emitting an event, so reopening a stream that went quiet does not count against `streamIdleReconnectPolicy`. That budget stops the follow only when reconnects keep _ending_ without delivering events, which means the session has nothing left to send.
 
 Set `streamIdleTimeoutMs: 0` to disable idle-read reconnects. Tail-relative streams opened with a negative `startIndex` remain single-connection streams because their absolute cursor cannot be advanced safely.
 

@@ -1,7 +1,11 @@
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { createEveMessageStreamRoutePath } from "#protocol/routes.js";
 import { ClientError } from "#client/client-error.js";
-import { isStreamDisconnectError, readNdjsonStream } from "#client/ndjson.js";
+import {
+  isStreamDisconnectError,
+  isStreamIdleTimeoutError,
+  readNdjsonStream,
+} from "#client/ndjson.js";
 import type {
   ClientRedirectPolicy,
   ResolvedStreamReconnectPolicy as StreamReconnectPolicyOptions,
@@ -130,6 +134,7 @@ export async function* followStreamIterable(
     }
 
     let deliveredEvent = false;
+    let timedOutIdle = false;
     try {
       for await (const event of readNdjsonStream(body, {
         idleTimeoutMs: input.startIndex < 0 ? undefined : retryPolicy.streamIdleTimeoutMs,
@@ -144,13 +149,20 @@ export async function* followStreamIterable(
       if (!isStreamDisconnectError(error)) {
         throw error;
       }
+      timedOutIdle = isStreamIdleTimeoutError(error);
     }
 
     if (input.signal?.aborted || input.startIndex < 0 || idleRetryPolicy.maxAttempts === 0) {
       return;
     }
 
-    if (
+    if (timedOutIdle) {
+      // A stream the server is still holding open is not an exhausted session,
+      // and eve emits no bytes at all across a slow step. Charging these to the
+      // empty-stream budget would end the follow mid-turn. The idle deadline
+      // itself already paces the reconnect.
+      reconnectDelayMs = idleRetryPolicy.baseDelayMs;
+    } else if (
       !deliveredEvent &&
       !initialConnection &&
       (idleReconnects += 1) >= idleRetryPolicy.maxAttempts
