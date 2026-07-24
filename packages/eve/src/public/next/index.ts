@@ -6,6 +6,12 @@ import { EVE_ROUTE_PREFIX } from "#protocol/routes.js";
 import { resolveEveBinaryPath } from "#shared/resolve-eve-binary.js";
 import { resolveEveDestinationPrefix } from "./server.js";
 import { ensureEveVercelOutputConfig } from "./vercel-output-config.js";
+import {
+  encodeNextWorkflowTargetDescriptor,
+  NEXT_WORKFLOW_TARGET_ENV,
+  resolveNextWorkflowTargetDescriptor,
+  writeNextWorkflowTargetDescriptor,
+} from "./workflow-target.js";
 
 /**
  * Default private route namespace for legacy manually configured Vercel
@@ -136,6 +142,11 @@ export interface WithEveOptions {
    * root route.
    */
   readonly servicePrefix?: string;
+  /**
+   * Names of Next-owned Workflow exports that authored eve tools may start.
+   * Requires composing `withEve(withWorkflow(...), options)`.
+   */
+  readonly workflowBridge?: readonly string[];
 }
 
 interface ResolvedEveNextAgent {
@@ -408,14 +419,43 @@ export function withEve<TConfig extends EveNextConfig>(
   return async function eveNextConfig(phase, context) {
     const nextConfig = await resolveNextConfig(configOrFunction, phase, context);
     const existingRewrites = nextConfig.rewrites;
+    const targetDescriptors = new Map<string, string>();
+    const workflowBridge = options.workflowBridge;
+    if (workflowBridge !== undefined) {
+      await Promise.all(
+        agents.map(async (agent) => {
+          const descriptor = await resolveNextWorkflowTargetDescriptor({
+            agentRoot: agent.appRoot,
+            nextConfig,
+            nextRoot,
+            workflowBridge,
+          });
+          targetDescriptors.set(agent.appRoot, encodeNextWorkflowTargetDescriptor(descriptor));
+        }),
+      );
+    }
+    await Promise.all(
+      agents.map(async (agent) => {
+        await writeNextWorkflowTargetDescriptor(
+          agent.appRoot,
+          targetDescriptors.get(agent.appRoot),
+        );
+      }),
+    );
     const configuredVercel = await ensureEveVercelOutputConfig({
-      agents: agents.map((agent) => ({
-        appRoot: agent.appRoot,
-        buildCommand: agent.buildCommand,
-        name: agent.name,
-        publicRoutePrefix: agent.publicRoutePrefix,
-        servicePrefix: agent.servicePrefix,
-      })),
+      agents: agents.map((agent) => {
+        const encodedTarget = targetDescriptors.get(agent.appRoot);
+        return {
+          appRoot: agent.appRoot,
+          buildCommand:
+            encodedTarget === undefined
+              ? agent.buildCommand
+              : `export ${NEXT_WORKFLOW_TARGET_ENV}=${quoteShellArg(encodedTarget)} && ${agent.buildCommand}`,
+          name: agent.name,
+          publicRoutePrefix: agent.publicRoutePrefix,
+          servicePrefix: agent.servicePrefix,
+        };
+      }),
       nextRoot,
     });
 
@@ -446,8 +486,13 @@ export function withEve<TConfig extends EveNextConfig>(
           resolveExistingRewrites(existingRewrites),
           Promise.all(
             agentsWithDestinations.map(async (agent) => {
+              const encodedTarget = targetDescriptors.get(agent.appRoot);
               const destinationPrefix = await resolveEveDestinationPrefix({
                 appRoot: agent.appRoot,
+                devServerEnv:
+                  encodedTarget === undefined
+                    ? undefined
+                    : { [NEXT_WORKFLOW_TARGET_ENV]: encodedTarget },
                 devServerTimeoutMs,
                 logLabel: agent.name,
                 phase,

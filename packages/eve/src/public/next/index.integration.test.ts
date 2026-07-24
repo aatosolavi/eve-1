@@ -16,6 +16,7 @@ vi.mock("#shared/resolve-eve-binary.js", async () => {
 });
 
 import { withEve, type EveNextConfig, type EveNextRewriteSections } from "./index.js";
+import { decodeNextWorkflowTargetDescriptor, NEXT_WORKFLOW_TARGET_ENV } from "./workflow-target.js";
 
 interface TestConfig extends EveNextConfig {
   readonly basePath?: string;
@@ -289,6 +290,48 @@ describe("withEve Vercel config", () => {
       version: 3,
     });
     expect(rewrites).toBeUndefined();
+  });
+
+  it("embeds an allowlisted withWorkflow manifest target in the eve service build", async () => {
+    const appRoot = await createTempAppRoot();
+    process.chdir(appRoot);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_URL", "preview.example.com");
+    const manifestDirectory = join(appRoot, "app", ".well-known", "workflow", "v1");
+    await mkdir(manifestDirectory, { recursive: true });
+    await writeFile(
+      join(manifestDirectory, "manifest.json"),
+      JSON.stringify({
+        workflows: {
+          "workflows/report.ts": {
+            reportWorkflow: { workflowId: "workflow//report" },
+          },
+        },
+      }),
+    );
+
+    await resolveConfig(
+      withEve<TestConfig>(
+        {
+          env: { WORKFLOW_TARGET_WORLD: "vercel" },
+        },
+        { workflowBridge: ["reportWorkflow"] },
+      ),
+    );
+    const outputConfig = (await readJsonFile(
+      join(appRoot, ".vercel", "output", "config.json"),
+    )) as { services: { eve: { buildCommand: string } } };
+    const encoded = new RegExp(`export ${NEXT_WORKFLOW_TARGET_ENV}='([^']+)'`).exec(
+      outputConfig.services.eve.buildCommand,
+    )?.[1];
+
+    expect(decodeNextWorkflowTargetDescriptor(encoded)).toEqual({
+      nextRootFromAgentRoot: ".",
+      version: 1,
+      workflows: { reportWorkflow: "workflow//report" },
+      worldPackage: "@workflow/world-vercel",
+    });
   });
 
   it("accepts a custom eve service build command", async () => {

@@ -67,6 +67,7 @@ All fields are optional.
 | `eveBuildCommand`    | `string`              | generated              | Build command for generated eve Vercel services. In multi-agent mode this is the default for agents without their own `buildCommand`.                      |
 | `servicePrefix`      | `string`              | `"/_eve_internal/eve"` | Private route namespace for legacy manual Vercel service configs and non-Vercel production proxying. Named agents derive unique defaults from this prefix. |
 | `devServerTimeoutMs` | `number`              | `180000`               | Maximum time to wait for each eve development server to become available.                                                                                  |
+| `workflowBridge`     | `readonly string[]`   | unset                  | Next-owned Workflow export names that eve tools may start through the World selected by `withWorkflow()`.                                                  |
 
 For slow cold starts, increase the development timeout:
 
@@ -98,6 +99,48 @@ export default eveChannel({ auth: [vercelOidc(), localDev()] });
 ```
 
 For a public demo, use `none()` (also from `eve/channels/auth`) to skip authentication. See [Channels](../../channels/overview) and [Auth & route protection](../auth-and-route-protection).
+
+## Start Next-owned workflows from eve tools
+
+When the app also uses the Workflow SDK, compose `withWorkflow()` inside `withEve()` and allowlist
+the workflow export names that eve may start:
+
+```ts title="next.config.ts"
+import { withEve } from "eve/next";
+import { withWorkflow } from "workflow/next";
+
+export default withEve(withWorkflow({}), {
+  workflowBridge: ["processOrder"],
+});
+```
+
+Then start the workflow from an authored tool without importing its transformed function:
+
+```ts title="agent/tools/process-order.ts"
+import { startNextWorkflow } from "eve/next/workflows";
+import { defineTool } from "eve/tools";
+import { z } from "zod";
+
+export default defineTool({
+  description: "Start processing an order.",
+  inputSchema: z.object({ orderId: z.string() }),
+  async execute({ orderId }) {
+    return await startNextWorkflow("processOrder", [orderId]);
+  },
+});
+```
+
+`withWorkflow()` emits the transformed workflow manifest and selects the application's Workflow
+World. `withEve()` validates the allowlist against that manifest and embeds a separate target World
+client in the eve service. The tool dispatches `{ workflowId, args }` directly through that World;
+it does not register the application workflow in eve and does not call a generated HTTP bridge.
+World authentication and deployment targeting therefore follow the selected Workflow World: local
+development uses the Next app's local World, Vercel uses ambient Vercel credentials, and a custom
+self-hosted World reads its normal runtime configuration.
+
+The returned promise resolves with `{ runId, workflow }` after the target World accepts the run. It
+does not wait for workflow completion. Export names must be unique across the Workflow manifest;
+`withEve()` fails the build when a requested name is missing or ambiguous.
 
 ## Dev vs deploy topology
 

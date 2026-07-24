@@ -453,11 +453,13 @@ function startEveDevServer(
   appRoot: string,
   timeoutMs: number,
   logLabel: string | undefined,
+  env: Record<string, string> | undefined,
 ): Promise<EveProcessHandle> {
   return startServerProcess({
     args: [createEveBinaryPath(), "dev", "--no-ui", "--port", "0"],
     command: process.execPath,
     cwd: appRoot,
+    env,
     logLabel,
     timeoutMs,
   }).then((handle) => {
@@ -494,6 +496,7 @@ async function resolveSharedEveDevServer(
   appRoot: string,
   timeoutMs: number,
   logLabel: string | undefined,
+  env: Record<string, string> | undefined,
 ): Promise<EveProcessHandle> {
   const registeredOrigin = await readUsableEveDevServerRegistry(appRoot);
   if (registeredOrigin !== undefined) {
@@ -512,7 +515,7 @@ async function resolveSharedEveDevServer(
       };
     }
 
-    const handle = await startEveDevServer(appRoot, timeoutMs, logLabel);
+    const handle = await startEveDevServer(appRoot, timeoutMs, logLabel, env);
     await writeEveDevServerRegistry(appRoot, handle);
     return handle;
   } finally {
@@ -522,6 +525,7 @@ async function resolveSharedEveDevServer(
 
 export async function resolveEveDestinationPrefix(input: {
   readonly appRoot: string;
+  readonly devServerEnv?: Record<string, string>;
   readonly devServerTimeoutMs?: number;
   readonly logLabel?: string;
   readonly phase: string;
@@ -578,6 +582,7 @@ export async function resolveEveDestinationPrefix(input: {
       input.appRoot,
       input.devServerTimeoutMs ?? DEV_SERVER_REGISTRY_TIMEOUT_MS,
       input.logLabel,
+      input.devServerEnv,
     ).catch((error) => {
       state.servers.delete(key);
       throw error;

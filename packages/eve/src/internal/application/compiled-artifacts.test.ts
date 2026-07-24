@@ -40,6 +40,27 @@ describe("createWorkflowWorldPluginSource", () => {
     expect(source).not.toContain("createWorldFromModule(workflowWorldModule)");
   });
 
+  it("installs a separate allowlisted target World without replacing eve's World", () => {
+    const source = createWorkflowWorldPluginSource({
+      compiledArtifactsBootstrapPath: "/app/.eve/compile/bootstrap.mjs",
+      configuredWorld: undefined,
+      defaultWorld: "local",
+      nextWorkflowTarget: {
+        nextRootFromAgentRoot: "..",
+        version: 1,
+        workflows: { reportWorkflow: "workflow//report" },
+        worldPackage: "@workflow/world-vercel",
+      },
+    });
+
+    expect(source).toContain("const nextWorkflowWorld = nextWorkflowWorldModule.createWorld");
+    expect(source).toContain(
+      'installNextWorkflowTarget({ namespace: undefined, workflows: {"reportWorkflow":"workflow//report"}, world: nextWorkflowWorld });',
+    );
+    expect(source).toContain("setWorld(workflowWorld);");
+    expect(source).not.toContain("setWorld(nextWorkflowWorld)");
+  });
+
   it("selects the vendored Vercel World with Workflow's selector", () => {
     const source = createWorkflowWorldPluginSource({
       compiledArtifactsBootstrapPath: "/app/.eve/compile/bootstrap.mjs",

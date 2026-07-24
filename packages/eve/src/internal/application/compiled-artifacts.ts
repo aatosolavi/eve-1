@@ -15,6 +15,10 @@ import { buildPackageUserAgent } from "#internal/user-agent.js";
 import type { AgentWorkflowWorldDefinition } from "#shared/agent-definition.js";
 import { readMaterializedAuthoredModuleIndex } from "#internal/materialized-authored-modules.js";
 import { usesParentDevelopmentWorkflowWorld } from "#internal/workflow/development-world-protocol.js";
+import {
+  readNextWorkflowTargetDescriptor,
+  type NextWorkflowTargetDescriptor,
+} from "#public/next/workflow-target.js";
 
 export type BuiltInWorkflowWorldTarget = "local" | "vercel";
 
@@ -75,6 +79,9 @@ export async function writeCompiledArtifactsFiles(input: {
       compiledArtifactsBootstrapPath: bootstrapPath,
       configuredWorld: input.compileResult.manifest.config.experimental?.workflow?.world,
       defaultWorld: input.defaultWorkflowWorld,
+      nextWorkflowTarget: await readNextWorkflowTargetDescriptor(
+        input.compileResult.manifest.agentRoot,
+      ),
     }),
   );
 
@@ -134,6 +141,9 @@ export async function writeDevelopmentCompiledArtifactsFiles(input: {
     createDevelopmentWorkflowWorldPluginSource({
       compiledArtifactsBootstrapPath: bootstrapPath,
       configuredWorld: input.compileResult.manifest.config.experimental?.workflow?.world,
+      nextWorkflowTarget: await readNextWorkflowTargetDescriptor(
+        input.compileResult.manifest.agentRoot,
+      ),
     }),
   );
 
@@ -307,10 +317,54 @@ const workflowWorld = await workflowWorldModule.createWorld({
   };
 }
 
+function createNextWorkflowTargetSource(
+  descriptor: NextWorkflowTargetDescriptor | undefined,
+): readonly string[] {
+  if (descriptor === undefined) return [];
+
+  const targetInstaller = resolvePackageSourceFilePath(
+    "src/internal/workflow/next-workflow-target.ts",
+  );
+  const lines = [
+    `import { installNextWorkflowTarget } from ${stringifyEsmImportSpecifier(targetInstaller)};`,
+  ];
+  let moduleSpecifier = descriptor.worldPackage;
+  let createSource =
+    "const nextWorkflowWorld = await createNextWorkflowWorldFromModule(nextWorkflowWorldModule);";
+
+  if (descriptor.worldPackage === "@workflow/world-local") {
+    moduleSpecifier = resolvePackageCompiledFilePath("src/compiled/@workflow/world-local/index.js");
+    lines.push('import { resolve as resolvePath } from "node:path";');
+    createSource = `const nextWorkflowWorld = nextWorkflowWorldModule.createWorld({
+  baseUrl: process.env.EVE_NEXT_WORKFLOW_ORIGIN ?? "http://127.0.0.1:3000",
+  dataDir: resolvePath(process.cwd(), ${JSON.stringify(descriptor.nextRootFromAgentRoot)}, ".next/workflow-data"),
+  recoverActiveRuns: false,
+});`;
+  } else if (descriptor.worldPackage === "@workflow/world-vercel") {
+    moduleSpecifier = resolvePackageCompiledFilePath(
+      "src/compiled/@workflow/world-vercel/index.js",
+    );
+    createSource = `const nextWorkflowWorld = nextWorkflowWorldModule.createWorld({
+  headers: { "User-Agent": ${JSON.stringify(buildPackageUserAgent())} },
+});`;
+  }
+
+  lines.push(
+    `import * as nextWorkflowWorldModule from ${stringifyEsmImportSpecifier(moduleSpecifier)};`,
+    `import { createWorldFromModule as createNextWorkflowWorldFromModule } from ${stringifyEsmImportSpecifier(resolvePackageCompiledFilePath("src/compiled/@workflow/core/runtime.js"))};`,
+    "",
+    createSource,
+    `validateWorkflowWorld({ packageName: ${JSON.stringify(descriptor.worldPackage)}, world: nextWorkflowWorld });`,
+    `installNextWorkflowTarget({ namespace: ${JSON.stringify(descriptor.namespace)}, workflows: ${JSON.stringify(descriptor.workflows)}, world: nextWorkflowWorld });`,
+  );
+  return lines;
+}
+
 export function createWorkflowWorldPluginSource(input: {
   compiledArtifactsBootstrapPath: string;
   configuredWorld: AgentWorkflowWorldDefinition | undefined;
   defaultWorld: BuiltInWorkflowWorldTarget;
+  nextWorkflowTarget?: NextWorkflowTargetDescriptor;
 }): string {
   const targetWorld = input.configuredWorld ?? input.defaultWorld;
   const packageName = getWorldImport({ WORKFLOW_TARGET_WORLD: targetWorld });
@@ -329,6 +383,7 @@ export function createWorkflowWorldPluginSource(input: {
     ...wiring.extraImportLines,
     `import { ${wiring.runtimeImports} } from ${stringifyEsmImportSpecifier(workflowRuntimeImportSpecifier)};`,
     `import { validateWorkflowWorld } from ${stringifyEsmImportSpecifier(workflowWorldValidationImportSpecifier)};`,
+    ...createNextWorkflowTargetSource(input.nextWorkflowTarget),
     "",
     wiring.createWorldSource,
     `validateWorkflowWorld({ packageName: ${JSON.stringify(input.configuredWorld)}, world: workflowWorld });`,
@@ -353,6 +408,7 @@ export function createWorkflowWorldPluginSource(input: {
 export function createDevelopmentWorkflowWorldPluginSource(input: {
   compiledArtifactsBootstrapPath: string;
   configuredWorld: AgentWorkflowWorldDefinition | undefined;
+  nextWorkflowTarget?: NextWorkflowTargetDescriptor;
 }): string {
   if (!usesParentDevelopmentWorkflowWorld(input.configuredWorld)) {
     return createWorkflowWorldPluginSource({
@@ -366,11 +422,16 @@ export function createDevelopmentWorkflowWorldPluginSource(input: {
   const developmentWorldImportSpecifier = resolvePackageSourceFilePath(
     "src/internal/workflow/development-world-client.ts",
   );
+  const workflowWorldValidationImportSpecifier = resolvePackageSourceFilePath(
+    "src/internal/workflow/validate-world.ts",
+  );
   return [
     "// Generated by eve. Do not edit by hand.",
     `import ${stringifyEsmImportSpecifier(input.compiledArtifactsBootstrapPath)};`,
     `import { getWorld, setWorld } from ${stringifyEsmImportSpecifier(workflowRuntimeImportSpecifier)};`,
     `import { createDevelopmentWorkflowWorld } from ${stringifyEsmImportSpecifier(developmentWorldImportSpecifier)};`,
+    `import { validateWorkflowWorld } from ${stringifyEsmImportSpecifier(workflowWorldValidationImportSpecifier)};`,
+    ...createNextWorkflowTargetSource(input.nextWorkflowTarget),
     "",
     "setWorld(createDevelopmentWorkflowWorld());",
     "await getWorld();",

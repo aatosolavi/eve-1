@@ -93,6 +93,7 @@ A few non-`define*` helpers round out the set: `disableTool` and `experimental_w
 | `eve/evals/loaders`                                         | `loadJson`, `loadYaml`                                                |
 | `eve/react`, `eve/vue`, `eve/svelte`                        | `useEveAgent`                                                         |
 | `eve/next`, `eve/nuxt`, `eve/sveltekit`                     | framework bundler plugins                                             |
+| `eve/next/workflows`                                        | start allowlisted Next-owned workflows from eve tools                 |
 | [`eve/client`](../guides/client/overview)                   | `Client`, `ClientSession`                                             |
 
 Exported types ship from the same entrypoint as the helper they describe (for example `ToolDefinition` and `ToolContext` from `eve/tools`). For the exhaustive list, read `packages/eve/src/public/index.ts`.

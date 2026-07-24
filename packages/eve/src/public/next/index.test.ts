@@ -11,6 +11,14 @@ vi.mock("#shared/resolve-eve-binary.js", async () => {
   };
 });
 
+vi.mock("./workflow-target.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./workflow-target.js")>();
+  return {
+    ...original,
+    writeNextWorkflowTargetDescriptor: vi.fn(),
+  };
+});
+
 vi.mock("./vercel-output-config.js", () => ({
   ensureEveVercelOutputConfig: vi.fn(
     async (input: {

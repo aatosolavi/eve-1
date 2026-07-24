@@ -86,6 +86,11 @@
       "import": "./dist/src/public/next/index.js",
       "default": "./dist/src/public/next/index.js"
     },
+    "./next/workflows": {
+      "types": "./dist/src/public/next/workflows.d.ts",
+      "import": "./dist/src/public/next/workflows.js",
+      "default": "./dist/src/public/next/workflows.js"
+    },
     "./nuxt": {
       "types": "./dist/src/public/nuxt/index.d.ts",
       "import": "./dist/src/public/nuxt/index.js",
