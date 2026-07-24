@@ -92,9 +92,12 @@
  *             authoring roots, every historical epoch must be supported or
  *             dropped, every retained epoch needs a compiling fixture, and
  *             every public authoring value must belong to a capability.
- *   rule 37 — Production modules under `packages/eve/src/core/**` may import
- *             only other core modules. The loop algorithms are engine-neutral;
- *             concrete eve types bind once in `internal/loops/types.ts`.
+ *   rule 37 — Production modules under `packages/eve/src/core/**` may
+ *             value-import only other core modules. Type-only imports are
+ *             permitted (they are erased at runtime, so engine-neutrality
+ *             holds) while the domain type definitions migrate into core.
+ *             The loop algorithms stay runtime-dependency-free; concrete
+ *             implementation values bind in adapters.
  *   rule 38 — Loop runtime implementation factories stay private to
  *             `packages/eve/src/internal/loops/**`. Hosts resolve a runtime
  *             only through `resolveLoopDriver()`.
@@ -353,17 +356,29 @@ const MODULE_SPECIFIER_RE = /\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"'
 function checkRule37(posix, lines, violations) {
   if (!posix.startsWith(CORE_SOURCE_PREFIX) || posix.includes(".test.")) return;
 
+  // Type-only imports are erased at runtime and cannot smuggle engine or
+  // SDK behavior into the core; only value imports cross the boundary. The
+  // flag tracks a multi-line `import type {` statement until its `from`.
+  let inTypeImport = false;
   lines.forEach((line, idx) => {
+    if (/^\s*import\b/.test(line)) {
+      inTypeImport = /^\s*import\s+type\b/.test(line);
+    }
     const match = MODULE_SPECIFIER_RE.exec(line);
     const specifier = match?.[1] ?? match?.[2];
-    if (specifier === undefined || specifier.startsWith("#core/") || specifier.startsWith("./")) {
+    if (specifier === undefined) {
+      return;
+    }
+    const typeOnly = inTypeImport;
+    inTypeImport = false;
+    if (typeOnly || specifier.startsWith("#core/") || specifier.startsWith("./")) {
       return;
     }
     violations.push({
       rule: 37,
       file: posix,
       line: idx + 1,
-      message: `imports "${specifier}" from the loop core. Keep concrete eve and implementation dependencies in internal/loops/types.ts or an implementation adapter.`,
+      message: `value-imports "${specifier}" from the loop core. Move the implementation into core, make the import type-only, or inject the value through the flow's ports.`,
     });
   });
 }

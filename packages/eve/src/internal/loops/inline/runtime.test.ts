@@ -8,7 +8,7 @@ import {
   type DurableSessionState,
 } from "#execution/durable-session-store.js";
 import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import type { TurnStepOperationInput } from "#internal/loops/turn-step-operation.js";
+import type { EveEntryInput } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
 import {
   createSessionWaitingEvent,
@@ -23,7 +23,7 @@ import { createInlineLoopRuntime } from "./runtime.js";
 
 const mocks = vi.hoisted(() => ({
   createSessionOperation: vi.fn(),
-  executeTurnStepOperation: vi.fn(),
+  runStepEntrypoint: vi.fn(),
   getCompiledRuntimeAgentBundle: vi.fn(),
 }));
 
@@ -31,8 +31,9 @@ vi.mock("#execution/create-session-step.js", () => ({
   createSessionStep: mocks.createSessionOperation,
 }));
 
-vi.mock("#internal/loops/turn-step-operation.js", () => ({
-  executeTurnStepOperation: mocks.executeTurnStepOperation,
+vi.mock("#core/entrypoint.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#core/entrypoint.js")>()),
+  runStepEntrypoint: mocks.runStepEntrypoint,
 }));
 
 vi.mock("#runtime/sessions/compiled-agent-cache.js", () => ({
@@ -44,7 +45,7 @@ const ADAPTER: ChannelAdapter = { kind: "http" };
 
 afterEach(() => {
   mocks.createSessionOperation.mockReset();
-  mocks.executeTurnStepOperation.mockReset();
+  mocks.runStepEntrypoint.mockReset();
   mocks.getCompiledRuntimeAgentBundle.mockReset();
 });
 
@@ -57,8 +58,8 @@ describe("createInlineLoopRuntime", () => {
     mocks.createSessionOperation.mockReturnValue(creation.promise);
 
     const step = deferred<TurnStepResult>();
-    const turnInputs: TurnStepOperationInput[] = [];
-    mocks.executeTurnStepOperation.mockImplementation(async (input: TurnStepOperationInput) => {
+    const turnInputs: EveEntryInput[] = [];
+    mocks.runStepEntrypoint.mockImplementation(async (_ports: unknown, input: EveEntryInput) => {
       turnInputs.push(input);
       return await step.promise;
     });
@@ -87,7 +88,7 @@ describe("createInlineLoopRuntime", () => {
       sessionId: handle.sessionId,
     });
     creation.resolve({ state });
-    await waitForCallCount(mocks.executeTurnStepOperation, 1);
+    await waitForCallCount(mocks.runStepEntrypoint, 1);
     expect(turnInputs[0]?.serializedContext).toMatchObject({
       [ChannelRequestIdKey.name]: "sample-nonblocking",
       [SessionIdKey.name]: handle.sessionId,
@@ -108,46 +109,48 @@ describe("createInlineLoopRuntime", () => {
       }),
     );
 
-    const turnInputs: TurnStepOperationInput[] = [];
-    mocks.executeTurnStepOperation.mockImplementation(async (input: TurnStepOperationInput) => {
-      turnInputs.push(input);
-      const callIndex = turnInputs.length - 1;
-      const initialState = input.sessionState;
+    const turnInputs: EveEntryInput[] = [];
+    mocks.runStepEntrypoint.mockImplementation(
+      async (ports: EntryStreamPorts, input: EveEntryInput) => {
+        turnInputs.push(input);
+        const callIndex = turnInputs.length - 1;
+        const initialState = input.durableSnapshot;
 
-      if (callIndex === 0) {
-        await publish(input, createTurnStartedEvent({ sequence: 0, turnId: "turn_0" }));
-        return {
-          action: "continue",
-          state: {
-            durable: {
-              ...initialState,
-              emissionState: {
-                sequence: 0,
-                sessionStarted: true,
-                stepIndex: 1,
-                turnId: "turn_0",
+        if (callIndex === 0) {
+          await publish(ports, createTurnStartedEvent({ sequence: 0, turnId: "turn_0" }));
+          return {
+            action: "continue",
+            state: {
+              durable: {
+                ...initialState,
+                emissionState: {
+                  sequence: 0,
+                  sessionStarted: true,
+                  stepIndex: 1,
+                  turnId: "turn_0",
+                },
               },
+              serializedContext: input.serializedContext,
             },
-            serializedContext: input.serializedContext,
-          },
-        } satisfies TurnStepResult;
-      }
+          } satisfies TurnStepResult;
+        }
 
-      const rekeyedState: DurableSessionState = {
-        ...createSessionState({
-          continuationToken: "http:rekeyed",
-          sessionId: initialState.sessionId,
-        }),
-        emissionState: {
-          sequence: callIndex,
-          sessionStarted: true,
-          stepIndex: 0,
-          turnId: "",
-        },
-      };
-      await publish(input, createSessionWaitingEvent("http:rekeyed"));
-      return createParkResult(rekeyedState, input.serializedContext);
-    });
+        const rekeyedState: DurableSessionState = {
+          ...createSessionState({
+            continuationToken: "http:rekeyed",
+            sessionId: initialState.sessionId,
+          }),
+          emissionState: {
+            sequence: callIndex,
+            sessionStarted: true,
+            stepIndex: 0,
+            turnId: "",
+          },
+        };
+        await publish(ports, createSessionWaitingEvent("http:rekeyed"));
+        return createParkResult(rekeyedState, input.serializedContext);
+      },
+    );
 
     const firstRuntime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
     const handle = await firstRuntime.run(
@@ -189,14 +192,14 @@ describe("createInlineLoopRuntime", () => {
       }),
     ).rejects.toSatisfy(isRuntimeNoActiveSessionError);
 
-    await waitForCallCount(mocks.executeTurnStepOperation, 3);
-    expect(turnInputs[0]?.input).toEqual({
+    await waitForCallCount(mocks.runStepEntrypoint, 3);
+    expect(turnInputs[0]?.turnInput).toEqual({
       kind: "deliver",
       payloads: [{ context: undefined, message: "hello-loop", outputSchema: undefined }],
       requestId: "sample-rekey",
     });
-    expect(turnInputs[1]?.input).toBeUndefined();
-    expect(turnInputs[2]?.input).toEqual({
+    expect(turnInputs[1]?.turnInput).toBeUndefined();
+    expect(turnInputs[2]?.turnInput).toEqual({
       auth: null,
       kind: "deliver",
       payloads: [{ message: "next" }],
@@ -271,8 +274,8 @@ describe("createInlineLoopRuntime", () => {
         }),
       }),
     );
-    mocks.executeTurnStepOperation.mockImplementation(async (input: TurnStepOperationInput) =>
-      result(input.sessionState, input.serializedContext),
+    mocks.runStepEntrypoint.mockImplementation(async (_ports: unknown, input: EveEntryInput) =>
+      result(input.durableSnapshot, input.serializedContext),
     );
 
     const runtime = createInlineLoopRuntime({ compiledArtifactsSource: SOURCE });
@@ -355,12 +358,13 @@ function createParkResult(
   };
 }
 
-async function publish(
-  input: TurnStepOperationInput,
-  event: HandleMessageStreamEvent,
-): Promise<void> {
+interface EntryStreamPorts {
+  readonly stream: { open(): WritableStreamDefaultWriter<Uint8Array> };
+}
+
+async function publish(ports: EntryStreamPorts, event: HandleMessageStreamEvent): Promise<void> {
   const timed = timestampHandleMessageStreamEvent(event, "2026-07-10T12:00:00.000Z");
-  const writer = input.parentWritable.getWriter();
+  const writer = ports.stream.open();
   await writer.write(encodeMessageStreamEvent(timed));
   writer.releaseLock();
 }

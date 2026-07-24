@@ -1,7 +1,8 @@
 import type { Runtime } from "#channel/types.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession, type DurableSessionState } from "#execution/durable-session-store.js";
-import { executeTurnStepOperation } from "#internal/loops/turn-step-operation.js";
+import { runStepEntrypoint } from "#core/entrypoint.js";
+import { createEntryPorts } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
 import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -48,16 +49,20 @@ export function createTemporalLoopActivities(input: {
             });
           },
         });
-        return await executeTurnStepOperation({
-          callbackBaseUrl: undefined,
-          createRuntime: unsupportedChildRuntime,
-          durableSession: await readDurableSession(activityInput.sessionState),
-          input: activityInput.input,
-          parentWritable,
-          serializedContext: activityInput.serializedContext,
-          sessionState: activityInput.sessionState,
-          writeEveAttributes: undefined,
-        });
+        return await runStepEntrypoint(
+          createEntryPorts({
+            createRuntime: unsupportedChildRuntime,
+            parentWritable,
+            writeEveAttributes: undefined,
+          }),
+          {
+            callbackBaseUrl: undefined,
+            durableSession: await readDurableSession(activityInput.sessionState),
+            durableSnapshot: activityInput.sessionState,
+            serializedContext: activityInput.serializedContext,
+            turnInput: activityInput.input,
+          },
+        );
       } catch (error) {
         input.service.fail(activityInput.sessionId, error);
         throw error;

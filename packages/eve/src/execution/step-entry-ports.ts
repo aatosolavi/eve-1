@@ -1,7 +1,7 @@
 import { buildAdapterContext } from "#channel/adapter-context.js";
 import { callAdapterEventHandler, defaultDeliverResult } from "#channel/adapter.js";
 import type { DeliverPayload, HookPayload } from "#channel/types.js";
-import { runStepEntrypoint, type EntryFlowTypes, type EntryPorts } from "#core/entrypoint.js";
+import type { EntryFlowTypes, EntryPorts, StepEntryInput } from "#core/entrypoint.js";
 import { dispatchStreamEventHooks } from "#context/hook-lifecycle.js";
 import { dispatchDynamicInstructionEvent } from "#context/dynamic-instruction-lifecycle.js";
 import { dispatchDynamicModelEvent } from "#context/dynamic-model-lifecycle.js";
@@ -45,30 +45,25 @@ import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
 import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
-import type { TurnStepResult } from "#internal/loops/types.js";
 
 /**
- * Inputs for one harness step, with every engine-owned capability injected:
- * the pre-read durable session, the resolved callback base URL, the runtime
- * constructor for delegated child runs, and the observability attribute
- * writer. The operation itself never touches a Workflow primitive.
+ * The engine-owned capabilities behind one step's entry ports: the
+ * runtime constructor for delegated child runs, the parent event stream,
+ * the observability attribute writer, and the cancellation signal. The
+ * ports themselves never touch a Workflow primitive.
  */
-export interface TurnStepOperationInput {
+export interface EntryPortDependencies {
   /** Cancellation signal forwarded into the step. */
   readonly abortSignal?: AbortSignal;
-  /** Callback base URL for tool-execution hooks, when the host knows one. */
-  readonly callbackBaseUrl: string | undefined;
   /** Runtime constructor used to start delegated child runs. */
   readonly createRuntime: CreateRuntime;
-  /** The durable session, pre-read by the host from `sessionState`. */
-  readonly durableSession: DurableSession;
-  readonly input: HookPayload | undefined;
   readonly parentWritable: WritableStream<Uint8Array>;
-  readonly serializedContext: Record<string, unknown>;
-  readonly sessionState: DurableSessionState;
   /** Attribute sink, or `undefined` when the host has no attribute store. */
   readonly writeEveAttributes: EveAttributeWriter | undefined;
 }
+
+/** The engine-supplied inputs of one durable step, in eve types. */
+export type EveEntryInput = StepEntryInput<EveEntryFlow>;
 
 /** The eve binding of the entrypoint's opaque slots. */
 interface EveEntryFlow extends EntryFlowTypes {
@@ -98,29 +93,13 @@ interface EveEntryFlow extends EntryFlowTypes {
 }
 
 /**
- * Runs one atomic harness step: fold the delivery in, run the model with
- * its tools, and return the classified {@link TurnStepResult} projected
- * onto the serialized session cursors.
- *
- * Engine-neutral by construction — the caller owns the durable boundary
- * (e.g. a Workflow `"use step"`), session reading, and retry policy. The
- * flow itself is the core
- * {@link import("#core/entrypoint.js").runStepEntrypoint} program; this
- * module only binds its dependencies to the eve runtime.
+ * Binds the eve runtime to the core durable-step entrypoint
+ * ({@link import("#core/entrypoint.js").runStepEntrypoint}): each engine
+ * composes `runStepEntrypoint(createEntryPorts(deps), input)` inside its
+ * own durability primitive. Engine-neutral by construction — the caller
+ * owns the durable boundary, session reading, and retry policy.
  */
-export async function executeTurnStepOperation(
-  input: TurnStepOperationInput,
-): Promise<TurnStepResult> {
-  return await runStepEntrypoint(createEntryPorts(input), {
-    callbackBaseUrl: input.callbackBaseUrl,
-    durableSession: input.durableSession,
-    durableSnapshot: input.sessionState,
-    serializedContext: input.serializedContext,
-    turnInput: input.input,
-  });
-}
-
-function createEntryPorts(input: TurnStepOperationInput): EntryPorts<EveEntryFlow> {
+export function createEntryPorts(input: EntryPortDependencies): EntryPorts<EveEntryFlow> {
   type Ctx = EveEntryFlow["context"];
   type Channel = {
     readonly adapter: Parameters<typeof callAdapterEventHandler>[0];

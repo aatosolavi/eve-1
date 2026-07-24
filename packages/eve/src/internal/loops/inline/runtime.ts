@@ -30,7 +30,8 @@ import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession } from "#execution/durable-session-store.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
-import { executeTurnStepOperation } from "#internal/loops/turn-step-operation.js";
+import { runStepEntrypoint } from "#core/entrypoint.js";
+import { createEntryPorts } from "#execution/step-entry-ports.js";
 import { InMemoryLoopEventLog } from "#internal/loops/event-log.js";
 import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -277,17 +278,21 @@ class InlineTurnBackend implements TurnBackend {
 
   async generate(input: GenerateInput) {
     const durableSession = await readDurableSession(input.state.durable);
-    const generated = await executeTurnStepOperation({
-      abortSignal: this.#abortSignal,
-      callbackBaseUrl: undefined,
-      createRuntime: createInlineLoopRuntime,
-      durableSession,
-      input: input.input,
-      parentWritable: this.#parentWritable,
-      serializedContext: input.state.serializedContext,
-      sessionState: input.state.durable,
-      writeEveAttributes: undefined,
-    });
+    const generated = await runStepEntrypoint(
+      createEntryPorts({
+        abortSignal: this.#abortSignal,
+        createRuntime: createInlineLoopRuntime,
+        parentWritable: this.#parentWritable,
+        writeEveAttributes: undefined,
+      }),
+      {
+        callbackBaseUrl: undefined,
+        durableSession,
+        durableSnapshot: input.state.durable,
+        serializedContext: input.state.serializedContext,
+        turnInput: input.input,
+      },
+    );
     this.#session.state = generated.state;
     return generated;
   }
