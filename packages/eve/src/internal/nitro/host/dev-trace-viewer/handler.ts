@@ -77,13 +77,17 @@ async function runsListResponse(appRoot: string): Promise<Response> {
   return Response.json({ runs }, { headers: JSON_HEADERS });
 }
 
-async function runDetailResponse(appRoot: string, traceId: string): Promise<Response> {
+async function runDetailResponse(
+  appRoot: string,
+  traceId: string,
+  verbose: boolean,
+): Promise<Response> {
   const spans = await new TraceStore(appRoot).read(traceId);
   if (spans === undefined || spans.length === 0) {
     return Response.json({ error: "Unknown trace." }, { status: 404, headers: JSON_HEADERS });
   }
   return Response.json(
-    { summary: projectRunSummary(spans), waterfall: projectWaterfall(spans) },
+    { summary: projectRunSummary(spans), waterfall: projectWaterfall(spans, { verbose }) },
     { headers: JSON_HEADERS },
   );
 }
@@ -93,9 +97,9 @@ async function runDetailResponse(appRoot: string, traceId: string): Promise<Resp
  *
  * Serves the self-contained viewer SPA at `GET /__traces`, a live SSE feed at
  * `GET /__traces/stream`, the runs list at `GET /__traces/data`, and a single
- * run's summary + waterfall at `GET /__traces/data/<traceId>` (or `?traceId=`).
- * Returns `undefined` for anything else in the namespace so the caller can
- * fall through to the app.
+ * run's summary + waterfall at `GET /__traces/data/<traceId>` (or `?traceId=`,
+ * plus `?verbose=1` to include plumbing spans). Returns `undefined` for anything
+ * else in the namespace so the caller can fall through to the app.
  *
  * Auth: none. Mounted only by the local dev server; never present in
  * production builds.
@@ -118,10 +122,12 @@ export async function handleDevTraceViewerRequest(input: {
     return streamResponse(appRoot, request.signal);
   }
 
+  const verbose = url.searchParams.get("verbose") === "1";
+
   if (pathname === EVE_DEV_TRACES_DATA_ROUTE_PATH) {
     const traceId = url.searchParams.get("traceId");
     return traceId !== null && traceId.length > 0
-      ? runDetailResponse(appRoot, traceId)
+      ? runDetailResponse(appRoot, traceId, verbose)
       : runsListResponse(appRoot);
   }
 
@@ -129,7 +135,7 @@ export async function handleDevTraceViewerRequest(input: {
   if (pathname.startsWith(dataPrefix)) {
     const traceId = decodeURIComponent(pathname.slice(dataPrefix.length));
     if (traceId.length > 0) {
-      return runDetailResponse(appRoot, traceId);
+      return runDetailResponse(appRoot, traceId, verbose);
     }
   }
 

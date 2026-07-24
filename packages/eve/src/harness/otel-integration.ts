@@ -1,27 +1,24 @@
 import { OpenTelemetry } from "#compiled/@ai-sdk/otel/index.js";
-import { registerTelemetry, type Telemetry } from "ai";
-
-import { createEveOtelBridge } from "#harness/eve-otel-bridge.js";
-import { isLocalDevTracingEnabled } from "#harness/local-dev-tracing-mode.js";
+import { registerTelemetry } from "ai";
 
 let registered = false;
 
 /**
- * Registers the AI SDK telemetry integration once. Local dev uses eve's bridge
- * so the local trace tree is session-rooted; production keeps the existing
- * `@ai-sdk/otel` integration and its observable span behavior.
+ * Registers the AI SDK OpenTelemetry integration once so that model
+ * calls emit OTel spans, including runtime-context attributes. Safe to
+ * call multiple times — only the first call has an effect.
+ *
+ * In AI SDK v7 the built-in OTel tracing was moved to `@ai-sdk/otel`
+ * and must be registered explicitly.
  */
 export function ensureOtelIntegration(): void {
   if (registered) {
     return;
   }
   registered = true;
-  registerTelemetry(createOtelIntegration());
-}
-
-/** Resolves the integration for the current runtime mode. */
-export function createOtelIntegration(): Telemetry {
-  return isLocalDevTracingEnabled()
-    ? createEveOtelBridge()
-    : new OpenTelemetry({ runtimeContext: true });
+  registerTelemetry(
+    new OpenTelemetry({
+      runtimeContext: true,
+    }),
+  );
 }

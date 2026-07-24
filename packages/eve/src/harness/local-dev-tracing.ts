@@ -1,10 +1,6 @@
 import { context as otelContext, trace } from "#compiled/@opentelemetry/api/index.js";
 import { BasicTracerProvider } from "#compiled/@opentelemetry/sdk-trace-base/index.js";
 import { registerInstrumentationConfig } from "#harness/instrumentation-config.js";
-import {
-  disableLocalDevTracingModeForTesting,
-  enableLocalDevTracingMode,
-} from "#harness/local-dev-tracing-mode.js";
 import { createLogger, formatError } from "#internal/logging.js";
 import {
   AlsContextManager,
@@ -88,7 +84,6 @@ export function registerLocalDevTracing(
     const provider = new BasicTracerProvider({ spanProcessors: [processor] });
     trace.setGlobalTracerProvider(provider);
     otelContext.setGlobalContextManager(new AlsContextManager());
-    enableLocalDevTracingMode();
 
     const config: InstrumentationDefinition = {
       functionId: input.agentName,
@@ -114,5 +109,4 @@ export function registerLocalDevTracing(
 export function resetLocalDevTracingForTesting(): void {
   handle = undefined;
   processor = undefined;
-  disableLocalDevTracingModeForTesting();
 }

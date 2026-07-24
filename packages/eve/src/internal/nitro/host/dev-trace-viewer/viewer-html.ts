@@ -48,6 +48,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
     --kind-model-call: oklch(0.56 0.17 300);
     --kind-tool: oklch(0.6 0.14 165);
     --kind-subagent: oklch(0.68 0.15 65);
+    --kind-plumbing: oklch(0.8 0.005 260);
     --gridline: oklch(0.9 0 0);
   }
   @media (prefers-color-scheme: dark) {
@@ -71,6 +72,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
       --kind-model-call: oklch(0.68 0.16 300);
       --kind-tool: oklch(0.72 0.14 165);
       --kind-subagent: oklch(0.78 0.14 65);
+      --kind-plumbing: oklch(0.5 0.005 260);
       --gridline: oklch(1 0 0 / 8%);
     }
   }
@@ -302,6 +304,8 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
   .empty { color: var(--ds-gray-900); text-align: center; padding: 3rem 1rem; font-size: 0.8125rem; }
   .legend-swatch { background: var(--span-border); }
   .wf-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .wf-verbose { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 400; cursor: pointer; user-select: none; }
+  .wf-verbose input { accent-color: var(--foreground); cursor: pointer; margin: 0; width: 0.8125rem; height: 0.8125rem; }
   .live { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 500; white-space: nowrap; }
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-foreground); flex-shrink: 0; }
   .live[data-state="off"] { opacity: 0.7; }
@@ -465,7 +469,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
   // following it live. Once following, it keeps following regardless of idle.
   var FOLLOW_START_MS = 60000;
   var KINDS = ["turn", "step", "model-call", "tool", "subagent"];
-  var KIND_LABELS = { turn: "Turn", step: "Step", "model-call": "Model", tool: "Tool", subagent: "Subagent" };
+  var KIND_LABELS = { turn: "Turn", step: "Step", "model-call": "Model", tool: "Tool", subagent: "Subagent", plumbing: "Plumbing" };
 
   var runsEl = document.getElementById("runs");
   var detailEl = document.getElementById("detail");
@@ -491,6 +495,8 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
   var runsById = {};
   var newestRunId = null;
   var followingRunId = null;
+  // Persisted across live refreshes and run selection; controls the ?verbose=1 query.
+  var verbose = false;
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -499,9 +505,14 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
     return node;
   }
 
+  function isPlumbing(n) {
+    return n.indexOf("workflow.") === 0 || n.indexOf("step.") === 0 || n.indexOf("hook.") === 0 || /^step \\d+$/.test(n);
+  }
+
   function classifyKind(name) {
     var n = (name || "").toLowerCase();
-    if (n === "ai.eve.session" || n === "ai.eve.turn" || n.indexOf(".turn") !== -1) return "turn";
+    if (isPlumbing(n)) return "plumbing";
+    if (n === "ai.eve.turn" || n.indexOf(".turn") !== -1) return "turn";
     if (n.indexOf("dostream") !== -1 || n.indexOf("streamtext") !== -1 || n.indexOf("generatetext") !== -1 || n.indexOf("dogenerate") !== -1) return "model-call";
     if (n.indexOf("subagent") !== -1) return "subagent";
     if (n.indexOf("tool") !== -1) return "tool";
@@ -518,6 +529,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
     tool: "color0",
     subagent: "color4",
     step: "colorVercel",
+    plumbing: "colorVercel",
   };
 
   function colorClassFor(name) {
@@ -614,6 +626,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
     }
     updateKpis(summary);
     renderLegend();
+    detailState.checkbox.checked = verbose;
 
     var nodes = data.waterfall || [];
     detailState.nodes = nodes;
@@ -663,6 +676,17 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
     var controls = el("div", "wf-controls");
     var legend = el("div", "legend");
     controls.appendChild(legend);
+    var toggle = el("label", "wf-verbose");
+    var checkbox = el("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = verbose;
+    checkbox.addEventListener("change", function () {
+      verbose = checkbox.checked;
+      if (selectedId !== null) loadDetail(selectedId);
+    });
+    toggle.appendChild(checkbox);
+    toggle.appendChild(document.createTextNode("Verbose"));
+    controls.appendChild(toggle);
     cardHead.appendChild(controls);
     card.appendChild(cardHead);
 
@@ -690,6 +714,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
       wfEl: wf,
       axisTrackEl: axisTrack,
       legendEl: legend,
+      checkbox: checkbox,
       kpis: { turns: turns.value, tokens: tokens.value, duration: duration.value, spans: spans.value },
       nowEl: nowEl,
       rowsById: {},
@@ -715,7 +740,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
   function renderLegend() {
     var legend = detailState.legendEl;
     legend.innerHTML = "";
-    KINDS.forEach(function (k) {
+    (verbose ? KINDS.concat(["plumbing"]) : KINDS).forEach(function (k) {
       var item = el("span", "legend-item");
       item.appendChild(el("span", "legend-swatch " + (KIND_COLOR[k] || "colorVercel")));
       item.appendChild(document.createTextNode(KIND_LABELS[k]));
@@ -1162,7 +1187,7 @@ export const TRACE_VIEWER_HTML = `<!doctype html>
   });
 
   function loadDetail(traceId) {
-    var url = DATA_PATH + "/" + encodeURIComponent(traceId);
+    var url = DATA_PATH + "/" + encodeURIComponent(traceId) + (verbose ? "?verbose=1" : "");
     fetch(url, { headers: { accept: "application/json" } })
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);

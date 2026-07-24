@@ -1,6 +1,5 @@
 import {
   context as otelContext,
-  ROOT_CONTEXT,
   type Span,
   type SpanContext,
   trace,
@@ -117,7 +116,6 @@ import {
   dropStaleSessionLimitContinuationResponses,
 } from "#harness/stale-input-responses.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
-import { isLocalDevTracingEnabled } from "#harness/local-dev-tracing-mode.js";
 import { normalizeUserContent, resolveAssistantStepText } from "#harness/messages.js";
 import { normalizeProviderToolHistory } from "#harness/provider-tool-history.js";
 import {
@@ -398,44 +396,8 @@ function updateCompactionThresholdForModelReference(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Session and turn trace state — survives step boundaries via session.state
+// Turn trace state — survives step boundaries via session.state
 // ---------------------------------------------------------------------------
-
-const SESSION_TRACE_STATE_KEY = "eve.harness.sessionTrace";
-
-/**
- * Serializable subset of `SpanContext` stored on `session.state` so all turns
- * in a session share one trace. The session span is created with
- * `ROOT_CONTEXT`, detaching eve's trace tree from the workflow runtime's
- * `step.execute` span so eve owns the trace.
- */
-interface SessionTraceState {
-  readonly traceId: string;
-  readonly spanId: string;
-  readonly traceFlags: number;
-}
-
-function getSessionTraceState(session: {
-  readonly state?: Readonly<Record<string, unknown>>;
-}): SessionTraceState | undefined {
-  return session.state?.[SESSION_TRACE_STATE_KEY] as SessionTraceState | undefined;
-}
-
-function setSessionTraceState(session: HarnessSession, spanContext: SpanContext): HarnessSession {
-  const stored: SessionTraceState = {
-    traceId: spanContext.traceId,
-    spanId: spanContext.spanId,
-    traceFlags: spanContext.traceFlags,
-  };
-
-  return {
-    ...session,
-    state: {
-      ...session.state,
-      [SESSION_TRACE_STATE_KEY]: stored,
-    },
-  };
-}
 
 const TURN_TRACE_STATE_KEY = "eve.harness.turnTrace";
 
@@ -472,92 +434,34 @@ function setTurnTraceState(session: HarnessSession, spanContext: SpanContext): H
 }
 
 /**
- * Resolves the session-level OTel context — the base that the turn span
- * nests under. Uses the newly created session span when available, or
- * restores from durable session state on continuation steps.
+ * Resolves the OTel context for the current step.
  *
- * Returns `undefined` when tracing is disabled.
- */
-function resolveSessionOtelContext(
-  tracer: ReturnType<typeof trace.getTracer> | undefined,
-  sessionSpan: Span | undefined,
-  session: { readonly state?: Readonly<Record<string, unknown>> },
-): ReturnType<typeof otelContext.active> | undefined {
-  if (tracer === undefined) return undefined;
-
-  if (sessionSpan !== undefined) {
-    return trace.setSpan(ROOT_CONTEXT, sessionSpan);
-  }
-
-  const sessionStored = getSessionTraceState(session);
-  if (sessionStored !== undefined) {
-    const sessionParent = trace.wrapSpanContext({
-      traceId: sessionStored.traceId,
-      spanId: sessionStored.spanId,
-      traceFlags: sessionStored.traceFlags,
-    });
-    return trace.setSpan(otelContext.active(), sessionParent);
-  }
-
-  return ROOT_CONTEXT;
-}
-
-/**
- * Resolves the OTel context for the current step body.
- *
- * The session span is the root of eve's trace tree. The turn span nests
- * under it. On continuation steps (where the span objects are gone),
- * both are reconstructed from durable session state.
- *
- * Returns the context to activate for the step body, or `undefined` when
- * tracing is disabled.
+ * First step of a turn: uses the newly created turn span.
+ * Continuation steps: restores the parent span context from session state
+ * so AI SDK spans nest under the same trace as the first step.
  */
 function resolveStepOtelContext(
   tracer: ReturnType<typeof trace.getTracer> | undefined,
   turnSpan: Span | undefined,
   session: { readonly state?: Readonly<Record<string, unknown>> },
-  ownsTraceTree: boolean,
 ): ReturnType<typeof otelContext.active> | undefined {
-  if (tracer === undefined) return undefined;
+  if (turnSpan) {
+    return trace.setSpan(otelContext.active(), turnSpan);
+  }
 
-  // Production preserves the original Workflow-parented turn hierarchy.
-  if (!ownsTraceTree) {
-    if (turnSpan !== undefined) {
-      return trace.setSpan(otelContext.active(), turnSpan);
-    }
-
-    const turnStored = getTurnTraceState(session);
-    if (turnStored !== undefined) {
-      const turnParent = trace.wrapSpanContext({
-        traceId: turnStored.traceId,
-        spanId: turnStored.spanId,
-        traceFlags: turnStored.traceFlags,
+  if (tracer) {
+    const stored = getTurnTraceState(session);
+    if (stored) {
+      const parent = trace.wrapSpanContext({
+        traceId: stored.traceId,
+        spanId: stored.spanId,
+        traceFlags: stored.traceFlags,
       });
-      return trace.setSpan(otelContext.active(), turnParent);
+      return trace.setSpan(otelContext.active(), parent);
     }
-
-    return undefined;
   }
 
-  const baseContext = resolveSessionOtelContext(tracer, undefined, session)!;
-
-  // Layer the turn span on top of the session context.
-  if (turnSpan !== undefined) {
-    return trace.setSpan(baseContext, turnSpan);
-  }
-
-  // Continuation step: restore the turn span context from durable state.
-  const turnStored = getTurnTraceState(session);
-  if (turnStored !== undefined) {
-    const turnParent = trace.wrapSpanContext({
-      traceId: turnStored.traceId,
-      spanId: turnStored.spanId,
-      traceFlags: turnStored.traceFlags,
-    });
-    return trace.setSpan(baseContext, turnParent);
-  }
-
-  return baseContext;
+  return undefined;
 }
 
 export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
@@ -567,74 +471,34 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     ensureOtelIntegration();
   }
   const tracer = telemetryConfig !== undefined ? trace.getTracer("eve") : undefined;
-  const ownsTraceTree = isLocalDevTracingEnabled();
   const agentName = config.runtimeIdentity?.agentName;
 
   async function runStep(
     initialSession: Readonly<Parameters<StepFn>[0]>,
     input?: StepInput,
   ): Promise<StepResult> {
-    // --- Session and turn span lifecycle ------------------------------------
-    //
-    // Local dev creates a session-rooted trace tree detached from Workflow.
-    // Production preserves its existing Workflow-parented turn span behavior.
-    //
-    // Span contexts are persisted so durable continuation steps restore the
-    // correct parent in either mode.
+    // --- Turn span lifecycle ------------------------------------------------
 
-    let sessionSpan: Span | undefined;
+    // First step of a turn: open a new parent span. Continuation steps
+    // restore the parent from session state via resolveStepOtelContext.
     let turnSpan: Span | undefined;
-
     if (tracer && hasStepInput(input)) {
       const functionId = telemetryConfig?.functionId ?? agentName;
-
-      // Create the session root span once (when no trace state exists yet).
-      // Started inside ROOT_CONTEXT so it does not nest under the workflow
-      // runtime's active span — eve owns the trace tree.
-      if (ownsTraceTree && getSessionTraceState(initialSession) === undefined) {
-        const sessionAttributes: Record<string, string> = {
-          "eve.version": eveVersion,
-          "eve.environment": environment,
-          "eve.session.id": initialSession.sessionId,
-        };
-        if (functionId) {
-          sessionAttributes["ai.telemetry.functionId"] = functionId;
-        }
-        otelContext.with(ROOT_CONTEXT, () => {
-          sessionSpan = tracer.startSpan("ai.eve.session", {
-            attributes: sessionAttributes,
-          });
-        });
-      }
-
-      // Resolve the session context so the turn span nests under it, not
-      // under the workflow runtime's active step.execute span.
-      const sessionContext = ownsTraceTree
-        ? resolveSessionOtelContext(tracer, sessionSpan, initialSession)
-        : undefined;
-
-      // Create the turn span inside the session context.
-      const turnAttributes: Record<string, string> = {
+      const attributes: Record<string, string> = {
         "eve.version": eveVersion,
         "eve.environment": environment,
         "eve.session.id": initialSession.sessionId,
       };
       if (functionId) {
-        turnAttributes["ai.telemetry.functionId"] = functionId;
+        attributes["ai.telemetry.functionId"] = functionId;
       }
-      if (ownsTraceTree && sessionContext !== undefined) {
-        otelContext.with(sessionContext, () => {
-          turnSpan = tracer.startSpan("ai.eve.turn", { attributes: turnAttributes });
-        });
-      } else {
-        turnSpan = tracer.startSpan("ai.eve.turn", { attributes: turnAttributes });
-      }
+      turnSpan = tracer.startSpan("ai.eve.turn", { attributes });
     }
 
     // Run the step body inside the turn span's (or restored parent's)
     // OTel context so AI SDK spans nest as children.
-    const parentContext = resolveStepOtelContext(tracer, turnSpan, initialSession, ownsTraceTree);
-    const executeStep = () => executeStepBody(initialSession, input, turnSpan, sessionSpan);
+    const parentContext = resolveStepOtelContext(tracer, turnSpan, initialSession);
+    const executeStep = () => executeStepBody(initialSession, input, turnSpan);
 
     try {
       if (parentContext) {
@@ -643,7 +507,6 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       return await executeStep();
     } finally {
       turnSpan?.end();
-      sessionSpan?.end();
     }
   }
 
@@ -651,15 +514,11 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     initialSession: Readonly<Parameters<StepFn>[0]>,
     input?: StepInput,
     turnSpan?: Span,
-    sessionSpan?: Span,
   ): Promise<StepResult> {
     let session = initialSession;
 
-    // Store the session and turn span contexts on the session so
-    // continuation steps can restore the parent trace across step boundaries.
-    if (sessionSpan) {
-      session = setSessionTraceState(session, sessionSpan.spanContext());
-    }
+    // Store the turn span context on the session so continuation steps
+    // can restore the parent trace across step boundaries.
     if (turnSpan) {
       session = setTurnTraceState(session, turnSpan.spanContext());
     }

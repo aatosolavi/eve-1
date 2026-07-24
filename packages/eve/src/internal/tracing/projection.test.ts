@@ -142,16 +142,9 @@ describe("projectWaterfall", () => {
     expect(projectWaterfall([])).toEqual([]);
   });
 
-  it("keeps all spans in tree order without pruning", () => {
+  it("prunes the always-'step 1' span and lifts its children to invoke_agent", () => {
     const withStep = [
-      span({ spanId: "session", name: "ai.eve.session", startMillis: 0, endMillis: 1000 }),
-      span({
-        spanId: "turn",
-        parentSpanId: "session",
-        name: "ai.eve.turn",
-        startMillis: 0,
-        endMillis: 1000,
-      }),
+      span({ spanId: "turn", name: "ai.eve.turn", startMillis: 0, endMillis: 1000 }),
       span({
         spanId: "agent",
         parentSpanId: "turn",
@@ -182,14 +175,63 @@ describe("projectWaterfall", () => {
       }),
     ];
     const nodes = projectWaterfall(withStep);
+    expect(nodes.some((n) => n.name === "step 1")).toBe(false);
+    // chat and the tool now hang directly off invoke_agent.
     expect(nodes.map((n) => `${n.name}@${n.depth}`)).toEqual([
-      "ai.eve.session@0",
-      "ai.eve.turn@1",
-      "invoke_agent@2",
-      "step 1@3",
-      "chat@4",
-      "execute_tool get_weather@4",
+      "ai.eve.turn@0",
+      "invoke_agent@1",
+      "chat@2",
+      "execute_tool get_weather@2",
     ]);
-    expect(nodes.find((n) => n.name === "chat")!.parentSpanId).toBe("step");
+    expect(nodes.find((n) => n.name === "chat")!.parentSpanId).toBe("agent");
+  });
+
+  it("hides workflow plumbing by default and reveals it in verbose mode", () => {
+    const withPlumbing = [
+      span({ spanId: "wf", name: "workflow.route.flow", startMillis: 0, endMillis: 1000 }),
+      span({
+        spanId: "wstep",
+        parentSpanId: "wf",
+        name: "step.execute",
+        startMillis: 0,
+        endMillis: 1000,
+      }),
+      span({
+        spanId: "turn",
+        parentSpanId: "wstep",
+        name: "ai.eve.turn",
+        startMillis: 0,
+        endMillis: 990,
+      }),
+      span({
+        spanId: "agent",
+        parentSpanId: "turn",
+        name: "invoke_agent",
+        startMillis: 0,
+        endMillis: 900,
+      }),
+      span({
+        spanId: "chat",
+        parentSpanId: "agent",
+        name: "chat",
+        startMillis: 10,
+        endMillis: 500,
+      }),
+    ];
+
+    const byDefault = projectWaterfall(withPlumbing);
+    expect(byDefault.map((n) => n.name)).toEqual(["ai.eve.turn", "invoke_agent", "chat"]);
+    expect(byDefault[0]!.depth).toBe(0); // turn re-rooted above the dropped plumbing
+
+    const verbose = projectWaterfall(withPlumbing, { verbose: true }).map(
+      (n) => `${n.name}@${n.depth}`,
+    );
+    expect(verbose).toEqual([
+      "workflow.route.flow@0",
+      "step.execute@1",
+      "ai.eve.turn@2",
+      "invoke_agent@3",
+      "chat@4",
+    ]);
   });
 });

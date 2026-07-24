@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  disableLocalDevTracingModeForTesting,
-  enableLocalDevTracingMode,
-  isLocalDevTracingEnabled,
-} from "#harness/local-dev-tracing-mode.js";
-import {
   EVE_TRACE_RECORD_INPUTS_ENV,
   EVE_TRACE_RECORD_OUTPUTS_ENV,
   recordDefaultFromEnv,
@@ -15,7 +10,6 @@ describe("recordDefaultFromEnv", () => {
   afterEach(() => {
     delete process.env[EVE_TRACE_RECORD_INPUTS_ENV];
     delete process.env[EVE_TRACE_RECORD_OUTPUTS_ENV];
-    disableLocalDevTracingModeForTesting();
   });
 
   it("defaults to true when the var is unset", () => {
@@ -34,11 +28,5 @@ describe("recordDefaultFromEnv", () => {
       process.env[EVE_TRACE_RECORD_OUTPUTS_ENV] = value;
       expect(recordDefaultFromEnv(EVE_TRACE_RECORD_OUTPUTS_ENV)).toBe(false);
     }
-  });
-
-  it("tracks local dev tracing mode process-globally", () => {
-    expect(isLocalDevTracingEnabled()).toBe(false);
-    enableLocalDevTracingMode();
-    expect(isLocalDevTracingEnabled()).toBe(true);
   });
 });
