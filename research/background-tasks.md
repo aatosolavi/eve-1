@@ -1,7 +1,7 @@
 ---
 issue: https://github.com/vercel/eve/issues/1084
 status: proposed
-last_updated: "2026-07-23"
+last_updated: "2026-07-24"
 ---
 
 # Background tasks
@@ -42,7 +42,7 @@ runs it and emits status notifications. The spec is organized around that
 split: a role-agnostic [contract](#contract) both sides read, then one
 protocol section — with its own sequence diagram — per role
 ([caller protocol], [callee protocol]). Subagents compose the two: the
-parent session is a caller, the child executor a callee, and endpoint
+parent session is a caller, the child executor a callee, and consumer
 registration is the handoff between the two protocols.
 
 **Design goal — subagents are authored on the public primitives.** The
@@ -50,9 +50,9 @@ registration is the handoff between the two protocols.
 this plan ships; it gets no permanently private plumbing. That forces three
 capabilities into the authoring contract rather than the internals:
 **detachable execution** (an `execute` may hand its work to an external
-executor and let a later callback resolve the task), **endpoint
-registration** (a detached executor attaches the caller's notification
-endpoint to work it dispatches), and a **task handle** in the execution
+executor and let a later callback resolve the task), **consumer
+registration** (a detached executor attaches the caller's event consumer to
+work it dispatches), and a **task handle** in the execution
 context (read the record, set `statusMessage`). [Slice 2] migrates subagents
 onto the record through internal plumbing; [Slice 3] promotes that plumbing
 into the authoring surface and re-expresses the `agent` tool on it as the
@@ -113,8 +113,8 @@ today:
   stream carries only `subagent.called` and `subagent.completed`; following
   a child means separately subscribing to its stream. Task notifications
   give the parent `statusMessage`-granularity progress: status transitions
-  land on the parent stream as task lifecycle events, and passive observers
-  (a UI, a log sink) register filtered endpoints for the full
+  land on the parent stream as task lifecycle events, and passive consumers
+  (a UI, a log sink) register with a filter for the full
   `task.created`/`task.progress` feed. Progress is per-transition, not a
   byte stream; the child's own stream remains the full-fidelity feed and
   stays independently subscribable.
@@ -223,38 +223,35 @@ interface TaskNotification {
 }
 ```
 
-An endpoint is a stored POST target:
+A consumer of those notifications is a stored POST target:
 
 ```ts
-interface NotificationEndpoint {
+interface EventConsumer {
   readonly url: string; // POST target, as /eve/v1/callback/:token today — local and remote alike
 }
 ```
 
-Which events land on an endpoint is one opinionated default — a single place
-to change, no per-endpoint negotiation:
+Which events land on a consumer is one opinionated default — a single place
+to change, no per-consumer negotiation:
 
 ```ts
-const DEFAULT_NOTIFICATION_ROUTES: readonly TaskNotificationKind[] = [
-  "task.status",
-  "task.terminal",
-]; // wake-worthy only
+const DEFAULT_CONSUMER_EVENTS: readonly TaskNotificationKind[] = ["task.status", "task.terminal"]; // wake-worthy only
 ```
 
-The default is deliberately narrow: v1's only registered endpoint is the
+The default is deliberately narrow: v1's only registered consumer is the
 caller's session driver, and a delivery wakes it (and may run a turn), so
-progress chatter must not route there. A passive observer (a UI, a log sink)
+progress chatter must not route there. A passive consumer (a UI, a log sink)
 that wants the full feed — `task.created`, `task.progress` — gets it via a
-per-endpoint filter on registration overriding this default, not a new
+per-consumer filter on registration overriding this default, not a new
 mechanism.
 
-Endpoint URLs are capabilities (the token is embedded in the URL): they are
+Consumer URLs are capabilities (the token is embedded in the URL): they are
 stored, never emitted on streams or surfaced to the model.
 
 ## Caller protocol
 
 The caller is a session that dispatches work: it elects background, takes
-the placeholder at the call position, registers its own wake endpoint on the
+the placeholder at the call position, registers its own wake consumer on the
 task, and later routes the arriving notification back into itself.
 
 ```
@@ -265,7 +262,7 @@ caller — elect, park, wake, route
      |           |          |--invoke--->|                |
      |           |          |<-tool call-|                |
      |           |          |            |                |
-     |           |          |----elect (task field)------>|   Task created; caller endpoint registered
+     |           |          |----elect (task field)------>|   Task created; caller consumer registered
      |           |          |<-placeholder----------------|   CreateTaskResult at the call position
      |           |          |            |                |
      |           |          | step checkpoints            |   work keeps executing (callee)
@@ -325,17 +322,17 @@ The turn then proceeds and may end with tasks still live. Records live on the
 durable session state (as `pendingInputBatch` does today) and ride the
 existing step-result persistence boundary.
 
-### Endpoint registration
+### Consumer registration
 
-At background dispatch, the caller registers its **session entry point** — a
-hook endpoint keyed by the public continuation token, targeting the session's
-driver rather than any turn hook — on the child task. Registration and
+At background dispatch, the caller registers its **session entry point** as a
+consumer — a hook URL keyed by the public continuation token, targeting the
+session's driver rather than any turn hook — on the child task. Registration and
 storage are session-state operations; no new persistence.
 
 Registration is framework-internal through [Slice 2]: the only writer is
 background dispatch itself. [Slice 3] exposes registration to authored
 detached executors (required by the design goal); whether channels or
-external callers ever get to add observers is open question 4.
+external callers ever get to add consumers is open question 4.
 
 ### Receiving notifications
 
@@ -397,12 +394,12 @@ path applies unchanged.
 ## Callee protocol
 
 The callee is the executor: it runs the work, transitions the record, and
-emits a notification per transition to the task's registered endpoints.
+emits a notification per transition to the task's registered consumers.
 
 ```
 callee — run, transition, notify
 
-  executor            task record            registered endpoints
+  executor            task record            registered consumers
      |                     |                          |
      |----run work-------->|                          |
      |                     |                          |
@@ -414,7 +411,7 @@ callee — run, transition, notify
      |--terminal outcome-->| completed|failed|cancelled
      |                     |--task.terminal---------->|   outcome inline on snapshot
      |                     |                          |
-     |                     | per-endpoint guard: gone subscriber →
+     |                     | per-consumer guard: gone consumer →
      |                     | mark dead, drop, no retry
 ```
 
@@ -436,25 +433,26 @@ the caller either:
 > `notifyDelegatedParentStep` resumes the parent via
 > `resumeHook(parentContinuationToken, …)` — but that token is the parent
 > _turn's_ inbox hook (`turn-workflow.ts`), so it only works while the parent
-> turn is still live and parked awaiting the result. The endpoints here must
-> instead reach the session's driver, which outlives any turn.
+> turn is still live and parked awaiting the result. The consumers here must
+> instead target the session's driver, which outlives any turn.
 
 > Sidenote 2: _remote_ subagents already use the HTTP transport — dispatch
 > hands the callee a URL minted from the parent turn's continuation token
 > (`remote-agent-dispatch.ts`), the callee POSTs its terminal result to
 > `/eve/v1/callback/:token`, and the route handler just does
-> `resumeHook(token, …)` (`session-callback-route.ts`). So the endpoint
-> below is proven wire plumbing; what changes is only the token's target —
+> `resumeHook(token, …)` (`session-callback-route.ts`). So the consumer
+> delivery below is proven wire plumbing; what changes is only the token's
+> target —
 > driver instead of turn hook — and that the callee may POST per
 > transition, not once at terminal.
 
 While a task is `working`, progress is `statusMessage` granularity per
 transition, not a byte stream.
 
-The notify step fans out one delivery per routed endpoint per event,
+The notify step fans out one delivery per routed consumer per event,
 guarding each independently: a token-not-found response from the callback
-route (`HookNotFoundError` behind it) means that subscriber is gone — mark
-the endpoint dead, drop, no retry loop.
+route (`HookNotFoundError` behind it) means that consumer is gone — mark it
+dead, drop, no retry loop.
 
 The remote-agent callback contract that already exists
 (`callback: { token, url }` in `remote-agent-dispatch.ts`) is no longer a
@@ -470,8 +468,8 @@ horizontally.
 
 The contract and both protocols land end-to-end with no public electors: the
 record, transitions, and placeholder projection (caller); the notification
-envelope, endpoint storage, and guarded fan-out (callee); and the wiring — a
-task status transition notifies its registered endpoints, and a parked
+envelope, consumer storage, and guarded fan-out (callee); and the wiring — a
+task status transition notifies its registered consumers, and a parked
 session wakes, routes the two arms, and handles the mid-turn and
 late-response scenarios. Nothing user-facing elects background yet; the
 creation path is exercised internally, with unit and integration coverage
@@ -548,10 +546,10 @@ sketch; shapes and semantics are the commitment):
   when the external executor posts its terminal result to that endpoint.
   This is the authored form of the ownership transfer `runtimeAction`
   performs internally for subagents today.
-- **Endpoint registration** — a detached executor may register the task's
-  notification endpoints on work it dispatches (the same capability
-  background dispatch uses in [Slice 1]), so forwarded notifications need no
-  private path.
+- **Consumer registration** — a detached executor may register the task's
+  event consumers on work it dispatches (the same capability background
+  dispatch uses in [Slice 1]), so forwarded notifications need no private
+  path.
 
 The exit criterion is the dogfooding test: the `agent` tool re-implemented
 as a `defineTool` on these primitives, behavior-identical to the [Slice 2]
@@ -576,11 +574,11 @@ resolves questions today.
 2. The driver's wake vocabulary stays `deliver`-only and the
    `NextDriverAction` contract stays closed; all new discrimination lives in
    step bodies.
-3. Task ids are minted; continuation tokens, endpoint tokens, and child
+3. Task ids are minted; continuation tokens, consumer tokens, and child
    session ids never appear as task ids or on streams.
 4. Task deliveries execute under the session's initiator principal; tasks are
    bound to the auth context that created them.
-5. Every notification send is guarded per endpoint; a gone subscriber never
+5. Every notification send is guarded per consumer; a gone consumer never
    fails the task or triggers retry loops.
 
 ## Deferred
@@ -617,9 +615,9 @@ resolves questions today.
    parent conversation, does the answer route by `requestId` alone (today's
    proxy map semantics) or also require the task to still be live under its
    `ttlMs`?
-4. Authored detached executors register endpoints as of [Slice 3] (design
+4. Authored detached executors register consumers as of [Slice 3] (design
    goal). Still open: do channels or external callers ever get to add
-   observers, and what ordering or dedup guarantee does an endpoint get when
+   consumers, and what ordering or dedup guarantee does a consumer get when
    transitions burst?
 5. The extension draft is experimental and has not finalized request-side
    augmentation or `taskSupport`; when it does, does eve chase the final
@@ -647,8 +645,8 @@ where eve anchors on the 2025-11-25 core feature those drafts inherit from.
 | `tasks/get`                           | poll one task → `DetailedTask`                                                                                   | internal `getTask(taskId)`; wire adapter later                                   |
 | `tasks/update`                        | `{ taskId, inputResponses }` → ack                                                                               | step-0 routing of late responses to live `input_required` tasks                  |
 | `tasks/cancel`                        | ack; "cooperative and eventually consistent"                                                                     | best-effort abort propagation via descendant-cancel machinery                    |
-| `notifications/tasks`                 | params = full `DetailedTask`                                                                                     | `TaskNotification` envelope (kind + full `DetailedTask`) to each routed endpoint |
-| Subscriptions                         | subscribe/ack notifications with `taskIds?: string[]`                                                            | endpoint registration on the task (caller protocol, [Slice 1])                   |
+| `notifications/tasks`                 | params = full `DetailedTask`                                                                                     | `TaskNotification` envelope (kind + full `DetailedTask`) to each routed consumer |
+| Subscriptions                         | subscribe/ack notifications with `taskIds?: string[]`                                                            | consumer registration on the task (caller protocol, [Slice 1])                   |
 | `tasks/list`, blocking `tasks/result` | removed by the extension redesign                                                                                | not built                                                                        |
 | Task augmentation, `taskSupport`      | not yet in the extension draft                                                                                   | `task` input field + `task:` combinators over 2025-11-25 `taskSupport`           |
 
