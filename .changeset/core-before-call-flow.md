@@ -2,4 +2,4 @@
 "eve": patch
 ---
 
-Internal restructuring of the harness step: the complete generate-step flow — turn-input resolution, prompt assembly, call preflight, the model call with its recovery pipeline and failure decision tree, usage accounting, and the trace envelope — now lives in the engine-neutral core as a program over dependency-shaped ports (capabilities and facets), with the harness supplying only primitives. No behavioral change.
+Internal restructuring of the step execution path: the complete flow — the durable-step entrypoint (context restore, authorization completion, delivery resolution, outcome projection) and the generate step it runs (turn-input resolution, prompt assembly, the model call with recovery and the failure decision tree, usage accounting, trace envelope) — now lives in the engine-neutral core as programs over dependency-shaped ports, with the runtime supplying only primitives. No behavioral change.

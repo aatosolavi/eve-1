@@ -13,11 +13,15 @@ const WORKFLOW_PRIMITIVE_SPECIFIERS = new Set([
 ]);
 // Existing reachability debt through ContextKey serialization. This set should
 // only shrink. model-call.ts carries the dynamic-model slice of generate.ts's
-// original debt (the import moved with the extracted code, not new debt).
+// original debt, and turn-before-call.ts / turn-call.ts carry the dynamic-
+// instruction and model-call slices after the step-flow decomposition (the
+// imports moved with the extracted code, not new debt).
 const WORKFLOW_REACHABILITY_ALLOWLIST = new Set([
   "harness/attachment-staging.ts",
   "harness/model-call.ts",
   "harness/generate.ts",
+  "harness/turn-before-call.ts",
+  "harness/turn-call.ts",
 ]);
 const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage"]);
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"] as const;

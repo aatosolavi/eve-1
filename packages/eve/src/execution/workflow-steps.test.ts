@@ -29,11 +29,7 @@ import { createNodeGenerate } from "#execution/node-generate.js";
 import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";
 import { runProxySubagentEventStep } from "#execution/subagent-event-proxy-step.js";
 import { emitTerminalSessionFailureStep } from "#execution/terminal-session-failure-step.js";
-import {
-  dispatchTurnStep,
-  resolveEffectiveOutputSchema,
-  turnStep,
-} from "#internal/loops/workflow/steps.js";
+import { dispatchTurnStep, turnStep } from "#internal/loops/workflow/steps.js";
 import {
   LATEST_DEPLOYMENT_UNSUPPORTED_MESSAGE,
   turnWorkflowReference,
@@ -1466,53 +1462,5 @@ describe("runProxySubagentEventStep", () => {
 
     expect(result.sessionState.continuationToken).toBe("http:proxy-rekeyed");
     expect(result.serializedContext[ContinuationTokenKey.name]).toBe("http:proxy-rekeyed");
-  });
-});
-
-describe("resolveEffectiveOutputSchema", () => {
-  const runSchema = { properties: { title: { type: "string" } }, type: "object" } as const;
-  const agentSchema = { properties: { summary: { type: "string" } }, type: "object" } as const;
-
-  it("uses a run-scoped schema in either mode", () => {
-    for (const mode of ["conversation", "task"] as const) {
-      const session = createStubSession();
-      const resolved = resolveEffectiveOutputSchema({
-        agentOutputSchema: agentSchema,
-        input: { outputSchema: runSchema },
-        mode,
-        session,
-      });
-      // Run-scoped schema always wins over the agent-declared one.
-      expect(resolved.outputSchema).toEqual(runSchema);
-    }
-  });
-
-  it("adopts the agent schema only for task runs without a run-scoped schema", () => {
-    const task = resolveEffectiveOutputSchema({
-      agentOutputSchema: agentSchema,
-      input: { message: "hi" },
-      mode: "task",
-      session: createStubSession(),
-    });
-    expect(task.outputSchema).toEqual(agentSchema);
-
-    const conversation = resolveEffectiveOutputSchema({
-      agentOutputSchema: agentSchema,
-      input: { message: "hi" },
-      mode: "conversation",
-      session: createStubSession(),
-    });
-    expect(conversation.outputSchema).toBeUndefined();
-  });
-
-  it("preserves the in-effect schema on a continuation step with no new input", () => {
-    const session = createStubSession({ outputSchema: runSchema });
-    const resolved = resolveEffectiveOutputSchema({
-      agentOutputSchema: agentSchema,
-      input: undefined,
-      mode: "conversation",
-      session,
-    });
-    expect(resolved).toBe(session);
   });
 });

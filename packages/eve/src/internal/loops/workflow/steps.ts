@@ -20,7 +20,6 @@ import {
 import { resumeHook } from "#internal/workflow/runtime.js";
 
 export type { TurnStepInput, TurnStepResult };
-export { resolveEffectiveOutputSchema } from "#internal/loops/turn-step-operation.js";
 
 /**
  * Runs one atomic harness step inside a durable `"use step"` boundary.
