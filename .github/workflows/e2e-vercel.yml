@@ -144,6 +144,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$EVE_EVAL_JUNIT_DIR"
+          # Temporary consumers live outside the checkout, so expose the root
+          # Vercel CLI for eve's verified remote credential lookup.
+          export PATH="$(dirname "$VERCEL_CLI"):$PATH"
 
           token_args=()
           if [ -n "${VERCEL_TOKEN:-}" ]; then
