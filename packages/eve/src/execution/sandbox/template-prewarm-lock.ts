@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -96,6 +96,14 @@ async function acquireLock(lockPath: string): Promise<string> {
       );
       return ownerToken;
     } catch (error) {
+      if (isNotFoundError(error)) {
+        // A reclaimer moved this directory away between the claim and the
+        // ownership write, so the claim never took effect. Retry rather than
+        // failing the prewarm.
+        throwIfLockWaitTimedOut(lockPath, startedAt);
+        continue;
+      }
+
       await removeLockDirectory(lockPath).catch(() => {});
       throw error;
     }
@@ -225,7 +233,7 @@ async function reclaimLockWhileRecoveryIsHeld(
   const tombstonePath = `${lockPath}.tombstone-${process.pid}-${randomUUID()}`;
 
   try {
-    await rename(lockPath, tombstonePath);
+    await renameWithTransientBusyRetry(lockPath, tombstonePath);
   } catch (error) {
     if (isNotFoundError(error)) {
       return undefined;
@@ -385,7 +393,7 @@ async function removeLockDirectory(lockPath: string): Promise<void> {
   const tombstonePath = `${lockPath}.tombstone-${process.pid}-${randomUUID()}`;
 
   try {
-    await rename(lockPath, tombstonePath);
+    await renameWithTransientBusyRetry(lockPath, tombstonePath);
   } catch (error) {
     if (isNotFoundError(error)) {
       return;

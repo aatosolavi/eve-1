@@ -21,12 +21,40 @@ const recoveryIntentRename = vi.hoisted(() => ({
   calls: 0,
   failures: 0,
 }));
+const lockRename = vi.hoisted(() => ({
+  tombstoneCalls: 0,
+}));
+const ownerWrite = vi.hoisted(() => ({
+  removeLockOnNextWrite: false,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
 
   return {
     ...original,
+    async writeFile(...input: Parameters<typeof original.writeFile>) {
+      const path = String(input[0]);
+
+      if (
+        ownerWrite.removeLockOnNextWrite &&
+        /[\\/]owner\.json$/.test(path) &&
+        !path.includes(".recovery")
+      ) {
+        ownerWrite.removeLockOnNextWrite = false;
+        // Stands in for a reclaimer moving the directory away between the
+        // claiming mkdir and the ownership write.
+        await original.rm(path.replace(/[\\/]owner\.json$/, ""), {
+          force: true,
+          recursive: true,
+        });
+        throw Object.assign(new Error("injected lock disappearance"), {
+          code: "ENOENT",
+        });
+      }
+
+      return original.writeFile(...input);
+    },
     async rm(...input: Parameters<typeof original.rm>) {
       if (recoveryIntentRemoval.failNext && String(input[0]).includes(".recovery.released-")) {
         recoveryIntentRemoval.failNext = false;
@@ -55,6 +83,10 @@ vi.mock("#shared/rename-with-retry.js", async (importOriginal) => {
   return {
     ...original,
     async renameWithTransientBusyRetry(sourcePath: string, destinationPath: string) {
+      if (destinationPath.includes(".tombstone-")) {
+        lockRename.tombstoneCalls += 1;
+      }
+
       if (sourcePath.includes("intent-") && destinationPath.includes(".recovery.released-")) {
         recoveryIntentRename.calls += 1;
         if (recoveryIntentRename.failures > 0) {
@@ -82,6 +114,8 @@ afterEach(() => {
   recoveryIntentRemoval.failNext = false;
   recoveryIntentRename.calls = 0;
   recoveryIntentRename.failures = 0;
+  lockRename.tombstoneCalls = 0;
+  ownerWrite.removeLockOnNextWrite = false;
 });
 
 function resolveLockPath(appRoot: string): string {
@@ -396,6 +430,38 @@ describe("sandbox template prewarm locks", () => {
     await withSandboxTemplatePrewarmLock(input, async () => {});
 
     expect(recoveryIntentRename.calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retries when the lock directory disappears before ownership is recorded", async () => {
+    const appRoot = await createScratchDirectory("eve-prewarm-lock-lost-claim-");
+    ownerWrite.removeLockOnNextWrite = true;
+    let ran = false;
+
+    await withSandboxTemplatePrewarmLock(createLockInput(appRoot), async () => {
+      ran = true;
+    });
+
+    expect(ran).toBe(true);
+    expect(ownerWrite.removeLockOnNextWrite).toBe(false);
+  });
+
+  it("moves reclaimed and released locks with the transient-busy rename", async () => {
+    const appRoot = await createScratchDirectory("eve-prewarm-lock-reclaim-rename-");
+    const lockPath = await writeLock(appRoot, {
+      createdAt: new Date().toISOString(),
+      hostname: hostname(),
+      pid: DEAD_PID,
+    });
+
+    await waitForFixtureLock(appRoot);
+
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    const reclaimCalls = lockRename.tombstoneCalls;
+    expect(reclaimCalls).toBeGreaterThanOrEqual(1);
+
+    await withSandboxTemplatePrewarmLock(createLockInput(appRoot), async () => {});
+
+    expect(lockRename.tombstoneCalls).toBeGreaterThan(reclaimCalls);
   });
 
   it("reclaims stale locks whose owner cannot be verified", async () => {
