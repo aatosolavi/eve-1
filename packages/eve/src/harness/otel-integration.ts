@@ -1,5 +1,5 @@
 import { OpenTelemetry } from "#compiled/@ai-sdk/otel/index.js";
-import { registerTelemetry } from "ai";
+import { registerTelemetry, type Telemetry } from "ai";
 
 let registered = false;
 
@@ -16,9 +16,10 @@ export function ensureOtelIntegration(): void {
     return;
   }
   registered = true;
-  registerTelemetry(
-    new OpenTelemetry({
-      runtimeContext: true,
-    }),
-  );
+  registerTelemetry(createLegacyOtelIntegration());
+}
+
+/** Creates the existing production integration for explicit per-call composition. */
+export function createLegacyOtelIntegration(): Telemetry {
+  return new OpenTelemetry({ runtimeContext: true });
 }

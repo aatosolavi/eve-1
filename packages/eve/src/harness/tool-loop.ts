@@ -10,6 +10,7 @@ import {
   type ModelMessage,
   type ProviderMetadata,
   type SystemModelMessage,
+  type Telemetry,
   type TelemetryOptions,
   ToolLoopAgent,
   type ToolSet,
@@ -116,6 +117,7 @@ import {
   dropStaleSessionLimitContinuationResponses,
 } from "#harness/stale-input-responses.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
+import { getLocalDevInstrumentationRuntime } from "#harness/local-dev-instrumentation-runtime.js";
 import { normalizeUserContent, resolveAssistantStepText } from "#harness/messages.js";
 import { normalizeProviderToolHistory } from "#harness/provider-tool-history.js";
 import {
@@ -143,7 +145,7 @@ import {
   hasEmptyDeliverySentinel,
 } from "#shared/empty-delivery.js";
 import { extractWorkflowStreamWriteErrorDetails } from "#harness/workflow-stream-error.js";
-import { ensureOtelIntegration } from "#harness/otel-integration.js";
+import { createLegacyOtelIntegration, ensureOtelIntegration } from "#harness/otel-integration.js";
 import { getAdvertisedTools } from "#harness/advertised-tools.js";
 import {
   applyLastToolCacheBreakpoint,
@@ -245,8 +247,13 @@ function enrichTelemetry(
   authored: InstrumentationDefinition | undefined,
   agentName: string | undefined,
   runtimeContext?: Readonly<Record<string, unknown>>,
+  local?: {
+    readonly integration: Telemetry;
+    readonly recordInputs: boolean;
+    readonly recordOutputs: boolean;
+  },
 ): TelemetryOptions | undefined {
-  if (authored === undefined) {
+  if (authored === undefined && local === undefined) {
     return undefined;
   }
 
@@ -258,11 +265,17 @@ function enrichTelemetry(
   }
 
   return {
-    functionId: authored.functionId ?? agentName,
+    functionId: authored?.functionId ?? agentName,
     includeRuntimeContext,
+    integrations:
+      local === undefined
+        ? undefined
+        : authored === undefined
+          ? [local.integration]
+          : [local.integration, createLegacyOtelIntegration()],
     isEnabled: true,
-    recordInputs: authored.recordInputs ?? true,
-    recordOutputs: authored.recordOutputs ?? true,
+    recordInputs: authored?.recordInputs ?? local?.recordInputs ?? true,
+    recordOutputs: authored?.recordOutputs ?? local?.recordOutputs ?? true,
   };
 }
 
@@ -471,6 +484,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     ensureOtelIntegration();
   }
   const tracer = telemetryConfig !== undefined ? trace.getTracer("eve") : undefined;
+  const localInstrumentation = getLocalDevInstrumentationRuntime();
   const agentName = config.runtimeIdentity?.agentName;
 
   async function runStep(
@@ -793,6 +807,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
      * its retry telemetry and follow-up note.
      */
     type ModelCallOptions = {
+      attemptIndex?: number;
       disabledProviderTools?: ReadonlySet<string>;
       extraSystemNote?: string;
       preparedInput?: ReturnType<typeof prepareModelCallInput>;
@@ -875,6 +890,15 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
 
       const effectiveTools = marker ? applyLastToolCacheBreakpoint(modelTools, marker) : modelTools;
 
+      const localBridge = localInstrumentation?.createBridge({
+        attemptId: `${session.sessionId}:${emissionState.turnId}:${emissionState.stepIndex}:${opts.attemptIndex ?? 0}`,
+        attemptIndex: opts.attemptIndex ?? 0,
+        functionId: telemetryConfig?.functionId ?? agentName,
+        sessionId: session.sessionId,
+        stepIndex: emissionState.stepIndex,
+        turnId: emissionState.turnId,
+      });
+
       const hooks = buildStepHooks({
         cachePath,
         emit,
@@ -905,7 +929,18 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
         reasoning: session.agent.reasoning,
         runtimeContext: telemetryRuntimeContext,
         stopWhen: isStepCount(1),
-        telemetry: enrichTelemetry(telemetryConfig, agentName, telemetryRuntimeContext),
+        telemetry: enrichTelemetry(
+          telemetryConfig,
+          agentName,
+          telemetryRuntimeContext,
+          localBridge === undefined || localInstrumentation === undefined
+            ? undefined
+            : {
+                integration: localBridge,
+                recordInputs: localInstrumentation.recordInputs,
+                recordOutputs: localInstrumentation.recordOutputs,
+              },
+        ),
         toolApproval: buildToolApproval(modelTools),
         tools: effectiveTools,
       };
@@ -1001,6 +1036,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
         (attempt) =>
           runSingleModelCall({
             ...opts,
+            attemptIndex: attempt - 1,
             preparedInput: attempt === 1 ? opts.preparedInput : undefined,
             suppressStepStartedEmission: attempt === 1 ? opts.suppressStepStartedEmission : true,
           }),

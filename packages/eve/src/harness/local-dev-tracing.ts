@@ -1,14 +1,11 @@
-import { context as otelContext, trace } from "#compiled/@opentelemetry/api/index.js";
 import { BasicTracerProvider } from "#compiled/@opentelemetry/sdk-trace-base/index.js";
-import { registerInstrumentationConfig } from "#harness/instrumentation-config.js";
-import { createLogger, formatError } from "#internal/logging.js";
 import {
-  AlsContextManager,
-  LocalSpanProcessor,
-  TraceRingBuffer,
-  TraceStore,
-} from "#internal/tracing/index.js";
-import type { InstrumentationDefinition } from "#public/instrumentation/index.js";
+  registerLocalDevInstrumentationRuntime,
+  resetLocalDevInstrumentationRuntimeForTesting,
+} from "#harness/local-dev-instrumentation-runtime.js";
+import { createLocalOtelProvider } from "#harness/local-otel-provider.js";
+import { createLogger, formatError } from "#internal/logging.js";
+import { LocalSpanProcessor, TraceRingBuffer, TraceStore } from "#internal/tracing/index.js";
 
 const log = createLogger("tracing.dev");
 
@@ -51,12 +48,9 @@ let processor: LocalSpanProcessor | undefined;
 /**
  * Enables zero-config local trace capture for `eve dev`.
  *
- * Registers an eve-owned OpenTelemetry `TracerProvider` (with the local span
- * processor), an `AsyncLocalStorage` context manager so the turn span nests its
- * children, and a synthesized instrumentation config so the harness turns
- * telemetry on and stamps `eve.*` attributes — without the user authoring an
- * `agent/instrumentation.ts`. Idempotent, and best-effort: any failure is
- * logged and swallowed so tracing can never break `eve dev`.
+ * Registers a private OpenTelemetry `TracerProvider` and an eve lifecycle
+ * provider. Nothing is installed globally, so Workflow and authored
+ * instrumentation keep their own tracer providers and contexts.
  *
  * Only ever invoked from the development compiled-artifacts plugin, so it never
  * runs under `eve start`. Message-payload capture is on by default but can be
@@ -82,15 +76,18 @@ export function registerLocalDevTracing(
       resourceAttributes: { "service.name": input.agentName },
     });
     const provider = new BasicTracerProvider({ spanProcessors: [processor] });
-    trace.setGlobalTracerProvider(provider);
-    otelContext.setGlobalContextManager(new AlsContextManager());
-
-    const config: InstrumentationDefinition = {
-      functionId: input.agentName,
+    registerLocalDevInstrumentationRuntime({
+      providers: [
+        createLocalOtelProvider({
+          recordInputs: payload.recordInputs,
+          recordOutputs: payload.recordOutputs,
+          store,
+          tracer: provider.getTracer("eve.local"),
+        }),
+      ],
       recordInputs: payload.recordInputs,
       recordOutputs: payload.recordOutputs,
-    };
-    registerInstrumentationConfig(config, { agentName: input.agentName });
+    });
     log.debug("local dev tracing enabled", { appRoot: input.appRoot });
   } catch (error) {
     log.warn("failed to enable local dev tracing", { error: formatError(error) });
@@ -109,4 +106,5 @@ export function registerLocalDevTracing(
 export function resetLocalDevTracingForTesting(): void {
   handle = undefined;
   processor = undefined;
+  resetLocalDevInstrumentationRuntimeForTesting();
 }

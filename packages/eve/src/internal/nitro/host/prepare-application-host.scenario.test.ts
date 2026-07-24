@@ -114,9 +114,15 @@ describe("application host preparation", () => {
     expect(await readFile(firstBootstrapPath, "utf8")).not.toContain(
       normalizeEsmImportSpecifier(agentModulePath),
     );
-    await expect(
-      readFile(firstHost.compiledArtifacts.instrumentationPluginPath!, "utf8"),
-    ).resolves.not.toContain(normalizeEsmImportSpecifier(instrumentationModulePath));
+    const instrumentationPlugin = await readFile(
+      firstHost.compiledArtifacts.instrumentationPluginPath!,
+      "utf8",
+    );
+    expect(instrumentationPlugin).not.toContain(
+      normalizeEsmImportSpecifier(instrumentationModulePath),
+    );
+    expect(instrumentationPlugin).toContain("registerInstrumentationConfig");
+    expect(instrumentationPlugin).toContain("registerLocalDevTracing");
     expect(existsSync(snapshotBootstrapPath)).toBe(false);
 
     await writeFile(

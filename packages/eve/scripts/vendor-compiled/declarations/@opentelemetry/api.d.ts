@@ -15,7 +15,11 @@ export interface Span {
 }
 
 export interface Tracer {
-  startSpan(name: string, options?: { attributes?: Record<string, unknown> | undefined }): Span;
+  startSpan(
+    name: string,
+    options?: { attributes?: Record<string, unknown> | undefined },
+    context?: Context,
+  ): Span;
 }
 
 export interface Context {

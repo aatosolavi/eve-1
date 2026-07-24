@@ -1,4 +1,9 @@
-import type { Telemetry } from "ai";
+import type {
+  GenerateTextEndEvent,
+  GenerateTextStartEvent,
+  InferTelemetryEvent,
+  Telemetry,
+} from "ai";
 
 import { createLogger, formatError } from "#internal/logging.js";
 
@@ -16,14 +21,14 @@ export interface InstrumentationAttemptScope {
 
 export interface InstrumentationStepStartedEvent {
   readonly scope: InstrumentationAttemptScope;
-  readonly operation: TelemetryEvent<"onStart">;
+  readonly operation: InferTelemetryEvent<GenerateTextStartEvent>;
   readonly step: TelemetryEvent<"onStepStart">;
 }
 
 export interface InstrumentationStepCompletedEvent {
   readonly scope: InstrumentationAttemptScope;
-  readonly operation: TelemetryEvent<"onStart">;
-  readonly result: TelemetryEvent<"onEnd">;
+  readonly operation: InferTelemetryEvent<GenerateTextStartEvent>;
+  readonly result: InferTelemetryEvent<GenerateTextEndEvent>;
   readonly step: TelemetryEvent<"onStepEnd"> | undefined;
 }
 

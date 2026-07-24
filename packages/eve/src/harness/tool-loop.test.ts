@@ -8814,7 +8814,7 @@ describe("createToolLoopHarness", () => {
 
       const agentCall = vi.mocked(ToolLoopAgent).mock.calls[0]?.[0] as {
         runtimeContext?: Record<string, unknown>;
-        telemetry?: { isEnabled?: boolean };
+        telemetry?: { integrations?: unknown; isEnabled?: boolean };
       };
       const runtimeContext = agentCall?.runtimeContext;
       expect(runtimeContext).toBeDefined();
@@ -8822,6 +8822,7 @@ describe("createToolLoopHarness", () => {
       expect(runtimeContext?.["eve.version"]).not.toBe("");
       expect(runtimeContext?.["eve.session.id"]).toBe("test-session");
       expect(agentCall?.telemetry?.isEnabled).toBe(true);
+      expect(agentCall?.telemetry?.integrations).toBeUndefined();
     });
 
     it("merges step-started runtime context before emitting step.started", async () => {

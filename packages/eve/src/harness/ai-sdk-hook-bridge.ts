@@ -1,4 +1,9 @@
-import type { Telemetry } from "ai";
+import type {
+  GenerateTextEndEvent,
+  GenerateTextStartEvent,
+  InferTelemetryEvent,
+  Telemetry,
+} from "ai";
 
 import type {
   InstrumentationAttemptScope,
@@ -12,14 +17,14 @@ export function createAiSdkHookBridge(
   scope: InstrumentationAttemptScope,
   publisher: InstrumentationLifecyclePublisher,
 ): Telemetry {
-  let operationStart: TelemetryEvent<"onStart"> | undefined;
+  let operationStart: InferTelemetryEvent<GenerateTextStartEvent> | undefined;
   let stepEnd: TelemetryEvent<"onStepEnd"> | undefined;
   const modelIds = new Map<string, string>();
   const toolIds = new Map<string, string>();
 
   return {
     onStart(event) {
-      operationStart = event;
+      if (isGenerateTextStart(event)) operationStart = event;
     },
     async onStepStart(event) {
       if (operationStart === undefined) return;
@@ -62,7 +67,7 @@ export function createAiSdkHookBridge(
       stepEnd = event;
     },
     async onEnd(event) {
-      if (operationStart === undefined) return;
+      if (operationStart === undefined || !isGenerateTextEnd(event)) return;
       await publisher.publishStepCompleted({
         operation: operationStart,
         result: event,
@@ -77,4 +82,16 @@ export function createAiSdkHookBridge(
       await publisher.publishStepFailed({ error, scope });
     },
   };
+}
+
+function isGenerateTextStart(
+  event: TelemetryEvent<"onStart">,
+): event is InferTelemetryEvent<GenerateTextStartEvent> {
+  return event.operationId === "ai.generateText" || event.operationId === "ai.streamText";
+}
+
+function isGenerateTextEnd(
+  event: TelemetryEvent<"onEnd">,
+): event is InferTelemetryEvent<GenerateTextEndEvent> {
+  return "finalStep" in event && "finishReason" in event && "usage" in event;
 }
