@@ -54,6 +54,20 @@ describe("CLI command registration", () => {
     expect(help).toContain("deploy");
     expect(help).not.toContain("setup");
   });
+
+  it("registers the diagnostic logs commands", async () => {
+    const output: string[] = [];
+    const logger = {
+      error: (message: string) => output.push(message),
+      log: (message: string) => output.push(message),
+    };
+
+    await runCli(["logs", "--help"], logger).catch(() => {});
+
+    const help = output.join("\n");
+    expect(help).toContain("show [options] [logid]");
+    expect(help).toContain("ls");
+  });
 });
 
 describe("eve init compatibility flags", () => {
@@ -407,6 +421,39 @@ describe("eve dev local server ownership", () => {
     await runInteractiveDev(["dev"], { startHost });
     expect(close).toHaveBeenCalledOnce();
   });
+
+  it("awaits the close already started by a TUI stop request", async () => {
+    let resolveClose: () => void = () => {};
+    const closing = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
+    const close = vi.fn(() => closing);
+    const startHost = vi.fn(() => ({
+      start: async () => ({
+        kind: "started" as const,
+        appRoot: "/canonical/app",
+        url: "http://127.0.0.1:4321/",
+      }),
+      close,
+    }));
+    const runDevelopmentTui = vi.fn(async (input: RunDevelopmentTuiInput) => {
+      input.lifecycle?.requestStop();
+    });
+
+    let settled = false;
+    const run = withInteractiveTerminal(() =>
+      runCli(["dev"], { error: () => {}, log: () => {} }, { runDevelopmentTui, startHost }),
+    ).then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveClose();
+    await run;
+    expect(close).toHaveBeenCalledOnce();
+  });
 });
 
 describe("eve build output ownership", () => {
@@ -479,10 +526,12 @@ describe("resolveDevUiMode", () => {
 });
 
 describe("resolveTuiDisplayOptions", () => {
-  it("defaults tools to auto-collapsed, reasoning to full, and stderr logs visible", () => {
+  it("defaults tools and reasoning to auto-collapsed with stderr logs visible", () => {
     expect(resolveTuiDisplayOptions({})).toEqual({
       logs: "stderr",
-      reasoning: "full",
+      // Collapsed reasoning is the fixed thinking line; `--reasoning full`
+      // restores the streaming transcript trace.
+      reasoning: "auto-collapsed",
       tools: "auto-collapsed",
     });
   });
