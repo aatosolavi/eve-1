@@ -1,113 +1,110 @@
 import { describe, expect, it } from "vitest";
 
-import type { HarnessStepResult } from "#harness/step-hooks.js";
 import {
   enforceConsecutiveToolErrorLimit,
   recordConsecutiveToolErrors,
 } from "#harness/tool-error-limit.js";
+import type { HarnessEmissionState } from "#harness/emission.js";
 import type { HarnessSession, ToolLoopHarnessConfig } from "#harness/types.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 
-function createSession(
-  maxConsecutiveToolErrors: number,
-  mode: ToolLoopHarnessConfig["mode"] = "conversation",
-): { readonly config: ToolLoopHarnessConfig; readonly session: HarnessSession } {
+const emissionState: HarnessEmissionState = {
+  sessionStarted: true,
+  sequence: 0,
+  stepIndex: 2,
+  turnId: "turn_0",
+};
+
+function createSession(maxConsecutiveToolErrors?: number): HarnessSession {
   return {
-    config: {
-      mode,
-      resolveModel: async () => {
-        throw new Error("The tool error policy does not resolve a model.");
-      },
-      tools: new Map(),
+    agent: {
+      modelReference: { id: "test-model" },
+      system: "Test",
+      tools: [],
     },
-    session: {
-      agent: {
-        modelReference: { id: "test-model" },
-        system: "Test",
-        tools: [],
-      },
-      compaction: { recentWindowSize: 10, threshold: 100_000 },
-      continuationToken: "http:test-session",
-      history: [],
-      limits: { maxConsecutiveToolErrors },
-      sessionId: "test-session",
-    },
+    compaction: { recentWindowSize: 10, threshold: 100_000 },
+    continuationToken: "http:test-session",
+    history: [],
+    limits: maxConsecutiveToolErrors === undefined ? undefined : { maxConsecutiveToolErrors },
+    sessionId: "test-session",
   };
 }
 
-function createStepResult(input?: { readonly successfulToolCallId?: string }): HarnessStepResult {
+function record(
+  session: HarnessSession,
+  failedCallId: string,
+  successfulCallId?: string,
+): HarnessSession {
   const toolResults =
-    input?.successfulToolCallId === undefined
+    successfulCallId === undefined
       ? []
       : [
           {
             input: {},
             output: { ok: true },
-            toolCallId: input.successfulToolCallId,
+            toolCallId: successfulCallId,
             toolName: "query_dataset",
             type: "tool-result" as const,
           },
         ];
-
-  return {
-    content: [],
-    finishReason: "tool-calls",
-    providerMetadata: undefined,
-    response: {
-      id: "response-1",
-      messages: [],
-      modelId: "test-model",
-      timestamp: new Date(0),
-    },
-    text: "",
-    toolCalls: [],
-    toolResults,
-    usage: {
-      inputTokenDetails: {
-        cacheReadTokens: undefined,
-        cacheWriteTokens: undefined,
-        noCacheTokens: 1,
+  return recordConsecutiveToolErrors({
+    invalidToolCallIds: new Set([failedCallId]),
+    result: {
+      content: [],
+      response: {
+        id: "response-1",
+        messages: [],
+        modelId: "test-model",
+        timestamp: new Date(0),
       },
-      inputTokens: 1,
-      outputTokenDetails: { reasoningTokens: undefined, textTokens: 1 },
-      outputTokens: 1,
-      totalTokens: 2,
+      toolResults,
     },
-  } as HarnessStepResult;
+    session,
+    turnId: "turn_0",
+  });
+}
+
+async function enforce(input: {
+  readonly emit?: ToolLoopHarnessConfig["handleEvent"];
+  readonly mode?: ToolLoopHarnessConfig["mode"];
+  readonly session: HarnessSession;
+  readonly turnId?: string;
+}) {
+  return enforceConsecutiveToolErrorLimit({
+    config: {
+      mode: input.mode ?? "conversation",
+      resolveModel: async () => {
+        throw new Error("The tool error policy does not resolve a model.");
+      },
+      tools: new Map(),
+    },
+    emissionState: {
+      ...emissionState,
+      turnId: input.turnId ?? emissionState.turnId,
+    },
+    emit: input.emit,
+    session: input.session,
+  });
 }
 
 describe("consecutive tool error limit", () => {
-  it("stops a conversation turn recoverably at the configured limit", async () => {
-    const { config, session: initialSession } = createSession(2);
-    const result = createStepResult();
-    const events: HandleMessageStreamEvent[] = [];
-    const emit = async (event: HandleMessageStreamEvent): Promise<void> => {
-      events.push(event);
-    };
-    const emissionState = {
-      sessionStarted: true,
-      sequence: 0,
-      stepIndex: 2,
-      turnId: "turn_0",
-    };
-    const afterFirst = recordConsecutiveToolErrors({
-      invalidToolCallIds: new Set(["call-1"]),
-      result,
-      session: initialSession,
-      turnId: emissionState.turnId,
-    });
-    const afterSecond = recordConsecutiveToolErrors({
-      invalidToolCallIds: new Set(["call-2"]),
-      result,
-      session: afterFirst,
-      turnId: emissionState.turnId,
-    });
+  it("defaults to ten errors", async () => {
+    let session = createSession();
+    for (let index = 1; index < 10; index++) {
+      session = record(session, `call-${index}`);
+    }
+    expect(await enforce({ session })).toBeNull();
+    expect(await enforce({ session: record(session, "call-10") })).not.toBeNull();
+  });
 
-    const stopped = await enforceConsecutiveToolErrorLimit({
-      config,
-      emit,
-      emissionState,
-      session: afterSecond,
+  it("stops a conversation turn recoverably at the configured limit", async () => {
+    const session = record(record(createSession(2), "call-1"), "call-2");
+    const events: HandleMessageStreamEvent[] = [];
+    const stopped = await enforce({
+      emit: async (event) => {
+        events.push(event);
+      },
+      session,
     });
 
     expect(stopped?.next).toBeNull();
@@ -122,32 +119,17 @@ describe("consecutive tool error limit", () => {
       message: "The turn stopped after 2 consecutive tool errors.",
     });
     expect(
-      await enforceConsecutiveToolErrorLimit({
-        config,
-        emissionState: { ...emissionState, turnId: "turn_1" },
-        session: stopped?.session ?? afterSecond,
+      await enforce({
+        session: stopped?.session ?? session,
+        turnId: "turn_1",
       }),
     ).toBeNull();
   });
 
   it("fails a task turn terminally at the configured limit", async () => {
-    const { config, session: initialSession } = createSession(1, "task");
-    const session = recordConsecutiveToolErrors({
-      invalidToolCallIds: new Set(["call-1"]),
-      result: createStepResult(),
-      session: initialSession,
-      turnId: "turn_0",
-    });
-
-    const stopped = await enforceConsecutiveToolErrorLimit({
-      config,
-      emissionState: {
-        sessionStarted: true,
-        sequence: 0,
-        stepIndex: 1,
-        turnId: "turn_0",
-      },
-      session,
+    const stopped = await enforce({
+      mode: "task",
+      session: record(createSession(1), "call-1"),
     });
 
     expect(stopped?.next).toEqual({
@@ -158,31 +140,9 @@ describe("consecutive tool error limit", () => {
   });
 
   it("resets the count when a step has any successful tool result", async () => {
-    const { config, session: initialSession } = createSession(1);
-    const failedSession = recordConsecutiveToolErrors({
-      invalidToolCallIds: new Set(["call-error"]),
-      result: createStepResult(),
-      session: initialSession,
-      turnId: "turn_0",
-    });
-    const recoveredSession = recordConsecutiveToolErrors({
-      invalidToolCallIds: new Set(["call-error-again"]),
-      result: createStepResult({ successfulToolCallId: "call-success" }),
-      session: failedSession,
-      turnId: "turn_0",
-    });
+    const failedSession = record(createSession(1), "call-error");
+    const recoveredSession = record(failedSession, "call-error-again", "call-success");
 
-    expect(
-      await enforceConsecutiveToolErrorLimit({
-        config,
-        emissionState: {
-          sessionStarted: true,
-          sequence: 0,
-          stepIndex: 2,
-          turnId: "turn_0",
-        },
-        session: recoveredSession,
-      }),
-    ).toBeNull();
+    expect(await enforce({ session: recoveredSession })).toBeNull();
   });
 });

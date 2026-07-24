@@ -9,6 +9,7 @@ import type { HarnessSession, StepResult, ToolLoopHarnessConfig } from "#harness
 
 const CONSECUTIVE_TOOL_ERRORS_STATE_KEY = "eve.tool-errors.consecutive";
 const CONSECUTIVE_TOOL_ERROR_LIMIT_REACHED_CODE = "CONSECUTIVE_TOOL_ERROR_LIMIT_REACHED";
+const DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS = 10;
 
 interface ConsecutiveToolErrorsState {
   readonly count: number;
@@ -25,14 +26,10 @@ interface ConsecutiveToolErrorsState {
  */
 export function recordConsecutiveToolErrors(input: {
   readonly invalidToolCallIds: ReadonlySet<string>;
-  readonly result: HarnessStepResult;
+  readonly result: Pick<HarnessStepResult, "content" | "response" | "toolResults">;
   readonly session: HarnessSession;
   readonly turnId: string;
 }): HarnessSession {
-  if (input.session.limits?.maxConsecutiveToolErrors === undefined) {
-    return clearConsecutiveToolErrors(input.session);
-  }
-
   const outcomes = collectToolOutcomes(input.result, input.invalidToolCallIds);
   if (outcomes.errorCallIds.size === 0 || outcomes.successCallIds.size > 0) {
     return clearConsecutiveToolErrors(input.session);
@@ -68,10 +65,10 @@ export async function enforceConsecutiveToolErrorLimit(input: {
   readonly emissionState: HarnessEmissionState;
   readonly session: HarnessSession;
 }): Promise<StepResult | null> {
-  const limit = input.session.limits?.maxConsecutiveToolErrors;
+  const limit =
+    input.session.limits?.maxConsecutiveToolErrors ?? DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS;
   const current = readConsecutiveToolErrors(input.session);
   if (
-    limit === undefined ||
     current === undefined ||
     current.turnId !== input.emissionState.turnId ||
     current.count < limit
@@ -116,7 +113,7 @@ export async function enforceConsecutiveToolErrorLimit(input: {
 }
 
 function collectToolOutcomes(
-  result: HarnessStepResult,
+  result: Pick<HarnessStepResult, "content" | "response" | "toolResults">,
   invalidToolCallIds: ReadonlySet<string>,
 ): {
   readonly errorCallIds: ReadonlySet<string>;

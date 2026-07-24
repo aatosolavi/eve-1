@@ -6,14 +6,9 @@ import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
 const DEFAULT_COMPACTION_RECENT_WINDOW_SIZE = 10;
 const DEFAULT_COMPACTION_THRESHOLD_PERCENT = 0.9;
 const FALLBACK_COMPACTION_THRESHOLD = 100_000;
-export const DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS = 10;
 export const DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION = 40_000_000;
 
-/**
- * Authored session limits before resolution. `false` means the author
- * explicitly uncapped a token axis (skipping the root default). Resolution
- * maps this shape onto the numeric {@link SessionLimits} the harness checks.
- */
+/** Authored runtime limits before resolution; `false` uncaps a token axis. */
 export interface AuthoredSessionLimits {
   readonly maxConsecutiveToolErrors?: number;
   readonly maxInputTokensPerSession?: number | false;
@@ -270,14 +265,12 @@ export function hydrateDurableSession(input: {
   if (durable.rootSessionId !== undefined) {
     session.rootSessionId = durable.rootSessionId;
   }
-  // Persisted token limits are already resolved (`false` and any inherited
-  // parent budget were applied at creation). Older durable sessions predate
-  // the tool-error limit, so fill that default without changing token axes.
-  session.limits = {
-    ...durable.limits,
-    maxConsecutiveToolErrors:
-      durable.limits?.maxConsecutiveToolErrors ?? DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
-  };
+  // Persisted limits are already resolved (defaults, `false`, and any
+  // inherited parent budget applied at creation). Rehydrating verbatim keeps
+  // an uncapped session uncapped instead of re-applying the root default.
+  if (durable.limits !== undefined) {
+    session.limits = durable.limits;
+  }
   if (durable.outputSchema !== undefined) {
     session.outputSchema = durable.outputSchema;
   }
@@ -326,10 +319,10 @@ function resolveSessionLimits(input: {
     maxConsecutiveToolErrors?: number;
     maxInputTokensPerSession?: number;
     maxOutputTokensPerSession?: number;
-  } = {
-    maxConsecutiveToolErrors:
-      input.limits?.maxConsecutiveToolErrors ?? DEFAULT_MAX_CONSECUTIVE_TOOL_ERRORS,
-  };
+  } = {};
+  if (input.limits?.maxConsecutiveToolErrors !== undefined) {
+    limits.maxConsecutiveToolErrors = input.limits.maxConsecutiveToolErrors;
+  }
   if (maxInputTokensPerSession !== undefined) {
     limits.maxInputTokensPerSession = maxInputTokensPerSession;
   }
