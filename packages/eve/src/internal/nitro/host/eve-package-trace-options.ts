@@ -3,6 +3,9 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { EVE_PACKAGE_NAME } from "#internal/package-name.js";
 
+/** Matches NFT's own `fileIOConcurrency` default. */
+const FILE_IO_CONCURRENCY = 1024;
+
 function isPathWithin(path: string, root: string): boolean {
   const pathFromRoot = relative(root, path);
   return (
@@ -11,7 +14,43 @@ function isPathWithin(path: string, root: string): boolean {
   );
 }
 
-function createFindEvePackageRoot(): (path: string) => Promise<string | undefined> {
+/**
+ * Caps how many filesystem operations may be in flight at once.
+ *
+ * Returns a wrapper that admits an operation immediately when the limit has
+ * spare capacity and otherwise queues it. A finishing operation hands its slot
+ * directly to the next waiter, so the limit is never exceeded.
+ */
+export function createFileIoThrottle(
+  limit: number,
+): <T>(operation: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+
+  return async (operation) => {
+    if (active >= limit) {
+      // The releasing operation hands its slot over instead of decrementing.
+      await new Promise<void>((admit) => waiting.push(admit));
+    } else {
+      active += 1;
+    }
+
+    try {
+      return await operation();
+    } finally {
+      const admitNext = waiting.shift();
+      if (admitNext === undefined) {
+        active -= 1;
+      } else {
+        admitNext();
+      }
+    }
+  };
+}
+
+function createFindEvePackageRoot(
+  readSource: (path: string) => Promise<string>,
+): (path: string) => Promise<string | undefined> {
   const packageRootByDirectory = new Map<string, Promise<string | undefined>>();
 
   function findFromDirectory(directory: string): Promise<string | undefined> {
@@ -22,7 +61,7 @@ function createFindEvePackageRoot(): (path: string) => Promise<string | undefine
 
     const packageRoot = (async (): Promise<string | undefined> => {
       try {
-        const packageJson = JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {
+        const packageJson = JSON.parse(await readSource(join(directory, "package.json"))) as {
           name?: unknown;
         };
         if (packageJson.name === EVE_PACKAGE_NAME) {
@@ -51,12 +90,16 @@ function toRelativeImportSpecifier(importer: string, imported: string): string {
 }
 
 function createEveTraceFileReader(): (path: string) => Promise<string | null> {
-  const findEvePackageRoot = createFindEvePackageRoot();
+  const withFileIoSlot = createFileIoThrottle(FILE_IO_CONCURRENCY);
+  const readSource = (path: string): Promise<string> =>
+    withFileIoSlot(() => readFile(path, "utf8"));
+  const findEvePackageRoot = createFindEvePackageRoot(readSource);
+  const sourceByPath = new Map<string, Promise<string | null>>();
 
-  return async (path) => {
+  async function readTracedSource(path: string): Promise<string | null> {
     let source: string;
     try {
-      source = await readFile(path, "utf8");
+      source = await readSource(path);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -84,6 +127,17 @@ function createEveTraceFileReader(): (path: string) => Promise<string | null> {
         ? `${quote}${toRelativeImportSpecifier(path, imported)}${quote}`
         : match;
     });
+  }
+
+  return (path) => {
+    const cachedSource = sourceByPath.get(path);
+    if (cachedSource !== undefined) {
+      return cachedSource;
+    }
+
+    const source = readTracedSource(path);
+    sourceByPath.set(path, source);
+    return source;
   };
 }
 
@@ -93,6 +147,10 @@ function createEveTraceFileReader(): (path: string) => Promise<string | null> {
  * NFT cannot match eve's embedded `#*.js` import-map wildcard. It can,
  * however, trace the equivalent relative specifiers. This virtual read only
  * changes what NFT analyzes; nf3 still copies the original package files.
+ *
+ * Supplying `readFile` replaces NFT's cached filesystem wholesale, so this
+ * reader has to memoize and throttle on its own: NFT re-reads the same
+ * manifests once per resolution and fans reads out with unbounded recursion.
  */
 export function createEvePackageTraceOptions(): {
   readonly nft: {
