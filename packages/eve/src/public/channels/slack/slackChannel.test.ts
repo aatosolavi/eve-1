@@ -2858,6 +2858,7 @@ describe("constrainAuthorizationRequired", () => {
     const request = vi.fn().mockResolvedValue({ ok: true });
     const state: SlackChannelState = {
       channelId: "C123",
+      subscription: "subscribed",
       threadTs: "111.222",
       teamId: null,
       triggeringUserId: "U777",
