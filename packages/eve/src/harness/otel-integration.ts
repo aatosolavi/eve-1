@@ -1,22 +1,27 @@
-import { registerTelemetry } from "ai";
+import { OpenTelemetry } from "#compiled/@ai-sdk/otel/index.js";
+import { registerTelemetry, type Telemetry } from "ai";
 
 import { createEveOtelBridge } from "#harness/eve-otel-bridge.js";
+import { isLocalDevTracingEnabled } from "#harness/local-dev-tracing-mode.js";
 
 let registered = false;
 
 /**
- * Registers the eve-owned AI SDK telemetry bridge once so that model calls
- * emit GenAI semantic-convention spans directly — no `@ai-sdk/otel`
- * dependency. Safe to call multiple times — only the first call has an effect.
- *
- * The bridge creates `invoke_agent`, `chat`, and `execute_tool` spans using
- * the same `"eve"` tracer as the session/turn spans, so the entire trace tree
- * shares one traceId. There is no intermediate `step {n}` wrapper.
+ * Registers the AI SDK telemetry integration once. Local dev uses eve's bridge
+ * so the local trace tree is session-rooted; production keeps the existing
+ * `@ai-sdk/otel` integration and its observable span behavior.
  */
 export function ensureOtelIntegration(): void {
   if (registered) {
     return;
   }
   registered = true;
-  registerTelemetry(createEveOtelBridge());
+  registerTelemetry(createOtelIntegration());
+}
+
+/** Resolves the integration for the current runtime mode. */
+export function createOtelIntegration(): Telemetry {
+  return isLocalDevTracingEnabled()
+    ? createEveOtelBridge()
+    : new OpenTelemetry({ runtimeContext: true });
 }

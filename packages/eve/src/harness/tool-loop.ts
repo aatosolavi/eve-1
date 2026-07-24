@@ -117,6 +117,7 @@ import {
   dropStaleSessionLimitContinuationResponses,
 } from "#harness/stale-input-responses.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
+import { isLocalDevTracingEnabled } from "#harness/local-dev-tracing-mode.js";
 import { normalizeUserContent, resolveAssistantStepText } from "#harness/messages.js";
 import { normalizeProviderToolHistory } from "#harness/provider-tool-history.js";
 import {
@@ -515,8 +516,28 @@ function resolveStepOtelContext(
   tracer: ReturnType<typeof trace.getTracer> | undefined,
   turnSpan: Span | undefined,
   session: { readonly state?: Readonly<Record<string, unknown>> },
+  ownsTraceTree: boolean,
 ): ReturnType<typeof otelContext.active> | undefined {
   if (tracer === undefined) return undefined;
+
+  // Production preserves the original Workflow-parented turn hierarchy.
+  if (!ownsTraceTree) {
+    if (turnSpan !== undefined) {
+      return trace.setSpan(otelContext.active(), turnSpan);
+    }
+
+    const turnStored = getTurnTraceState(session);
+    if (turnStored !== undefined) {
+      const turnParent = trace.wrapSpanContext({
+        traceId: turnStored.traceId,
+        spanId: turnStored.spanId,
+        traceFlags: turnStored.traceFlags,
+      });
+      return trace.setSpan(otelContext.active(), turnParent);
+    }
+
+    return undefined;
+  }
 
   const baseContext = resolveSessionOtelContext(tracer, undefined, session)!;
 
@@ -546,6 +567,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     ensureOtelIntegration();
   }
   const tracer = telemetryConfig !== undefined ? trace.getTracer("eve") : undefined;
+  const ownsTraceTree = isLocalDevTracingEnabled();
   const agentName = config.runtimeIdentity?.agentName;
 
   async function runStep(
@@ -554,14 +576,11 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
   ): Promise<StepResult> {
     // --- Session and turn span lifecycle ------------------------------------
     //
-    // The session span is the root of eve's trace tree, created with
-    // ROOT_CONTEXT so it does not nest under the workflow runtime's
-    // step.execute span. Its SpanContext is persisted on session.state so
-    // all turns share one traceId across durable step boundaries.
+    // Local dev creates a session-rooted trace tree detached from Workflow.
+    // Production preserves its existing Workflow-parented turn span behavior.
     //
-    // The turn span nests under the session span. Its SpanContext is also
-    // persisted so continuation steps within the same turn restore the
-    // correct parent.
+    // Span contexts are persisted so durable continuation steps restore the
+    // correct parent in either mode.
 
     let sessionSpan: Span | undefined;
     let turnSpan: Span | undefined;
@@ -572,7 +591,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       // Create the session root span once (when no trace state exists yet).
       // Started inside ROOT_CONTEXT so it does not nest under the workflow
       // runtime's active span — eve owns the trace tree.
-      if (getSessionTraceState(initialSession) === undefined) {
+      if (ownsTraceTree && getSessionTraceState(initialSession) === undefined) {
         const sessionAttributes: Record<string, string> = {
           "eve.version": eveVersion,
           "eve.environment": environment,
@@ -590,7 +609,9 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
 
       // Resolve the session context so the turn span nests under it, not
       // under the workflow runtime's active step.execute span.
-      const sessionContext = resolveSessionOtelContext(tracer, sessionSpan, initialSession);
+      const sessionContext = ownsTraceTree
+        ? resolveSessionOtelContext(tracer, sessionSpan, initialSession)
+        : undefined;
 
       // Create the turn span inside the session context.
       const turnAttributes: Record<string, string> = {
@@ -601,7 +622,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
       if (functionId) {
         turnAttributes["ai.telemetry.functionId"] = functionId;
       }
-      if (sessionContext !== undefined) {
+      if (ownsTraceTree && sessionContext !== undefined) {
         otelContext.with(sessionContext, () => {
           turnSpan = tracer.startSpan("ai.eve.turn", { attributes: turnAttributes });
         });
@@ -612,7 +633,7 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
 
     // Run the step body inside the turn span's (or restored parent's)
     // OTel context so AI SDK spans nest as children.
-    const parentContext = resolveStepOtelContext(tracer, turnSpan, initialSession);
+    const parentContext = resolveStepOtelContext(tracer, turnSpan, initialSession, ownsTraceTree);
     const executeStep = () => executeStepBody(initialSession, input, turnSpan, sessionSpan);
 
     try {

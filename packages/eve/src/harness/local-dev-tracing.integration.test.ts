@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { context as otelContext, trace } from "#compiled/@opentelemetry/api/index.js";
 import { createEveOtelBridge } from "#harness/eve-otel-bridge.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
+import { isLocalDevTracingEnabled } from "#harness/local-dev-tracing-mode.js";
 import {
   registerLocalDevTracing,
   resetLocalDevTracingForTesting,
@@ -37,6 +38,7 @@ describe("registerLocalDevTracing", () => {
     expect(config?.functionId).toBe("weather");
     expect(config?.recordInputs).toBe(true);
     expect(config?.recordOutputs).toBe(true);
+    expect(isLocalDevTracingEnabled()).toBe(true);
   });
 
   it("returns the same handle on repeated calls (idempotent)", () => {
