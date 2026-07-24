@@ -23,6 +23,7 @@ describe("definition helper exact inputs", () => {
     const agent = defineAgent({
       description: "type-test",
       limits: {
+        maxConsecutiveToolErrors: 4,
         maxInputTokensPerSession: 200_000,
         maxOutputTokensPerSession: 20_000,
       },
@@ -35,6 +36,7 @@ describe("definition helper exact inputs", () => {
     });
 
     expect(agent.description).toBe("type-test");
+    expect(agent.limits.maxConsecutiveToolErrors).toBe(4);
     expect(agent.limits.maxInputTokensPerSession).toBe(200_000);
     expect(agent.limits.maxOutputTokensPerSession).toBe(20_000);
     expect(experimental_workflow({ maxSubagents: 6 }).maxSubagents).toBe(6);

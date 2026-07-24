@@ -150,6 +150,17 @@ export interface PublicAgentCompactionDefinition {
  */
 export interface AgentLimitsDefinition {
   /**
+   * Maximum consecutive failed tool calls allowed within one turn.
+   *
+   * eve counts tool calls from steps that produced errors without any
+   * successful tool result. A successful tool result resets the count. When
+   * the limit is reached, eve stops the turn before another model call:
+   * conversation sessions remain resumable, while task sessions fail.
+   *
+   * Omit this field to allow unlimited consecutive tool errors.
+   */
+  readonly maxConsecutiveToolErrors?: number;
+  /**
    * Maximum provider-reported input tokens accumulated by one durable session.
    *
    * eve checks this before starting each model call. The model call that crosses

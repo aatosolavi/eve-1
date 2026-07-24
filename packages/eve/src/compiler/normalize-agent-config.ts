@@ -127,6 +127,7 @@ export async function compileAgentConfig(
 
   if (definition.limits !== undefined) {
     compiledConfig.limits = {
+      maxConsecutiveToolErrors: definition.limits.maxConsecutiveToolErrors,
       maxInputTokensPerSession: definition.limits.maxInputTokensPerSession,
       maxOutputTokensPerSession: definition.limits.maxOutputTokensPerSession,
     };

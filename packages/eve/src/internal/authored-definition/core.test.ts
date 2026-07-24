@@ -93,6 +93,7 @@ describe("normalizeAgentDefinition", () => {
       {
         model: "openai/gpt-5.5",
         limits: {
+          maxConsecutiveToolErrors: 4,
           maxInputTokensPerSession: 200_000,
           maxOutputTokensPerSession: 20_000,
         },
@@ -101,6 +102,7 @@ describe("normalizeAgentDefinition", () => {
     );
 
     expect(definition.limits).toEqual({
+      maxConsecutiveToolErrors: 4,
       maxInputTokensPerSession: 200_000,
       maxOutputTokensPerSession: 20_000,
     });
@@ -149,6 +151,10 @@ describe("normalizeAgentDefinition", () => {
   });
 
   it.each([
+    ["maxConsecutiveToolErrors", 0],
+    ["maxConsecutiveToolErrors", 1.5],
+    ["maxConsecutiveToolErrors", -1],
+    ["maxConsecutiveToolErrors", "4"],
     ["maxInputTokensPerSession", 0],
     ["maxInputTokensPerSession", 1.5],
     ["maxInputTokensPerSession", -1],
@@ -157,7 +163,7 @@ describe("normalizeAgentDefinition", () => {
     ["maxOutputTokensPerSession", 1.5],
     ["maxOutputTokensPerSession", -1],
     ["maxOutputTokensPerSession", "20000"],
-  ])("rejects invalid session token limit %s=%j", (key, value) => {
+  ])("rejects invalid agent limit %s=%j", (key, value) => {
     expect(() =>
       normalizeAgentDefinition(
         {

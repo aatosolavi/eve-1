@@ -247,6 +247,7 @@ function createResolvedAgentConfig(manifest: CompiledAgentNodeManifest): Resolve
 
   if (manifest.config.limits !== undefined) {
     config.limits = {
+      maxConsecutiveToolErrors: manifest.config.limits.maxConsecutiveToolErrors,
       maxInputTokensPerSession: manifest.config.limits.maxInputTokensPerSession,
       maxOutputTokensPerSession: manifest.config.limits.maxOutputTokensPerSession,
     };

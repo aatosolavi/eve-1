@@ -84,6 +84,10 @@ import {
   applySessionLimitContinuation,
   enforceSessionTokenLimit,
 } from "#harness/session-limit-enforcement.js";
+import {
+  enforceConsecutiveToolErrorLimit,
+  recordConsecutiveToolErrors,
+} from "#harness/tool-error-limit.js";
 import { setEveAttributes } from "#runtime/attributes/emit.js";
 import {
   advanceStep,
@@ -1033,6 +1037,16 @@ export function createToolLoopHarness(config: ToolLoopHarnessConfig): StepFn {
     });
     if (pendingWorkflowInterrupt !== null) {
       return pendingWorkflowInterrupt;
+    }
+
+    const toolErrorLimitResult = await enforceConsecutiveToolErrorLimit({
+      config,
+      emit,
+      emissionState,
+      session,
+    });
+    if (toolErrorLimitResult !== null) {
+      return toolErrorLimitResult;
     }
 
     const limitResult = await enforceSessionTokenLimit({
@@ -2005,6 +2019,12 @@ async function handleStepResult(input: {
   const continuationMessages = responseMessages;
   const updatedHistory: ModelMessage[] = [...promptMessages, ...continuationMessages];
   let nextSession: HarnessSession = { ...baseSession, history: updatedHistory };
+  nextSession = recordConsecutiveToolErrors({
+    invalidToolCallIds: invalidInputToolCallIds,
+    result,
+    session: nextSession,
+    turnId: emissionState.turnId,
+  });
 
   // A `final_output` call is terminal even when the model emits it alongside
   // executing tools: continuing the loop would leave the no-execute call as a

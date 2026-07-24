@@ -35,6 +35,7 @@ import type { MockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 export interface TestAppDescriptor {
   readonly agent?: {
     readonly limits?: {
+      readonly maxConsecutiveToolErrors?: number;
       readonly maxInputTokensPerSession?: number | false;
       readonly maxOutputTokensPerSession?: number | false;
     };
@@ -137,6 +138,7 @@ export function createTestRuntime(descriptor: TestAppDescriptor = {}): TestRunti
     name: string;
     model: string;
     limits?: {
+      readonly maxConsecutiveToolErrors?: number;
       readonly maxInputTokensPerSession?: number | false;
       readonly maxOutputTokensPerSession?: number | false;
     };

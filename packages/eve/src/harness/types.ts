@@ -90,10 +90,12 @@ export interface HarnessSession {
   readonly workflowMaxSubagents?: number;
 }
 
-/**
- * Token limits stored on one durable session.
- */
+/** Framework-owned runtime limits stored on one durable session. */
 export interface SessionLimits {
+  /**
+   * Maximum consecutive failed tool calls within one turn.
+   */
+  readonly maxConsecutiveToolErrors?: number;
   /**
    * Maximum provider-reported input tokens this durable session may spend
    * before eve refuses to start another model call. Absent when the session

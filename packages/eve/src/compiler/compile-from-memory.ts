@@ -28,8 +28,9 @@ export interface CompileFromMemoryInput {
   readonly agentRoot?: string;
   /** Model id assigned to the synthetic agent config. */
   readonly model: string;
-  /** Session token limits assigned to the synthetic agent config. */
+  /** Runtime limits assigned to the synthetic agent config. */
   readonly limits?: {
+    readonly maxConsecutiveToolErrors?: number;
     readonly maxInputTokensPerSession?: number | false;
     readonly maxOutputTokensPerSession?: number | false;
   };

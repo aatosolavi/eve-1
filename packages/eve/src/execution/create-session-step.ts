@@ -54,6 +54,7 @@ export async function createSessionStep(input: {
     },
     continuationToken: input.continuationToken,
     limits: {
+      maxConsecutiveToolErrors: bundle.resolvedAgent.config.limits?.maxConsecutiveToolErrors,
       // Inherited token limits are the parent's remaining quota share at
       // dispatch time; an authored `false` uncaps only when there is nothing
       // to inherit.

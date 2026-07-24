@@ -9,7 +9,7 @@ import {
   ASK_QUESTION_INPUT_SCHEMA,
   ASK_QUESTION_TOOL_DEFINITION,
 } from "#runtime/framework-tools/ask-question.js";
-import { serializeInputSchema } from "#shared/tool-schema.js";
+import { serializeInputSchema, toInputSchema } from "#shared/tool-schema.js";
 
 const usage = {
   inputTokens: {
@@ -37,6 +37,209 @@ function findToolResult(messages: readonly ModelMessage[], toolCallId: string): 
 }
 
 describe("framework tool input validation (real AI SDK)", () => {
+  it("stops a turn after the configured number of consecutive invalid tool calls", async () => {
+    const inputSchema = toInputSchema({
+      additionalProperties: false,
+      properties: {
+        ds_id: { type: "string" },
+        fields: { items: { type: "string" }, type: "array" },
+      },
+      required: ["ds_id", "fields"],
+      type: "object",
+    });
+    const invalidCalls = ["query-invalid-1", "query-invalid-2", "query-invalid-3"];
+    const model = new MockLanguageModelV4({
+      doGenerate: invalidCalls.map((toolCallId) => ({
+        content: [
+          {
+            input: JSON.stringify({ ds_id: "dataset-1" }),
+            toolCallId,
+            toolName: "query_dataset",
+            type: "tool-call" as const,
+          },
+        ],
+        finishReason: { raw: undefined, unified: "tool-calls" as const },
+        usage,
+        warnings: [],
+      })),
+      modelId: "tool-error-loop-model",
+      provider: "eve-integration-mock",
+    });
+    const tools: ToolLoopHarnessConfig["tools"] = new Map([
+      [
+        "query_dataset",
+        {
+          description: "Query selected fields from a dataset.",
+          execute: async () => ({ rows: [] }),
+          inputSchema,
+          name: "query_dataset",
+        },
+      ],
+    ]);
+    const runStep = createToolLoopHarness({
+      mode: "conversation",
+      resolveModel: async (): Promise<LanguageModel> => model,
+      tools,
+    });
+    const session: HarnessSession = {
+      agent: {
+        modelReference: { id: "tool-error-loop-model" },
+        system: "Query the dataset.",
+        tools: [
+          {
+            description: "Query selected fields from a dataset.",
+            inputSchema: serializeInputSchema(inputSchema),
+            name: "query_dataset",
+          },
+        ],
+      },
+      compaction: { recentWindowSize: 10, threshold: 100_000 },
+      continuationToken: "http:tool-error-loop-session",
+      history: [],
+      limits: {
+        maxConsecutiveToolErrors: 2,
+      },
+      sessionId: "tool-error-loop-session",
+    };
+
+    const firstStep = await runStep(session, { message: "Query dataset-1." });
+
+    expect(typeof firstStep.next).toBe("function");
+    expect(findToolResult(firstStep.session.history, invalidCalls[0] ?? "")).toMatchObject({
+      output: expect.objectContaining({
+        type: "error-text",
+        value: expect.stringContaining("fields"),
+      }),
+    });
+
+    if (typeof firstStep.next !== "function") {
+      throw new TypeError("Expected the first invalid tool call to continue the tool loop.");
+    }
+    const secondStep = await firstStep.next(firstStep.session);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(
+      findToolResult(model.doGenerateCalls[1]?.prompt ?? [], invalidCalls[0] ?? ""),
+    ).toBeDefined();
+    expect(findToolResult(secondStep.session.history, invalidCalls[1] ?? "")).toMatchObject({
+      output: expect.objectContaining({
+        type: "error-text",
+        value: expect.stringContaining("fields"),
+      }),
+    });
+    expect(typeof secondStep.next).toBe("function");
+
+    if (typeof secondStep.next !== "function") {
+      throw new TypeError("Expected the tool error limit to run before the next model call.");
+    }
+    const stoppedStep = await secondStep.next(secondStep.session);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(stoppedStep.next).toBeNull();
+  });
+
+  it("accepts a corrected array field after returning the missing-field error", async () => {
+    const inputSchema = toInputSchema({
+      additionalProperties: false,
+      properties: {
+        ds_id: { type: "string" },
+        fields: { items: { type: "string" }, type: "array" },
+      },
+      required: ["ds_id", "fields"],
+      type: "object",
+    });
+    const invalidCallId = "query-missing-fields";
+    const validCallId = "query-with-fields";
+    const model = new MockLanguageModelV4({
+      doGenerate: [
+        {
+          content: [
+            {
+              input: JSON.stringify({ ds_id: "dataset-1" }),
+              toolCallId: invalidCallId,
+              toolName: "query_dataset",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: undefined, unified: "tool-calls" },
+          usage,
+          warnings: [],
+        },
+        {
+          content: [
+            {
+              input: JSON.stringify({ ds_id: "dataset-1", fields: ["name"] }),
+              toolCallId: validCallId,
+              toolName: "query_dataset",
+              type: "tool-call",
+            },
+          ],
+          finishReason: { raw: undefined, unified: "tool-calls" },
+          usage,
+          warnings: [],
+        },
+      ],
+      modelId: "tool-input-recovery-model",
+      provider: "eve-integration-mock",
+    });
+    let executedInput: unknown;
+    const tools: ToolLoopHarnessConfig["tools"] = new Map([
+      [
+        "query_dataset",
+        {
+          description: "Query selected fields from a dataset.",
+          execute: async (input) => {
+            executedInput = input;
+            return { rows: [] };
+          },
+          inputSchema,
+          name: "query_dataset",
+        },
+      ],
+    ]);
+    const runStep = createToolLoopHarness({
+      mode: "conversation",
+      resolveModel: async (): Promise<LanguageModel> => model,
+      tools,
+    });
+    const session: HarnessSession = {
+      agent: {
+        modelReference: { id: "tool-input-recovery-model" },
+        system: "Query the dataset.",
+        tools: [
+          {
+            description: "Query selected fields from a dataset.",
+            inputSchema: serializeInputSchema(inputSchema),
+            name: "query_dataset",
+          },
+        ],
+      },
+      compaction: { recentWindowSize: 10, threshold: 100_000 },
+      continuationToken: "http:tool-input-recovery-session",
+      history: [],
+      sessionId: "tool-input-recovery-session",
+    };
+
+    const invalidStep = await runStep(session, { message: "Query dataset-1." });
+
+    expect(findToolResult(invalidStep.session.history, invalidCallId)).toMatchObject({
+      output: expect.objectContaining({
+        type: "error-text",
+        value: expect.stringContaining("fields"),
+      }),
+    });
+
+    if (typeof invalidStep.next !== "function") {
+      throw new TypeError("Expected the invalid tool call to continue the tool loop.");
+    }
+    const validStep = await invalidStep.next(invalidStep.session);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(findToolResult(model.doGenerateCalls[1]?.prompt ?? [], invalidCallId)).toBeDefined();
+    expect(executedInput).toEqual({ ds_id: "dataset-1", fields: ["name"] });
+    expect(typeof validStep.next).toBe("function");
+  });
+
   it("returns malformed and schema-invalid ask_question input to the model before accepting a retry", async () => {
     const malformedCallId = "question-malformed";
     const invalidCallId = "question-invalid";

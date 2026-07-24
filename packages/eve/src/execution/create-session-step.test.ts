@@ -140,11 +140,12 @@ describe("createSessionStep", () => {
     expect(state.snapshot?.session.limits?.maxInputTokensPerSession).toBe(500_000);
   });
 
-  it("seeds session token limits from resolved agent config", async () => {
+  it("seeds session limits from resolved agent config", async () => {
     vi.mocked(getCompiledRuntimeAgentBundle).mockResolvedValue({
       resolvedAgent: {
         config: {
           limits: {
+            maxConsecutiveToolErrors: 4,
             maxInputTokensPerSession: 200_000,
             maxOutputTokensPerSession: 20_000,
           },
@@ -160,6 +161,7 @@ describe("createSessionStep", () => {
     });
 
     expect(state.snapshot?.session.limits).toMatchObject({
+      maxConsecutiveToolErrors: 4,
       maxInputTokensPerSession: 200_000,
       maxOutputTokensPerSession: 20_000,
     });

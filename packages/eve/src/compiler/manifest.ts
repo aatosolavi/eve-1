@@ -401,6 +401,7 @@ const sessionTokenLimitSchema = z.union([z.number().int().positive(), z.literal(
 
 const compiledAgentLimitsDefinitionSchema = z
   .object({
+    maxConsecutiveToolErrors: z.number().int().positive().optional(),
     maxInputTokensPerSession: sessionTokenLimitSchema.optional(),
     maxOutputTokensPerSession: sessionTokenLimitSchema.optional(),
   })
@@ -823,6 +824,7 @@ export function createCompiledAgentNodeManifest(input: {
         input.config.limits === undefined
           ? undefined
           : {
+              maxConsecutiveToolErrors: input.config.limits.maxConsecutiveToolErrors,
               maxInputTokensPerSession: input.config.limits.maxInputTokensPerSession,
               maxOutputTokensPerSession: input.config.limits.maxOutputTokensPerSession,
             },

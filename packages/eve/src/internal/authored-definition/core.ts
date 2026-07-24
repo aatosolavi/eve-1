@@ -176,9 +176,19 @@ function normalizeAgentLimitsDefinition(
   message: string,
 ): NonNullable<NormalizedAgentDefinition["limits"]> {
   const record = expectObjectRecord(value, message);
-  expectOnlyKnownKeys(record, ["maxInputTokensPerSession", "maxOutputTokensPerSession"], message);
+  expectOnlyKnownKeys(
+    record,
+    ["maxConsecutiveToolErrors", "maxInputTokensPerSession", "maxOutputTokensPerSession"],
+    message,
+  );
   const normalizedDefinition: Mutable<NonNullable<NormalizedAgentDefinition["limits"]>> = {};
 
+  if (record.maxConsecutiveToolErrors !== undefined) {
+    normalizedDefinition.maxConsecutiveToolErrors = expectPositiveInteger(
+      record.maxConsecutiveToolErrors,
+      message,
+    );
+  }
   if (record.maxInputTokensPerSession !== undefined) {
     normalizedDefinition.maxInputTokensPerSession = expectPositiveIntegerOrFalse(
       record.maxInputTokensPerSession,

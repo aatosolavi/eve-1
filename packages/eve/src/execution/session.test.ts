@@ -322,10 +322,11 @@ describe("createSession", () => {
     expect(hydrated.subagentDepth).toBe(2);
   });
 
-  it("persists session token limits through durable session projection and hydration", () => {
+  it("persists session limits through durable session projection and hydration", () => {
     const session = createSession({
       continuationToken: "root-token",
       limits: {
+        maxConsecutiveToolErrors: 4,
         maxInputTokensPerSession: 200_000,
         maxOutputTokensPerSession: 20_000,
       },
@@ -340,10 +341,12 @@ describe("createSession", () => {
     });
 
     expect(durable.limits).toEqual({
+      maxConsecutiveToolErrors: 4,
       maxInputTokensPerSession: 200_000,
       maxOutputTokensPerSession: 20_000,
     });
     expect(hydrated.limits).toEqual({
+      maxConsecutiveToolErrors: 4,
       maxInputTokensPerSession: 200_000,
       maxOutputTokensPerSession: 20_000,
     });

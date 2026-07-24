@@ -26,6 +26,7 @@ describe("compiledAgentManifestSchema", () => {
       appRoot: "/app",
       config: {
         limits: {
+          maxConsecutiveToolErrors: 4,
           maxInputTokensPerSession: 200_000,
           maxOutputTokensPerSession: 20_000,
         },
@@ -37,6 +38,7 @@ describe("compiledAgentManifestSchema", () => {
     const parsed = compiledAgentManifestSchema.parse(manifest);
 
     expect(parsed.config.limits).toEqual({
+      maxConsecutiveToolErrors: 4,
       maxInputTokensPerSession: 200_000,
       maxOutputTokensPerSession: 20_000,
     });

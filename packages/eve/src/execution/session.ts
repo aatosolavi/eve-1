@@ -9,11 +9,12 @@ const FALLBACK_COMPACTION_THRESHOLD = 100_000;
 export const DEFAULT_ROOT_MAX_INPUT_TOKENS_PER_SESSION = 40_000_000;
 
 /**
- * Authored session token limits before resolution. `false` means the author
- * explicitly uncapped the axis (skipping the root default). Resolution maps
- * this shape onto the numeric {@link SessionLimits} the harness checks.
+ * Authored session limits before resolution. `false` means the author
+ * explicitly uncapped a token axis (skipping the root default). Resolution
+ * maps this shape onto the numeric {@link SessionLimits} the harness checks.
  */
 export interface AuthoredSessionLimits {
+  readonly maxConsecutiveToolErrors?: number;
   readonly maxInputTokensPerSession?: number | false;
   readonly maxOutputTokensPerSession?: number | false;
 }
@@ -318,7 +319,14 @@ function resolveSessionLimits(input: {
     fallback: undefined,
   });
 
-  const limits: { maxInputTokensPerSession?: number; maxOutputTokensPerSession?: number } = {};
+  const limits: {
+    maxConsecutiveToolErrors?: number;
+    maxInputTokensPerSession?: number;
+    maxOutputTokensPerSession?: number;
+  } = {};
+  if (input.limits?.maxConsecutiveToolErrors !== undefined) {
+    limits.maxConsecutiveToolErrors = input.limits.maxConsecutiveToolErrors;
+  }
   if (maxInputTokensPerSession !== undefined) {
     limits.maxInputTokensPerSession = maxInputTokensPerSession;
   }
