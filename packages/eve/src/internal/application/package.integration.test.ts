@@ -1,4 +1,5 @@
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -7,6 +8,12 @@ import { resolvePackageLocationFromModulePath } from "#internal/application/pack
 import { useTemporaryDirectories } from "#internal/testing/use-temporary-app-roots.js";
 
 const createScratchDirectory = useTemporaryDirectories();
+
+// Matches how the resolver canonicalizes paths. Windows temporary roots often
+// arrive as 8.3 short names, which only the native realpath expands.
+function canonicalize(path: string): string {
+  return realpathSync.native(path);
+}
 
 async function writeFixtureFile(path: string, contents = ""): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
@@ -51,7 +58,7 @@ describe("resolvePackageLocationFromModulePath", () => {
     await writePackageManifest(appRoot, "consumer-app");
     const packageRoot = await writeInstalledEvePackage(appRoot);
     const bundlePath = await writeBundle(appRoot);
-    const canonicalPackageRoot = await realpath(packageRoot);
+    const canonicalPackageRoot = canonicalize(packageRoot);
 
     expect(resolvePackageLocationFromModulePath(bundlePath)).toEqual({
       packageBuildRoot: join(canonicalPackageRoot, "dist"),
@@ -64,7 +71,7 @@ describe("resolvePackageLocationFromModulePath", () => {
     await writePackageManifest(packageRoot, "eve");
     const modulePath = join(packageRoot, "src", "internal", "application", "package.ts");
     await writeFixtureFile(modulePath, "export {};\n");
-    const canonicalPackageRoot = await realpath(packageRoot);
+    const canonicalPackageRoot = canonicalize(packageRoot);
 
     expect(resolvePackageLocationFromModulePath(modulePath)).toEqual({
       packageBuildRoot: null,
@@ -81,7 +88,7 @@ describe("resolvePackageLocationFromModulePath", () => {
     );
     const modulePath = join(packageRoot, "dist", "src", "internal", "application", "package.js");
     await writeFixtureFile(modulePath, "export {};\n");
-    const canonicalPackageRoot = await realpath(packageRoot);
+    const canonicalPackageRoot = canonicalize(packageRoot);
 
     expect(resolvePackageLocationFromModulePath(modulePath)).toEqual({
       packageBuildRoot: join(canonicalPackageRoot, "dist"),
@@ -95,7 +102,7 @@ describe("resolvePackageLocationFromModulePath", () => {
     await writePackageManifest(appRoot, "consumer-app");
     const packageRoot = await writeInstalledEvePackage(appRoot);
     const bundlePath = await writeBundle(appRoot);
-    const canonicalPackageRoot = await realpath(packageRoot);
+    const canonicalPackageRoot = canonicalize(packageRoot);
 
     expect(resolvePackageLocationFromModulePath(bundlePath)).toEqual({
       packageBuildRoot: join(canonicalPackageRoot, "dist"),
@@ -108,7 +115,7 @@ describe("resolvePackageLocationFromModulePath", () => {
     await writePackageManifest(packageRoot, "eve");
     await mkdir(join(packageRoot, "dist"), { recursive: true });
     const bundlePath = await writeBundle(packageRoot);
-    const canonicalPackageRoot = await realpath(packageRoot);
+    const canonicalPackageRoot = canonicalize(packageRoot);
 
     expect(
       resolvePackageLocationFromModulePath(bundlePath, () => {
