@@ -11,6 +11,7 @@ import type { TraceRingBuffer } from "#internal/tracing/ring-buffer.js";
 
 /** The span eve opens for a turn's first step; the root of the agent work. */
 const TURN_SPAN_NAME = "ai.eve.turn";
+const SESSION_SPAN_NAME = "ai.eve.session";
 
 /** Durable sink a captured run is written to (satisfied by `TraceStore`). */
 export interface TracePersister {
@@ -35,13 +36,12 @@ export interface LocalSpanProcessorInput {
  * An OpenTelemetry {@link SpanProcessor} that captures the eve agent turn tree.
  *
  * eve registers a global tracer provider, so this receives every span in the
- * process — including the `@workflow/*` engine's own OTel spans. It persists the
- * full trace (plumbing included, so the viewer's verbose mode can show it) under
- * the **session id**, so a session's turns and durable steps merge into one run
- * — the local equivalent of Vercel's Agent Runs. Traces with no agent work (a
- * bare stream read or hook resume, carrying no session id) are skipped, and
- * overlapping writes deduplicate by span id on read. The default viewer/CLI
- * projection hides the plumbing; verbose mode reveals it.
+ * process — including the `@workflow/*` engine's own OTel spans. It persists
+ * agent traces (rooted at `ai.eve.session`) under the **session id**, so a
+ * session's turns and durable steps merge into one run — the local equivalent
+ * of Vercel's Agent Runs. Traces with no agent work (a bare stream read or
+ * hook resume, carrying no session id) are skipped, and overlapping writes
+ * deduplicate by span id on read.
  *
  * All work is best-effort: a failure is logged and never propagated, so tracing
  * can never fail a turn.
@@ -73,9 +73,9 @@ export class LocalSpanProcessor implements SpanProcessor {
       log.warn("failed to capture span", { error: formatError(error) });
       return;
     }
-    // Persist the whole trace (workflow plumbing included, for verbose view) so
-    // long as it contains agent work. We (re)persist whenever a turn span, an
-    // `invoke_agent` step root, or the trace root ends — parents end after their
+    // Persist the whole trace so long as it contains agent work. We
+    // (re)persist whenever a session span, turn span, an `invoke_agent` step
+    // root, or the trace root ends — parents end after their
     // children, so the trace root end sees the full trace, while the turn/agent
     // triggers guarantee the agent spans are captured even across process
     // boundaries. Overlapping writes deduplicate by span id on read.
@@ -92,6 +92,7 @@ export class LocalSpanProcessor implements SpanProcessor {
 
   #isCaptureTrigger(span: CapturedSpan): boolean {
     return (
+      span.name === SESSION_SPAN_NAME ||
       span.name === TURN_SPAN_NAME ||
       span.attributes["gen_ai.operation.name"] === "invoke_agent" ||
       span.parentSpanId === undefined
@@ -139,6 +140,8 @@ function findSessionId(spans: readonly CapturedSpan[]): string | undefined {
 function hasAgentWork(spans: readonly CapturedSpan[]): boolean {
   return spans.some(
     (span) =>
-      span.name === TURN_SPAN_NAME || span.attributes["gen_ai.operation.name"] !== undefined,
+      span.name === SESSION_SPAN_NAME ||
+      span.name === TURN_SPAN_NAME ||
+      span.attributes["gen_ai.operation.name"] !== undefined,
   );
 }

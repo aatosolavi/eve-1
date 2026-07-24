@@ -64,9 +64,9 @@ describe("LocalSpanProcessor", () => {
     expect(store.writes).toHaveLength(0);
   });
 
-  it("persists only the turn subtree, keyed by session id, re-rooted", async () => {
+  it("persists the session-rooted turn subtree, keyed by session id", async () => {
     const { store, processor } = makeProcessor();
-    // Workflow ancestors and turn descendants share one trace; children end first.
+    // Session root → turn → model. Children end first.
     processor.onEnd(
       fakeSpan({ name: "ai.streamText.doStream", spanId: "model", parentSpanId: "turn" }),
     );
@@ -74,19 +74,28 @@ describe("LocalSpanProcessor", () => {
       fakeSpan({
         name: "ai.eve.turn",
         spanId: "turn",
-        parentSpanId: "wf", // real parent is a workflow span we drop
+        parentSpanId: "session",
+        attributes: { "eve.session.id": "sess-1" },
+      }),
+    );
+    processor.onEnd(
+      fakeSpan({
+        name: "ai.eve.session",
+        spanId: "session",
         attributes: { "eve.session.id": "sess-1" },
       }),
     );
     await processor.forceFlush();
 
-    expect(store.writes).toHaveLength(1);
-    const write = store.writes[0]!;
-    expect(write.runId).toBe("sess-1");
-    expect(write.spans.map((s) => s.spanId).sort()).toEqual(["model", "turn"]);
-    // The dropped workflow ancestor is not carried into the run; the turn keeps
-    // its (now-absent) parent link and renders as a root on read.
-    expect(write.spans.some((s) => s.name.startsWith("workflow."))).toBe(false);
+    // Both the turn and session spans trigger a write; deduplicated on read.
+    expect(store.writes).toHaveLength(2);
+    expect(store.writes.every((w) => w.runId === "sess-1")).toBe(true);
+    const allSpanIds = new Set(store.writes.flatMap((w) => w.spans.map((s) => s.spanId)));
+    expect([...allSpanIds].sort()).toEqual(["model", "session", "turn"]);
+    // No workflow plumbing in the trace.
+    expect(store.writes.flatMap((w) => w.spans).some((s) => s.name.startsWith("workflow."))).toBe(
+      false,
+    );
   });
 
   it("persists a continuation step's invoke_agent when its turn parent is absent", async () => {
@@ -145,28 +154,6 @@ describe("LocalSpanProcessor", () => {
     expect(store.writes.map((w) => w.runId)).toEqual(["sess-1", "sess-1"]);
     const allSpanIds = new Set(store.writes.flatMap((w) => w.spans.map((s) => s.spanId)));
     expect([...allSpanIds].sort()).toEqual(["agent1", "turn"]);
-  });
-
-  it("captures the full trace including workflow plumbing when it has agent work", async () => {
-    const { store, processor } = makeProcessor();
-    // Children end before their parents; the workflow root ends last.
-    processor.onEnd(fakeSpan({ name: "chat", spanId: "chat", parentSpanId: "turn" }));
-    processor.onEnd(
-      fakeSpan({
-        name: "ai.eve.turn",
-        spanId: "turn",
-        parentSpanId: "wf",
-        attributes: { "eve.session.id": "sess-1" },
-      }),
-    );
-    processor.onEnd(fakeSpan({ name: "workflow.route.flow", spanId: "wf" }));
-    await processor.forceFlush();
-
-    const captured = new Set(store.writes.flatMap((w) => w.spans.map((s) => s.spanId)));
-    expect(captured.has("wf")).toBe(true); // plumbing captured for verbose view
-    expect(captured.has("turn")).toBe(true);
-    expect(captured.has("chat")).toBe(true);
-    expect(store.writes.every((w) => w.runId === "sess-1")).toBe(true);
   });
 
   it("falls back to the trace id when the turn has no session id", async () => {

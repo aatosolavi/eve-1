@@ -159,34 +159,14 @@ export function projectRunSummary(spans: readonly CapturedSpan[]): RunSummary {
 }
 
 /**
- * "Plumbing" spans: the workflow engine's own spans (`workflow.*`, `step.*`,
- * `hook.*`) and the AI SDK's always-"step 1" wrapper. Hidden by default so the
- * waterfall shows just the agent work; verbose mode keeps them.
- */
-function isPlumbingSpan(span: CapturedSpan): boolean {
-  return /^(workflow[.]|step[.]|hook[.])/i.test(span.name) || /^step\s+\d+$/i.test(span.name);
-}
-
-/** Options for {@link projectWaterfall}. */
-export interface WaterfallOptions {
-  /** Include workflow/step/hook plumbing spans (default `false`). */
-  readonly verbose?: boolean;
-}
-
-/**
  * Orders a run's spans into a depth-first waterfall with per-span geometry.
  *
  * Offsets and widths are percentages of the run's wall-clock span (earliest
  * start to latest end), so a renderer can place bars without knowing absolute
  * times. Children are ordered by start time; orphaned spans (parent not in the
- * set) are treated as roots so nothing is dropped. By default, plumbing spans
- * ({@link isPlumbingSpan}) are pruned and their children re-parented to the
- * nearest kept ancestor; pass `verbose` to keep everything.
+ * set) are treated as roots so nothing is dropped.
  */
-export function projectWaterfall(
-  spans: readonly CapturedSpan[],
-  options: WaterfallOptions = {},
-): WaterfallNode[] {
+export function projectWaterfall(spans: readonly CapturedSpan[]): WaterfallNode[] {
   if (spans.length === 0) return [];
 
   const runStart = Math.min(...spans.map((span) => span.startMillis));
@@ -194,26 +174,14 @@ export function projectWaterfall(
   const runDuration = Math.max(runEnd - runStart, 1);
 
   const byId = new Map(spans.map((span) => [span.spanId, span]));
-  const pruned =
-    options.verbose === true
-      ? new Set<string>()
-      : new Set(spans.filter(isPlumbingSpan).map((span) => span.spanId));
-  const kept = spans.filter((span) => !pruned.has(span.spanId));
-
-  // Resolve a span's nearest kept ancestor, hopping over pruned `step` spans.
-  const effectiveParent = (span: CapturedSpan): string | undefined => {
-    let parentId = span.parentSpanId;
-    while (parentId !== undefined && pruned.has(parentId)) {
-      parentId = byId.get(parentId)?.parentSpanId;
-    }
-    return parentId !== undefined && byId.has(parentId) && !pruned.has(parentId)
-      ? parentId
-      : undefined;
-  };
 
   const childrenByParent = new Map<string | undefined, CapturedSpan[]>();
-  for (const span of kept) {
-    const parentKey = effectiveParent(span);
+  for (const span of spans) {
+    // Orphaned spans (parent not in the set) are treated as roots.
+    const parentKey =
+      span.parentSpanId !== undefined && byId.has(span.parentSpanId)
+        ? span.parentSpanId
+        : undefined;
     const siblings = childrenByParent.get(parentKey) ?? [];
     siblings.push(span);
     childrenByParent.set(parentKey, siblings);
@@ -227,7 +195,7 @@ export function projectWaterfall(
     const durationMillis = span.endMillis - span.startMillis;
     nodes.push({
       spanId: span.spanId,
-      parentSpanId: effectiveParent(span),
+      parentSpanId: span.parentSpanId,
       name: span.name,
       kind: span.kind,
       depth,

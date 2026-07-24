@@ -14,19 +14,19 @@ function fixtureSpans(): CapturedSpan[] {
   return [
     {
       traceId: TRACE_ID,
-      spanId: `${TRACE_ID}-wf`,
-      name: "workflow.route.flow",
+      spanId: `${TRACE_ID}-session`,
+      name: "ai.eve.session",
       kind: 0,
       startTimeUnixNano: "0",
       endTimeUnixNano: String(100 * 1_000_000),
       startMillis: 0,
       endMillis: 100,
-      attributes: {},
+      attributes: { "eve.session.id": "sess-1" },
     },
     {
       traceId: TRACE_ID,
       spanId: `${TRACE_ID}-root`,
-      parentSpanId: `${TRACE_ID}-wf`,
+      parentSpanId: `${TRACE_ID}-session`,
       name: "ai.eve.turn",
       kind: 0,
       startTimeUnixNano: "0",
@@ -98,20 +98,6 @@ describe("handleDevTraceViewerRequest", () => {
     expect(payload.summary.trigger).toBe("http");
     expect(payload.summary.totalTokens).toBe(59);
     expect(payload.waterfall.length).toBeGreaterThan(0);
-  });
-
-  it("hides workflow plumbing by default and shows it with ?verbose=1", async () => {
-    const names = async (query: string): Promise<string[]> => {
-      const response = await handleDevTraceViewerRequest({
-        appRoot,
-        request: request(`/__traces/data/${TRACE_ID}${query}`),
-      });
-      const payload = (await response!.json()) as { waterfall: Array<{ name: string }> };
-      return payload.waterfall.map((node) => node.name);
-    };
-
-    expect(await names("")).not.toContain("workflow.route.flow");
-    expect(await names("?verbose=1")).toContain("workflow.route.flow");
   });
 
   it("returns 404 JSON for an unknown trace", async () => {

@@ -117,7 +117,7 @@ eve creates the `ai.eve.turn` parent span per turn and passes enriched telemetry
 
 ## Local traces in dev
 
-`eve dev` captures this same span tree locally with no setup — you do not need an `instrumentation.ts` or an external backend. Each run is written to `.eve/traces` as standard OTLP/JSON, and eve serves a live waterfall (runs list plus per-run timings, tokens, and model/tool detail) from the dev server at `/__traces`. This is the local mirror of the deployed Agent Runs view. By default the waterfall shows just the agent work (turns, model calls, tool calls); toggle **Verbose** to also see the workflow-engine plumbing (`workflow.*`, `step.*`, `hook.*`) that wraps each turn.
+`eve dev` captures this same span tree locally with no setup — you do not need an `instrumentation.ts` or an external backend. Each run is written to `.eve/traces` as standard OTLP/JSON, and eve serves a live waterfall (runs list plus per-run timings, tokens, and model/tool detail) from the dev server at `/__traces`. This is the local mirror of the deployed Agent Runs view.
 
 Inspect the same traces from the terminal:
 
