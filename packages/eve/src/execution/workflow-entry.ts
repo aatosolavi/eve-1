@@ -167,6 +167,7 @@ async function runDriverLoop(input: {
     token: `${input.sessionState.sessionId}:auth`,
   });
   const authIterator: AsyncIterator<HookPayload> = authHook[Symbol.asyncIterator]();
+
   // Fast descendant resumes can start the next turn before the prior
   // control hook disposal is persisted by the Workflow SDK, so each
   // turn needs its own session-scoped token.
