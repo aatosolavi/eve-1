@@ -396,6 +396,7 @@ export async function handleInteractionPost(
             continuationToken,
             state: {
               channelId: interaction.channelId,
+              subscription: "subscribed",
               threadTs: interaction.threadTs,
               teamId: interaction.teamId ?? null,
               triggeringUserId: user.id,
@@ -557,6 +558,7 @@ async function handleViewSubmission(
           continuationToken: metadata.continuationToken,
           state: {
             channelId: metadata.channelId,
+            subscription: "subscribed",
             threadTs: metadata.threadTs,
             teamId,
             triggeringUserId,

@@ -2,4 +2,4 @@
 "eve": patch
 ---
 
-Added `resolveSubscription` to the Slack channel for durable thread subscription policy. Unsubscribed threads retain their eve session and history, ignore admitted messages before model execution, and resume when the policy returns `"subscribed"`.
+Added Slack `threadSubscription` configuration for following active threads and durably refining when the bot steps away. Unsubscribed threads retain their eve session and history while admitted messages are ignored before model execution.

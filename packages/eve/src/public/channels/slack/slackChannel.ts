@@ -31,6 +31,7 @@ import {
   defaultInputRequestedHandler,
   defaultOnAppMention,
   defaultOnDirectMessage,
+  defaultSlackAuth,
 } from "#public/channels/slack/defaults.js";
 import {
   parseMessageEvent,
@@ -167,6 +168,14 @@ function defaultResolveSubscription(input: SlackSubscriptionContext): SlackSubsc
   return input.isBotMentioned ? "subscribed" : input.current;
 }
 
+async function defaultSubscribedThreadMessage(
+  ctx: SlackInboundMessageContext,
+  message: SlackMessage,
+): Promise<SlackInboundResult> {
+  if (message.author?.isBot || !(await ctx.isSubscribed())) return null;
+  return { auth: defaultSlackAuth(message, ctx) };
+}
+
 function readSlackMessageDeliveryData(value: unknown): SlackMessageDeliveryData | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const data = value as Partial<SlackMessageDeliveryData>;
@@ -195,6 +204,18 @@ export interface SlackSubscriptionContext {
   /** Whether this message explicitly mentions the installed bot. */
   readonly isBotMentioned: boolean;
 }
+
+/** Durable Slack thread-following behavior. */
+export type SlackThreadSubscription =
+  | true
+  | {
+      /** Resolves the thread state for each message admitted at webhook ingress. */
+      resolve(
+        subscription: SlackSubscriptionContext,
+        message: SlackMessage,
+        ctx: SessionContext,
+      ): SlackSubscriptionState | Promise<SlackSubscriptionState>;
+    };
 
 interface SlackMessageDeliveryData {
   readonly isBotMentioned: boolean;
@@ -528,16 +549,12 @@ export interface SlackChannelConfig {
   readonly threadContext?: LoadThreadContextMessagesOptions;
 
   /**
-   * Resolves durable thread subscription after a message hook admits a message.
-   * Runs inside the owning eve session after Slack and `defineState` state are
-   * hydrated. A `"subscribed"` result dispatches the message to the agent; an
-   * `"unsubscribed"` result persists the state and ignores the message.
+   * Follows replies in threads that have an eve session. Pass `true` for the
+   * default behavior, or provide `resolve` to durably refine when the thread
+   * remains subscribed. The resolver runs after session state is hydrated;
+   * `"subscribed"` dispatches the message and `"unsubscribed"` ignores it.
    */
-  resolveSubscription?(
-    subscription: SlackSubscriptionContext,
-    message: SlackMessage,
-    ctx: SessionContext,
-  ): SlackSubscriptionState | Promise<SlackSubscriptionState>;
+  readonly threadSubscription?: SlackThreadSubscription;
 
   /**
    * Handles human-authored Slack messages. Specialized `onAppMention` and
@@ -732,14 +749,18 @@ export function slackChannel(config: SlackChannelConfig = {}): SlackChannel {
       if (delivery === undefined) return defaultDeliverResult(payload);
 
       const current = adapterCtx.state.subscription as SlackSubscriptionState;
-      const subscription = await (config.resolveSubscription ?? defaultResolveSubscription)(
+      const resolveSubscription =
+        typeof config.threadSubscription === "object"
+          ? config.threadSubscription.resolve
+          : defaultResolveSubscription;
+      const subscription = await resolveSubscription(
         { current, isBotMentioned: delivery.isBotMentioned },
         delivery.message,
         buildCallbackContext(),
       );
       if (subscription !== "subscribed" && subscription !== "unsubscribed") {
         throw new Error(
-          'slackChannel().resolveSubscription must return "subscribed" or "unsubscribed".',
+          'slackChannel().threadSubscription.resolve must return "subscribed" or "unsubscribed".',
         );
       }
       adapterCtx.state.subscription = subscription;
@@ -978,7 +999,10 @@ async function handleEventPost(input: {
     }
   }
 
-  if (dispatch === null && config.onMessage !== undefined) {
+  if (
+    dispatch === null &&
+    (config.onMessage !== undefined || config.threadSubscription !== undefined)
+  ) {
     const message = parseMessageEvent(envelope);
     if (message !== null && !isSelfAuthoredSlackMessage({ appId, botUserId }, message)) {
       // Slack also emits message.channels for an app mention. The app_mention
@@ -990,7 +1014,7 @@ async function handleEventPost(input: {
             botUserId,
             cancel: input.cancel,
             credentials: config.credentials,
-            handler: config.onMessage!,
+            handler: config.onMessage ?? defaultSubscribedThreadMessage,
             kind: "channel_message",
             message,
             resolveActiveSession: input.resolveActiveSession,

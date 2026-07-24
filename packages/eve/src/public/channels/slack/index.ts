@@ -39,6 +39,7 @@ export {
   type SlackSubscriptionContext,
   type SlackSubscriptionState,
   type SlackThread,
+  type SlackThreadSubscription,
   type SlackWebhookVerifier,
   type SlackWorkspaceHandle,
 } from "#public/channels/slack/slackChannel.js";

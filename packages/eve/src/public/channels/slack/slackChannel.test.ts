@@ -1441,7 +1441,80 @@ describe("slackChannel() onMessage", () => {
     ]);
   });
 
-  it("allows a simple mention-or-subscription policy", async () => {
+  it("ignores ordinary thread replies by default", async () => {
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
+    });
+    const reply = buildEventBody(
+      {
+        channel: "C01",
+        channel_type: "channel",
+        text: "continue",
+        thread_ts: "1700000000.000100",
+        ts: "1700000000.000200",
+        type: "message",
+        user: "U01",
+      },
+      { authorizations: [{ is_bot: true, user_id: "U_BOT" }] },
+    );
+
+    const { send } = await firePost(channel, buildSignedRequest({ body: reply }));
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("does not start a session from an ordinary reply when threadSubscription is enabled", async () => {
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
+      threadSubscription: true,
+    });
+    const reply = buildEventBody(
+      {
+        channel: "C01",
+        channel_type: "channel",
+        text: "continue",
+        thread_ts: "1700000000.000100",
+        ts: "1700000000.000200",
+        type: "message",
+        user: "U01",
+      },
+      { authorizations: [{ is_bot: true, user_id: "U_BOT" }] },
+    );
+
+    const { send } = await firePost(channel, buildSignedRequest({ body: reply }), {
+      resolveActiveSession: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("follows active threads when threadSubscription is enabled", async () => {
+    const channel = slackChannel({
+      credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
+      threadSubscription: true,
+    });
+    const reply = buildEventBody(
+      {
+        channel: "C01",
+        channel_type: "channel",
+        text: "continue",
+        thread_ts: "1700000000.000100",
+        ts: "1700000000.000200",
+        type: "message",
+        user: "U01",
+      },
+      { authorizations: [{ is_bot: true, user_id: "U_BOT" }] },
+    );
+
+    const { send } = await firePost(channel, buildSignedRequest({ body: reply }));
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.any(String) }),
+      expect.objectContaining({ continuationToken: "C01:1700000000.000100" }),
+    );
+  });
+
+  it("allows an advanced onMessage admission policy", async () => {
     const channel = slackChannel({
       credentials: { botToken: "xoxb-test", signingSecret: SIGNING_SECRET },
       async onMessage(ctx) {
@@ -1470,8 +1543,8 @@ describe("slackChannel() onMessage", () => {
   });
 
   it("resolves admitted message subscription inside the hydrated session", async () => {
-    const resolveSubscription = vi.fn(() => "unsubscribed" as const);
-    const channel = slackChannel({ resolveSubscription });
+    const resolve = vi.fn(() => "unsubscribed" as const);
+    const channel = slackChannel({ threadSubscription: { resolve } });
     const adapter = withState(getAdapter(channel), {
       ...THREAD_STATE,
       subscription: "subscribed",
@@ -1504,7 +1577,7 @@ describe("slackChannel() onMessage", () => {
 
     expect(result).toBeUndefined();
     expect(adapterCtx.state.subscription).toBe("unsubscribed");
-    expect(resolveSubscription).toHaveBeenCalledWith(
+    expect(resolve).toHaveBeenCalledWith(
       { current: "subscribed", isBotMentioned: false },
       message,
       expect.objectContaining({ session: expect.any(Object) }),
@@ -2858,6 +2931,7 @@ describe("constrainAuthorizationRequired", () => {
     const request = vi.fn().mockResolvedValue({ ok: true });
     const state: SlackChannelState = {
       channelId: "C123",
+      subscription: "subscribed",
       threadTs: "111.222",
       teamId: null,
       triggeringUserId: "U777",

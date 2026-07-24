@@ -71,43 +71,37 @@ Only the first available handler runs. A message hook returning `null` drops the
 
 #### Continue conversations without repeated mentions
 
-Use `onMessage` to handle explicit mentions and continue replies in threads with an active eve session:
+By default, channel messages dispatch only when they explicitly mention the bot. Enable `threadSubscription` to also respond to human replies in threads with an active eve session:
 
 ```ts title="agent/channels/slack.ts"
 export default slackChannel({
   credentials: connectSlackCredentials("slack/my-agent"),
-  async onMessage(ctx, message) {
-    if (message.author?.isBot) return null;
-    const isDirectMessage = message.raw.channel_type === "im";
-    return isDirectMessage || ctx.isBotMentioned() || (await ctx.isSubscribed())
-      ? { auth: null }
-      : null;
-  },
+  threadSubscription: true,
 });
 ```
 
-`isBotMentioned()` identifies an explicit mention. `isSubscribed()` checks whether the message belongs to a thread with an active eve session. For Vercel Connect, open **Advanced** when creating the connector and add `message.channels` under **Trigger Event Types** and `channels:history` under **Bot Scopes**. Private channels additionally need `message.groups` and `groups:history`.
+For Vercel Connect, open **Advanced** when creating the connector and add `message.channels` under **Trigger Event Types** and `channels:history` under **Bot Scopes**. Private channels additionally need `message.groups` and `groups:history`.
 
-Use `resolveSubscription` when the thread should stop dispatching messages while preserving its eve session and history. `onMessage` still runs at webhook ingress and decides whether to admit the message. For every admitted message, `resolveSubscription` runs inside the durable session after Slack channel state and `defineState` are hydrated. Return `"subscribed"` to dispatch the message to the agent, or `"unsubscribed"` to persist that state and ignore the message before it enters model history:
+To refine when the bot remains subscribed, replace `true` with a resolver. The resolver runs inside the durable session after Slack channel state and `defineState` are hydrated. It receives the current state for every admitted message. Return `"subscribed"` to dispatch the message to the agent, or `"unsubscribed"` to persist that state and ignore the message before it enters model history:
 
 ```ts title="agent/channels/slack.ts"
 export default slackChannel({
   credentials: connectSlackCredentials("slack/my-agent"),
-  async onMessage(ctx, message) {
-    if (message.author?.isBot) return null;
-    return ctx.isBotMentioned() || (await ctx.isSubscribed()) ? { auth: null } : null;
-  },
-  resolveSubscription({ current, isBotMentioned }, message) {
-    if (isBotMentioned) return "subscribed";
-    if (current === "unsubscribed") return current;
+  threadSubscription: {
+    resolve({ current, isBotMentioned }, message) {
+      if (isBotMentioned) return "subscribed";
+      if (current === "unsubscribed") return current;
 
-    const mentionsSomeone = /<@[A-Z0-9]+(?:\|[^>]+)?>/.test(message.text);
-    return mentionsSomeone ? "unsubscribed" : current;
+      const mentionsSomeone = /<@[A-Z0-9]+(?:\|[^>]+)?>/.test(message.text);
+      return mentionsSomeone ? "unsubscribed" : current;
+    },
   },
 });
 ```
 
-The default resolver returns `"subscribed"` for an explicit bot mention and otherwise preserves the current state. A custom resolver controls resubscription, so preserve that explicit-mention behavior when users should be able to bring the bot back. Messages ignored as unsubscribed still wake the existing workflow long enough to hydrate and persist state, but they do not start an agent turn.
+With `threadSubscription: true`, explicit bot mentions subscribe the thread and other messages preserve its current state. A custom resolver controls resubscription, so preserve the explicit-mention branch when users should be able to bring the bot back. Messages ignored as unsubscribed still wake the existing workflow long enough to hydrate and persist state, but they do not start an agent turn.
+
+Use `onMessage` only when you need lower-level webhook-side admission, custom auth, or pre-dispatch behavior. `ctx.isBotMentioned()` identifies explicit mentions, while `ctx.isSubscribed()` is a point-in-time check for an active eve session; it does not read the durable `threadSubscription` state.
 
 Use `ctx.thread.listParticipants()` when routing depends on who has joined the thread. It fetches the current thread and returns unique human Slack user ids in first-appearance order, so the first id is the starting author for a human-started thread. Bot and system messages are excluded:
 
