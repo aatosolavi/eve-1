@@ -203,6 +203,18 @@ interface TaskService {
 Cancellation is cooperative and terminal states are final: once cancelled, a
 task stays cancelled even if execution runs to completion.
 
+The service is not framework-internal only — **agents get the same
+operations** over their session's live tasks. The caller's model and
+authored code can read a task (`getTask`), answer it (`updateTask`),
+abort it (`cancelTask`), and **await** it — including a join across all
+live tasks, so an agent fans out background work and blocks until every
+task settles before composing the result. Awaiting is an invocation
+posture, not a record property: the awaiting turn holds exactly like
+today's sync wait and the record is untouched — background and sync stay
+two postures over one task. The agent-facing surface ships with the
+slice that owns it: model-facing task tools alongside [Slice 2]'s
+electors, the authored handle with [Slice 3].
+
 ### The notification envelope
 
 Every notification is an envelope: an explicit event kind plus the full
@@ -609,8 +621,11 @@ resolves questions today.
 
 1. Should subagents default to `defer()` rather than `sync()`? Conservative
    default preserves all current behavior until authors opt in.
-2. Does the parent model get a built-in `cancel_task` tool, or is
-   cancellation channel/author-only in v1?
+2. Agents get the task operations, cancel and await included
+   ([Operations](#operations)); open is the model-facing shape — built-in
+   tools (`cancel_task`, `await_task`) versus surfacing them only through
+   authored code — and whether await-all is a first-class barrier or
+   composes from per-task awaits.
 3. When a background child goes `input_required` and the user answers in the
    parent conversation, does the answer route by `requestId` alone (today's
    proxy map semantics) or also require the task to still be live under its
