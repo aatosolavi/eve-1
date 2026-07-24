@@ -184,6 +184,14 @@ export interface StreamReconnectRetryPolicy {
 
 /** Configurable policy used when automatic stream reconnection is enabled. */
 export interface ResolvedStreamReconnectPolicy {
+  /**
+   * Milliseconds without stream bytes before reconnecting from the durable
+   * cursor. Set to `0` to disable idle-read reconnects.
+   *
+   * @default 30000
+   */
+  readonly streamIdleTimeoutMs?: number;
+
   /** Retry policy for opening an HTTP stream connection. */
   readonly streamOpenReconnectPolicy?: StreamReconnectRetryPolicy;
 

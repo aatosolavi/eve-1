@@ -508,6 +508,46 @@ describe("ClientSession", () => {
     expect(session.state.streamIndex).toBe(1);
   });
 
+  it("does not arm an idle timeout when stream reconnection is disabled", async () => {
+    const abortController = new AbortController();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener("abort", () => {
+              controller.error(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          },
+        }),
+      );
+    });
+    const session = createSession({ sessionId: "session_1", streamIndex: 0 });
+
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const consumed = (async () => {
+        for await (const _event of session.stream({
+          signal: abortController.signal,
+          streamReconnectPolicy: { reconnect: false },
+        })) {
+          // The stream intentionally remains open and silent.
+        }
+      })().finally(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(settled).toBe(false);
+      expect(fetchMock).toHaveBeenCalledOnce();
+
+      abortController.abort();
+      await consumed;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reconnect a sent turn's response stream when disabled", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
       if ((init?.method ?? "GET") === "POST") {
@@ -571,6 +611,23 @@ describe("ClientSession", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects an invalid stream idle timeout (%s)",
+    async (streamIdleTimeoutMs) => {
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+      const session = createSession({ sessionId: "session_1", streamIndex: 0 });
+
+      await expect(async () => {
+        for await (const _event of session.stream({
+          streamReconnectPolicy: { streamIdleTimeoutMs },
+        })) {
+          // Policy validation happens before opening the stream.
+        }
+      }).rejects.toThrow("streamIdleTimeoutMs must be a non-negative finite number.");
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("retries a transient fetch failure while reopening an active turn stream", async () => {
     const encoder = new TextEncoder();

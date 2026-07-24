@@ -103,7 +103,21 @@ If you support refresh while an authorization prompt is pending, keep the sessio
 
 ## Reconnection
 
-HTTP connections can end before a run does. The client reconnects from the number of events already consumed, so long turns continue without replaying events. It stops at a turn boundary, when aborted, or when the stream can no longer make progress.
+HTTP connections can end—or remain open without delivering more bytes—before a run does. The client reconnects from the number of events already consumed, so long turns continue without replaying events. By default, an open stream that produces no bytes for 30 seconds is cancelled and reopened from the durable cursor. It stops at a turn boundary, when aborted, or when the stream can no longer make progress.
+
+Configure the idle-read deadline and the no-progress retry budget together:
+
+```ts
+const response = await session.send({
+  message: "Run the long operation.",
+  streamReconnectPolicy: {
+    streamIdleTimeoutMs: 15_000,
+    streamIdleReconnectPolicy: { maxAttempts: 10 },
+  },
+});
+```
+
+Set `streamIdleTimeoutMs: 0` to disable idle-read reconnects. Tail-relative streams opened with a negative `startIndex` remain single-connection streams because their absolute cursor cannot be advanced safely.
 
 Set `streamReconnectPolicy: { reconnect: false }` when a relay or proxy owns the cursor and reconnection policy. This makes a single stream GET attempt and returns when that connection ends; it does not stop the server-side turn:
 
