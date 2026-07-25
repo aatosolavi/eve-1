@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { UserContent } from "ai";
 
-import { encodeSandboxRef } from "#internal/attachments/sandbox-refs.js";
-import { serializeUrlFilePart } from "#internal/attachments/url-refs.js";
+import { encodeSandboxRef } from "#core/attachments/sandbox-refs.js";
+import { serializeUrlFilePart } from "#core/attachments/url-refs.js";
 import {
   EVE_MESSAGE_STREAM_VERSION,
   createActionResultEvent,
@@ -15,7 +15,7 @@ import {
   createTurnCancelledEvent,
   encodeMessageStreamEvent,
   timestampHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { createEveConnectionCallbackRoutePath } from "#protocol/routes.js";
 
 describe("message stream protocol", () => {

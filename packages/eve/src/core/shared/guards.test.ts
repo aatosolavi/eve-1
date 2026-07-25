@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isNonEmptyString, isObject, isPlainRecord, isThenable } from "#shared/guards.js";
+import { isNonEmptyString, isObject, isPlainRecord, isThenable } from "#core/shared/guards.js";
 
 describe("isObject", () => {
   it("accepts plain objects", () => {

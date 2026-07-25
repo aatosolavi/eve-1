@@ -6,7 +6,7 @@ import {
   isSandboxRefUrl,
   SANDBOX_URL_SCHEME,
   type SandboxRef,
-} from "#internal/attachments/sandbox-refs.js";
+} from "#core/attachments/sandbox-refs.js";
 
 describe("encodeSandboxRef", () => {
   it("builds an eve-sandbox: URL carrying path, size, and media type as query params", () => {

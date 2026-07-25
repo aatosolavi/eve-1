@@ -7,7 +7,7 @@ import {
   encodeAttachmentRef,
   isAttachmentRefUrl,
   parseAttachmentRef,
-} from "#internal/attachments/refs.js";
+} from "#core/attachments/refs.js";
 
 interface SlackParams {
   readonly file_id: string;

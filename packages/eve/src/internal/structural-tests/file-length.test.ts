@@ -17,7 +17,7 @@ const LONG_SOURCE_FILE_ALLOWLIST = new Set<string>([
   "cli/dev/tui/terminal-renderer.ts",
   "compiler/manifest.ts",
   "internal/nitro/host/create-application-nitro.ts",
-  "protocol/message.ts",
+  "core/protocol/message.ts",
   "public/channels/eve.ts",
   "public/channels/auth.ts",
   "public/channels/slack/slackChannel.ts",

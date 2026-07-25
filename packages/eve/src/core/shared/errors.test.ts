@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toError, toErrorMessage } from "#shared/errors.js";
+import { toError, toErrorMessage } from "#core/shared/errors.js";
 
 describe("toErrorMessage", () => {
   it("returns the message of a real Error instance", () => {
