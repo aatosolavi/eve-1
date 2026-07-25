@@ -16,9 +16,9 @@ import type {
   RunInput,
   Runtime,
 } from "#channel/types.js";
-import { SessionIdKey } from "#context/keys.js";
+import { SessionIdKey } from "#core/context/keys.js";
 import { serializeContext } from "#context/serialize.js";
-import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
+import { RuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { parseLoopDeliveryMessage } from "#internal/loops/delivery-message.js";
 import { readLoopTemporalDevServer } from "#internal/loops/config.js";

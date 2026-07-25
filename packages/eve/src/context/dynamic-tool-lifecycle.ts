@@ -23,8 +23,8 @@ import {
   SessionDynamicToolMetadataKey,
   TurnDynamicToolMetadataKey,
   LiveStepToolsKey,
-} from "#context/keys.js";
-import type { DurableDynamicToolMetadata } from "#context/keys.js";
+} from "#core/context/keys.js";
+import type { DurableDynamicToolMetadata } from "#core/context/keys.js";
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 import { createToolExecuteWithAuth } from "#execution/tool-auth.js";
 

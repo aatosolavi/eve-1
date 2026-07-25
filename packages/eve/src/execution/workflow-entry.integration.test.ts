@@ -9,7 +9,7 @@ import { workflowEntry } from "#internal/loops/workflow/session-workflow.js";
 import {
   buildSessionAttributes,
   buildSubagentRootAttributes,
-} from "#execution/eve-workflow-attributes.js";
+} from "#core/eve-workflow-attributes.js";
 import { createToolExecuteWithAuth } from "#execution/tool-auth.js";
 import { createWorkflowRuntime } from "#internal/loops/workflow/runtime.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";

@@ -8,7 +8,7 @@ import {
   SessionIdKey,
   InitiatorAuthKey,
   ContinuationTokenKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { getAdapterKind } from "#channel/adapter.js";
 

@@ -8,7 +8,7 @@ import {
   migrateTurnWorkflowInput,
   type TurnWorkflowInput,
 } from "#core/durable-session-migrations/turn-workflow.js";
-import { claimHookOwnership, disposeHook, isHookConflictError } from "#execution/hook-ownership.js";
+import { claimHookOwnership, disposeHook, isHookConflictError } from "#core/hook-ownership.js";
 import {
   createTurnCancellationControl,
   type TurnCancellationControl,
@@ -16,7 +16,7 @@ import {
 import { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
 import { WorkflowTurnBackend } from "#internal/loops/workflow/turn-backend.js";
 import type { TurnInput } from "#internal/loops/types.js";
-import { normalizeSerializableError } from "#execution/workflow-errors.js";
+import { normalizeSerializableError } from "#core/workflow-errors.js";
 import { activeTurnId } from "#harness/active-turn-id.js";
 
 // A cancelled turn settles by parking the session, so the cancel hook is

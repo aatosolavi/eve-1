@@ -8,7 +8,10 @@ import {
   dispatchDynamicModelEvent,
   getActiveDynamicModelSelection,
 } from "#context/dynamic-model-lifecycle.js";
-import { SessionDynamicModelReferenceKey, TurnDynamicModelReferenceKey } from "#context/keys.js";
+import {
+  SessionDynamicModelReferenceKey,
+  TurnDynamicModelReferenceKey,
+} from "#core/context/keys.js";
 import { defineDynamic } from "#public/definitions/tool.js";
 import {
   createSessionStartedEvent,

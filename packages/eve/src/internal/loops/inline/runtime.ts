@@ -8,7 +8,7 @@ import type {
   RunInput,
   Runtime,
 } from "#channel/types.js";
-import { ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
+import { ContinuationTokenKey, SessionIdKey } from "#core/context/keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { runSession, runTurn } from "#core/index.js";
 import type { LoopRequest } from "#core/types.js";
@@ -28,7 +28,7 @@ import type {
 import { activeTurnId } from "#harness/active-turn-id.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession } from "#execution/durable-session-store.js";
-import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
+import { RuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";

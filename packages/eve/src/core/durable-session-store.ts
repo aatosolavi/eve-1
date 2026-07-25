@@ -51,7 +51,7 @@ const DURABLE_SESSION_READ_TIMEOUT_MS = 10_000;
  * framework steps can stamp protocol events
  * with `{ turnId, sequence, stepIndex }` without reading the full
  * durable session). All other control-plane state travels via
- * {@link import("#execution/next-driver-action.js").NextDriverAction}.
+ * {@link import("#core/next-driver-action.js").NextDriverAction}.
  * `snapshot` is optional so old stream-backed states can still read
  * from the legacy `eve.session` fallback.
  */

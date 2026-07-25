@@ -5,14 +5,14 @@ import {
   type TurnStepInput,
   type TurnWorkflowDispatchInput,
 } from "#core/durable-session-migrations/turn-workflow.js";
-import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
+import { routeDeliverPayload } from "#core/subagent-hitl-proxy.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
-import { buildTurnAttributes, readRootSessionId } from "#execution/eve-workflow-attributes.js";
+import { buildTurnAttributes, readRootSessionId } from "#core/eve-workflow-attributes.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { setEveAttributes } from "#runtime/attributes/emit.js";
-import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url.js";
+import { resolveWorkflowCallbackBaseUrl } from "#core/workflow-callback-url.js";
 import {
   createWorkflowRuntime,
   startWorkflowPreferLatest,

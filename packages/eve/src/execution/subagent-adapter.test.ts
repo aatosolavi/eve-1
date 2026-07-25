@@ -4,7 +4,7 @@ import { callAdapterEventHandler, type ChannelAdapterContext } from "#channel/ad
 import { buildSessionHandle } from "#channel/session.js";
 import { type SubagentAdapterState } from "#execution/subagent-adapter.js";
 import { ContextContainer } from "#context/container.js";
-import { ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
+import { ContinuationTokenKey, SessionIdKey } from "#core/context/keys.js";
 import type { InputRequest } from "#core/input/types.js";
 import { SUBAGENT_ADAPTER } from "#execution/subagent-adapter.js";
 

@@ -8,7 +8,7 @@ import {
   type DurableSessionState,
 } from "#execution/durable-session-store.js";
 import { createSession } from "#execution/session.js";
-import { resolveInheritedTokenLimit } from "#execution/run-session-limits.js";
+import { resolveInheritedTokenLimit } from "#core/run-session-limits.js";
 import type { RunSessionLimits } from "#channel/types.js";
 import type { JsonObject } from "#core/shared/json.js";
 

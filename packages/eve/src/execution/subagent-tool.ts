@@ -1,5 +1,5 @@
 import { SUBAGENT_ADAPTER_KIND } from "#execution/subagent-adapter.js";
-import { formatSubagentInput } from "#execution/subagent-invocation.js";
+import { formatSubagentInput } from "#core/subagent-invocation.js";
 import type {
   ChannelInstrumentationProjection,
   RunInput,

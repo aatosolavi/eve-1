@@ -1,6 +1,6 @@
 import type { SkillHandle } from "#execution/skills/types.js";
 import type { SandboxSession } from "#shared/sandbox-session.js";
-import type { SessionAuth, SessionParent, SessionTurn } from "#context/keys.js";
+import type { SessionAuth, SessionParent, SessionTurn } from "#core/context/keys.js";
 
 export type { SessionAuth, SessionParent, SessionTurn };
 

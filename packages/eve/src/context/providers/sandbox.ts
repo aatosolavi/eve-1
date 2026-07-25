@@ -4,7 +4,7 @@ import type { SandboxAccess, SandboxState } from "#sandbox/state.js";
 import { type ChannelAdapter, getAdapterKind } from "#channel/adapter.js";
 import type { ContextContainer } from "#context/container.js";
 import { contextStorage } from "#context/container.js";
-import { SandboxKey, SessionIdKey } from "#context/keys.js";
+import { SandboxKey, SessionIdKey } from "#core/context/keys.js";
 import {
   BundleKey,
   ChannelKey,

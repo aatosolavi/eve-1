@@ -22,7 +22,7 @@ import {
   SessionKey,
   SessionDynamicInstructionsKey,
   SessionDynamicModelReferenceKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { SCHEDULE_APP_AUTH } from "#channel/schedule-auth.js";
 import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";

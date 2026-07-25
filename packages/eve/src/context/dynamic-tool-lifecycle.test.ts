@@ -2,7 +2,7 @@ import { asSchema } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DynamicToolEntry } from "#shared/dynamic-tool-definition.js";
-import type { DurableDynamicToolMetadata } from "#context/keys.js";
+import type { DurableDynamicToolMetadata } from "#core/context/keys.js";
 import type { ApprovalContext } from "#public/definitions/approval.js";
 import { defineTool, type ToolContext } from "#public/definitions/tool.js";
 import { serializeOutputSchema, type ToolSchema } from "#shared/tool-schema.js";
@@ -23,7 +23,7 @@ import {
   SessionIdKey,
   SessionDynamicToolMetadataKey,
   TurnDynamicToolMetadataKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import type { ResolvedDynamicToolResolver } from "#runtime/types.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 

@@ -4,7 +4,7 @@ import type { ChannelAdapter } from "#channel/adapter.js";
 import type { DeliverInput, RunInput, Runtime, SessionAuthContext } from "#channel/types.js";
 import { createSession, type Session } from "#channel/session.js";
 import type { SendFn, SendOptions, SendPayload } from "#channel/routes.js";
-import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
+import { isRuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import { serializeUrlFilePart } from "#core/attachments/url-refs.js";
 import { createLogger } from "#internal/logging.js";
 

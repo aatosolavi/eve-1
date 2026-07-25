@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { upsertProxyInputRequests } from "#core/proxy-input-requests.js";
 import type { HarnessSession } from "#harness/types.js";
-import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
+import { routeDeliverPayload } from "#core/subagent-hitl-proxy.js";
 
 function createSession(state?: Record<string, unknown>): HarnessSession {
   return {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
-import { ChannelRequestIdKey } from "#context/keys.js";
+import { ChannelRequestIdKey } from "#core/context/keys.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import {
   createWorkflowRuntime,
@@ -9,7 +9,7 @@ import {
   turnWorkflowReference,
   workflowEntryReference,
 } from "#internal/loops/workflow/runtime.js";
-import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
+import { isRuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 

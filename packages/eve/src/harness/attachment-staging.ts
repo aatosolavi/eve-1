@@ -7,7 +7,7 @@ import type { ChannelAdapterContext, FetchFileResult } from "#channel/adapter.js
 import { getAdapterKind } from "#channel/adapter.js";
 import { buildSessionHandle } from "#channel/session.js";
 import { loadContext } from "#context/container.js";
-import { SandboxKey } from "#context/keys.js";
+import { SandboxKey } from "#core/context/keys.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { fileDataToBytes } from "#internal/attachments/data.js";
 import { EveAttachmentError } from "#internal/attachments/errors.js";

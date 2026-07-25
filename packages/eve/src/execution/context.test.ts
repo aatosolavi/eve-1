@@ -11,7 +11,7 @@ import {
   type SessionAuthContext,
   SessionIdKey,
   SessionKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";

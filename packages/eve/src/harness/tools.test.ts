@@ -2,7 +2,7 @@ import { type JSONSchema7, jsonSchema } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { ContextContainer, contextStorage } from "#context/container.js";
-import { SessionKey, type Session } from "#context/keys.js";
+import { SessionKey, type Session } from "#core/context/keys.js";
 import { SCHEDULE_APP_AUTH } from "#channel/schedule-auth.js";
 import { always, never, once } from "#public/tools/approval/approval-helpers.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";

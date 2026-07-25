@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { stubSpawnProcess } from "./_helpers/sandbox-session-stub.js";
 
 import { ContextContainer, contextStorage } from "../src/context/container.js";
-import { SandboxKey } from "../src/context/keys.js";
+import { SandboxKey } from "../src/core/context/keys.js";
 import type { SandboxAccess } from "../src/sandbox/state.js";
 import { defineBashTool } from "../src/public/tools/define-bash-tool.js";
 import { serializeInputSchema } from "../src/shared/tool-schema.js";

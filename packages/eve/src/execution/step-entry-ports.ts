@@ -7,7 +7,7 @@ import { dispatchDynamicInstructionEvent } from "#context/dynamic-instruction-li
 import { dispatchDynamicModelEvent } from "#context/dynamic-model-lifecycle.js";
 import { dispatchDynamicSkillEvent } from "#context/dynamic-skill-lifecycle.js";
 import { dispatchDynamicToolEvent } from "#context/dynamic-tool-lifecycle.js";
-import { AuthKey, CapabilitiesKey, ModeKey } from "#context/keys.js";
+import { AuthKey, CapabilitiesKey, ModeKey } from "#core/context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
@@ -42,7 +42,7 @@ import {
 } from "#execution/durable-session-store.js";
 import { createNodeGenerate, type CreateRuntime } from "#execution/node-generate.js";
 import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
-import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
+import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import { hydrateDurableSession, refreshSessionFromTurnAgent } from "#execution/session.js";
 import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 

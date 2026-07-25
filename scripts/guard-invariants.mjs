@@ -356,9 +356,10 @@ const MODULE_SPECIFIER_RE = /\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"'
 function checkRule37(posixPath, lines, violations) {
   if (!posixPath.startsWith(CORE_SOURCE_PREFIX) || posixPath.includes(".test.")) return;
 
-  // Type-only imports are erased at runtime and cannot smuggle engine or
-  // SDK behavior into the core; only value imports cross the boundary. The
-  // flag tracks a multi-line `import type {` statement until its `from`.
+  // Type-only imports and re-exports are erased at runtime and cannot
+  // smuggle engine or SDK behavior into the core; only value imports cross
+  // the boundary. The flag tracks a multi-line `import type {` /
+  // `export type {` statement until its `from`.
   let inTypeImport = false;
   lines.forEach((line, idx) => {
     // Doc comments reference modules via {@link import("...")}; those are
@@ -366,8 +367,8 @@ function checkRule37(posixPath, lines, violations) {
     if (/^\s*(\*|\/\/|\/\*)/.test(line)) {
       return;
     }
-    if (/^\s*import\b/.test(line)) {
-      inTypeImport = /^\s*import\s+type\b/.test(line);
+    if (/^\s*(?:import|export)\b/.test(line)) {
+      inTypeImport = /^\s*(?:import|export)\s+type\b/.test(line);
     }
     const match = MODULE_SPECIFIER_RE.exec(line);
     const specifier = match?.[1] ?? match?.[2];

@@ -1,8 +1,13 @@
 import type { ContextAccessor } from "#core/context/key.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { CancelTurnResult, Runtime } from "#channel/types.js";
-import type { SessionAuth } from "#context/keys.js";
-import { AuthKey, ContinuationTokenKey, InitiatorAuthKey, SessionIdKey } from "#context/keys.js";
+import type { SessionAuth } from "#core/context/keys.js";
+import {
+  AuthKey,
+  ContinuationTokenKey,
+  InitiatorAuthKey,
+  SessionIdKey,
+} from "#core/context/keys.js";
 
 /**
  * Result of starting or delivering to a session. Exposes the session

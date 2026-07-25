@@ -1,5 +1,5 @@
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
-import { coalesceDeliverPayloads } from "#execution/deliver-payloads.js";
+import { coalesceDeliverPayloads } from "#core/deliver-payloads.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
 import { routeProxiedDeliverStep } from "#internal/loops/workflow/steps.js";
 

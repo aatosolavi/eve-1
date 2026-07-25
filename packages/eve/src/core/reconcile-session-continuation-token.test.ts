@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ContextContainer } from "#context/container.js";
-import { ContinuationTokenKey } from "#context/keys.js";
-import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
+import { ContinuationTokenKey } from "#core/context/keys.js";
+import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import type { HarnessSession } from "#harness/types.js";
 
 function makeSession(continuationToken: string): HarnessSession {

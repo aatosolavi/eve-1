@@ -1,10 +1,7 @@
 import { createHook } from "#compiled/@workflow/core/index.js";
 
-import { claimHookOwnership, disposeHook, isHookConflictError } from "#execution/hook-ownership.js";
-import {
-  sessionCancelHookToken,
-  type TurnCancelPayload,
-} from "#execution/turn-cancellation-token.js";
+import { claimHookOwnership, disposeHook, isHookConflictError } from "#core/hook-ownership.js";
+import { sessionCancelHookToken, type TurnCancelPayload } from "#core/turn-cancellation-token.js";
 import { TurnCancelledError } from "#core/turn-cancellation.js";
 
 /**

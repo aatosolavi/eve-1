@@ -11,8 +11,8 @@ import {
   readParentLineage,
   readParentSessionId,
   readRootSessionId,
-} from "#execution/eve-workflow-attributes.js";
-import { ChannelRequestIdKey } from "#context/keys.js";
+} from "#core/eve-workflow-attributes.js";
+import { ChannelRequestIdKey } from "#core/context/keys.js";
 
 const slackChannelCtx = {
   "eve.channel": { kind: "slack", state: { team: "T1" } },

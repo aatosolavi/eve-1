@@ -16,7 +16,7 @@ import {
   SessionDynamicInstructionsKey,
   TurnDynamicInstructionsKey,
   SessionIdKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import type { ResolvedDynamicInstructionsResolver } from "#runtime/types.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 

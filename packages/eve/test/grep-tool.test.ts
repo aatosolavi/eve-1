@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { stubSpawnProcess } from "./_helpers/sandbox-session-stub.js";
 
 import { ContextContainer, contextStorage } from "../src/context/container.js";
-import { SandboxKey } from "../src/context/keys.js";
+import { SandboxKey } from "../src/core/context/keys.js";
 import { executeGrepOnSandbox, type GrepResult } from "../src/execution/sandbox/grep-tool.js";
 import type { SandboxAccess } from "../src/sandbox/state.js";
 import type { SandboxSession } from "../src/shared/sandbox-session.js";

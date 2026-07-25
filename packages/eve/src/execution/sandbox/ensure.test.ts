@@ -14,8 +14,8 @@ import {
 import type { RuntimeSandboxRegistry } from "#runtime/sandbox/registry.js";
 import type { ResolvedSandboxDefinition } from "#runtime/types.js";
 import { ContextContainer, contextStorage, loadContext } from "#context/container.js";
-import { SessionKey } from "#context/keys.js";
-import type { Session } from "#context/keys.js";
+import { SessionKey } from "#core/context/keys.js";
+import type { Session } from "#core/context/keys.js";
 import {
   clearActiveSandboxHandlesForTest,
   countActiveSandboxHandles,

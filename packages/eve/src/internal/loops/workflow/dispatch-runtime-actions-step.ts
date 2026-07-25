@@ -14,7 +14,7 @@ import {
   CapabilitiesKey,
   ChannelInstrumentationKey,
   InitiatorAuthKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { deserializeContext } from "#context/serialize.js";
 import { getPendingRuntimeActionBatch, recordPendingSubagentChild } from "#core/runtime-actions.js";

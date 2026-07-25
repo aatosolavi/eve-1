@@ -5,7 +5,7 @@ import type { RuntimeHookRegistry } from "#runtime/hooks/registry.js";
 import { buildCallbackContext } from "#context/build-callback-context.js";
 import type { ContextContainer } from "./container.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
-import { ContinuationTokenKey } from "./keys.js";
+import { ContinuationTokenKey } from "#core/context/keys.js";
 
 /**
  * Fans one runtime stream event out to every matching subscriber.

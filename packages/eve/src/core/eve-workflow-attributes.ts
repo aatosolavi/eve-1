@@ -25,7 +25,7 @@
  * - `$eve.channel_request_id` — inbound channel request id
  */
 
-import { ChannelRequestIdKey } from "#context/keys.js";
+import { ChannelRequestIdKey } from "#core/context/keys.js";
 import type { EveAttributeValue } from "#runtime/attributes/normalize.js";
 import { isNonEmptyString } from "#core/shared/guards.js";
 

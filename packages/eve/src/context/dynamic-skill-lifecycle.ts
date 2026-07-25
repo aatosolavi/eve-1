@@ -21,7 +21,7 @@ import {
   type DurableDynamicSkillMetadata,
   DynamicSkillManifestKey,
   SandboxKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 import { resolveSandboxSkillRoot } from "#shared/skill-paths.js";
 

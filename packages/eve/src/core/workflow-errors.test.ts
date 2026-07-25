@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  normalizeSerializableError,
-  rebuildSerializableError,
-} from "#execution/workflow-errors.js";
+import { normalizeSerializableError, rebuildSerializableError } from "#core/workflow-errors.js";
 
 describe("workflow-errors", () => {
   it("normalizes Errors into workflow-serializable objects", () => {

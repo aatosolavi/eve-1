@@ -10,7 +10,7 @@ import {
   readDurableSession,
 } from "#execution/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
-import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
+import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import { emitCancelledTurn } from "#harness/cancelled-turn-emission.js";
 import {
   getHarnessEmissionState,

@@ -1,7 +1,7 @@
 import { z } from "#compiled/zod/index.js";
 
 import { loadContext } from "#context/container.js";
-import { DynamicSkillManifestKey, SandboxKey } from "#context/keys.js";
+import { DynamicSkillManifestKey, SandboxKey } from "#core/context/keys.js";
 import { ConnectionRegistryKey } from "#context/providers/connection-key.js";
 import { loadSkillFromSandbox } from "#runtime/skills/sandbox-access.js";
 import type { ResolvedSkillDefinition, ResolvedToolDefinition } from "#runtime/types.js";

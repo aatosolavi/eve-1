@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { contextStorage, ContextContainer } from "#context/container.js";
-import { AuthKey, SessionKey, type SessionAuthContext } from "#context/keys.js";
+import { AuthKey, SessionKey, type SessionAuthContext } from "#core/context/keys.js";
 import {
   isConnectionAuthorizationFailedError,
   isConnectionAuthorizationRequiredError,

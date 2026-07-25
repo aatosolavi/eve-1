@@ -6,7 +6,7 @@ import { isCompiledChannel } from "#channel/compiled-channel.js";
 import type { InferReceiveTarget } from "#channel/receive-target.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
 import type { ContextAccessor } from "#core/context/key.js";
-import { SessionKey, type Session } from "#context/keys.js";
+import { SessionKey, type Session } from "#core/context/keys.js";
 import type { slackChannel, SlackInstrumentationMetadata } from "#public/channels/slack/index.js";
 import type {
   twilioChannel,

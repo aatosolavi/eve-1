@@ -8,7 +8,7 @@ import {
   SessionDynamicModelReferenceKey,
   TurnDynamicModelReferenceKey,
   type LiveDynamicModelSelection,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { createLogger } from "#internal/logging.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type {

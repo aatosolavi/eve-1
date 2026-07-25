@@ -18,7 +18,7 @@ import {
   SessionIdKey,
   SessionKey,
   type Session as RuntimeSession,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { createMessageCompletedEvent } from "#core/protocol/message.js";
 
 /**

@@ -16,8 +16,8 @@ import {
   createDelegatedSubagentSuccessResult,
 } from "#execution/delegated-parent-result.js";
 import { notifyDelegatedParentStep } from "#execution/delegated-parent-notification.js";
-import { disposeHook } from "#execution/hook-ownership.js";
-import type { NextDriverAction } from "#execution/next-driver-action.js";
+import { disposeHook } from "#core/hook-ownership.js";
+import type { NextDriverAction } from "#core/next-driver-action.js";
 import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
 import { settleCancelledTurnStep } from "#execution/settle-cancelled-turn-step.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";

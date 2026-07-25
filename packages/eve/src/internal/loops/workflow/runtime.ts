@@ -20,7 +20,7 @@ import {
   buildSessionAttributes,
   buildSubagentRootAttributes,
   readParentLineage,
-} from "#execution/eve-workflow-attributes.js";
+} from "#core/eve-workflow-attributes.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { isEveDevEnvironment } from "#internal/application/dev-environment.js";
 import { createLogger, logError } from "#internal/logging.js";
@@ -40,12 +40,9 @@ import { ROOT_RUNTIME_AGENT_NODE_ID } from "#runtime/graph.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { buildRunContext } from "#execution/runtime-context.js";
-import { parseNdjsonStream } from "#execution/ndjson-stream.js";
-import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import {
-  sessionCancelHookToken,
-  type TurnCancelPayload,
-} from "#execution/turn-cancellation-token.js";
+import { parseNdjsonStream } from "#core/ndjson-stream.js";
+import { RuntimeNoActiveSessionError } from "#core/runtime-errors.js";
+import { sessionCancelHookToken, type TurnCancelPayload } from "#core/turn-cancellation-token.js";
 
 const WORKFLOW_ENTRY_NAME = "workflowEntry";
 const TURN_WORKFLOW_NAME = "turnWorkflow";

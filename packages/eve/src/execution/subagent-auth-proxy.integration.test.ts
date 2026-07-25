@@ -6,7 +6,7 @@ import type {
   SubagentAuthorizationEventHookPayload,
 } from "#channel/types.js";
 import { ContextContainer } from "#context/container.js";
-import { AuthKey, ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
+import { AuthKey, ContinuationTokenKey, SessionIdKey } from "#core/context/keys.js";
 import { emitProxiedSubagentEvent } from "#execution/subagent-event-proxy-step.js";
 import { projectToDurableSession } from "#execution/session.js";
 import type { HarnessSession } from "#harness/types.js";

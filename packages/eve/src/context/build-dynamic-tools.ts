@@ -4,8 +4,8 @@ import {
   SessionDynamicToolMetadataKey,
   TurnDynamicToolMetadataKey,
   LiveStepToolsKey,
-} from "#context/keys.js";
-import type { DurableDynamicToolMetadata } from "#context/keys.js";
+} from "#core/context/keys.js";
+import type { DurableDynamicToolMetadata } from "#core/context/keys.js";
 import { createToolExecuteWithAuth } from "#execution/tool-auth.js";
 import { createLogger } from "#internal/logging.js";
 import type { ApprovalContext, ApprovalStatus } from "#public/definitions/approval.js";

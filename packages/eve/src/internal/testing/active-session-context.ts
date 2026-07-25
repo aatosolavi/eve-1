@@ -6,7 +6,7 @@ import {
   SessionKey,
   type SessionParent,
   type SessionTurn,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { setChannelContext } from "#execution/channel-context.js";
 import type { SandboxAccess } from "#sandbox/state.js";
 

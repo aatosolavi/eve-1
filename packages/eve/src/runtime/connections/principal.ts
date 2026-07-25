@@ -11,7 +11,7 @@
  */
 
 import { type AlsContext, contextStorage } from "#context/container.js";
-import { AuthKey, type SessionAuthContext } from "#context/keys.js";
+import { AuthKey, type SessionAuthContext } from "#core/context/keys.js";
 import { ConnectionAuthorizationFailedError } from "#public/connections/errors.js";
 import type { AuthorizationDefinition, ConnectionPrincipal } from "#runtime/connections/types.js";
 

@@ -16,7 +16,7 @@ import { runProxySubagentEventStep } from "#execution/subagent-event-proxy-step.
 import type { TurnCancellationControl } from "#execution/turn-cancellation-control.js";
 import type { TurnInboxPayload } from "#execution/turn-control-protocol.js";
 import type { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
-import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url.js";
+import { resolveWorkflowCallbackBaseUrl } from "#core/workflow-callback-url.js";
 import { turnStep } from "#internal/loops/workflow/steps.js";
 import { resolveRuntimeActionResultsForKeys } from "#core/runtime-actions.js";
 import type { RuntimeActionResult } from "#core/actions/types.js";

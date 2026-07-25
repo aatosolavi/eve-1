@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createToolExecuteWithAuth } from "#execution/tool-auth.js";
 import { evictScopedToken, resolveScopedToken } from "#runtime/connections/scoped-authorization.js";
 import { loadContext } from "#context/container.js";
-import { AuthKey, SessionIdKey } from "#context/keys.js";
+import { AuthKey, SessionIdKey } from "#core/context/keys.js";
 import {
   CallbackBaseUrlKey,
   PendingAuthorizationResultKey,

@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { ContextContainer, contextStorage } from "#context/container.js";
-import { AuthKey, ChannelInstrumentationKey } from "#context/keys.js";
+import { AuthKey, ChannelInstrumentationKey } from "#core/context/keys.js";
 import type { HarnessEmissionState } from "#harness/emission.js";
 import {
   buildTelemetryRuntimeContext,

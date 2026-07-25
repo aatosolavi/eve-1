@@ -3,7 +3,7 @@ import type { ChannelAdapter } from "#channel/adapter.js";
 import { compileFromMemory } from "#compiler/compile-from-memory.js";
 import type { CompiledAgentManifest, CompiledSkillDefinition } from "#compiler/manifest.js";
 import type { CompiledModuleMap } from "#compiler/module-map.js";
-import type { SessionParent, SessionTurn } from "#context/keys.js";
+import type { SessionParent, SessionTurn } from "#core/context/keys.js";
 import { installBundledCompiledArtifacts } from "#runtime/loaders/bundled-artifacts.js";
 import type { SandboxAccess } from "#sandbox/state.js";
 import {

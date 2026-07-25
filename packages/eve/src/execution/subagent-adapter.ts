@@ -6,7 +6,7 @@ import type {
   SubagentAuthorizationEventHookPayload,
   SubagentInputRequestHookPayload,
 } from "#channel/types.js";
-import { ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
+import { ContinuationTokenKey, SessionIdKey } from "#core/context/keys.js";
 import { createErrorId, createLogger } from "#internal/logging.js";
 
 const log = createLogger("execution.subagent-adapter");

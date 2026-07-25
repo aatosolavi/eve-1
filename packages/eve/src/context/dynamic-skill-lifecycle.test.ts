@@ -5,7 +5,7 @@ import {
   PendingSkillAnnouncementKey,
   dispatchDynamicSkillEvent,
 } from "#context/dynamic-skill-lifecycle.js";
-import { DynamicSkillManifestKey, SessionIdKey, SandboxKey } from "#context/keys.js";
+import { DynamicSkillManifestKey, SessionIdKey, SandboxKey } from "#core/context/keys.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { defineSkill } from "#public/definitions/skill.js";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ContextContainer, contextStorage } from "#context/container.js";
-import { DynamicSkillManifestKey, SandboxKey } from "#context/keys.js";
+import { DynamicSkillManifestKey, SandboxKey } from "#core/context/keys.js";
 import { ConnectionRegistryKey } from "#context/providers/connection-key.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import type { ConnectionRegistry } from "#runtime/connections/types.js";

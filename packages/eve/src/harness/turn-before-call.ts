@@ -1,7 +1,7 @@
 import type { SystemModelMessage, TelemetryOptions } from "ai";
 import { isScheduleAppAuth } from "#channel/schedule-auth.js";
 import { contextStorage } from "#context/container.js";
-import { AuthKey, ParentSessionKey } from "#context/keys.js";
+import { AuthKey, ParentSessionKey } from "#core/context/keys.js";
 import { buildDynamicInstructionMessages } from "#context/dynamic-instruction-lifecycle.js";
 import { PendingSkillAnnouncementKey } from "#context/dynamic-skill-lifecycle.js";
 import type {

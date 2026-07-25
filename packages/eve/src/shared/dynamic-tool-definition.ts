@@ -7,7 +7,7 @@ import type {
 } from "#shared/tool-definition.js";
 import type { Approval } from "#public/definitions/approval.js";
 import type { ToolContext } from "#public/definitions/tool.js";
-import type { SessionAuth } from "#context/keys.js";
+import type { SessionAuth } from "#core/context/keys.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 /**

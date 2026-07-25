@@ -10,7 +10,7 @@ import {
   ChannelKey,
   type CompiledBundle,
 } from "#runtime/sessions/runtime-context-keys.js";
-import { ContinuationTokenKey, SessionIdKey, SessionKey } from "./keys.js";
+import { ContinuationTokenKey, SessionIdKey, SessionKey } from "#core/context/keys.js";
 
 function createMockBundle(): CompiledBundle {
   return {

@@ -7,7 +7,7 @@ import {
   type SessionAuthContext,
   SessionIdKey,
   SessionKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 
 function createTestSession(

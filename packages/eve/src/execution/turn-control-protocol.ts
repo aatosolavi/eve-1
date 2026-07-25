@@ -1,5 +1,5 @@
 import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
-import type { NextDriverAction } from "#execution/next-driver-action.js";
+import type { NextDriverAction } from "#core/next-driver-action.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
 
 /** Payloads delivered to the private inbox owned by one active turn. */

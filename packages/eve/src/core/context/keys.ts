@@ -16,6 +16,7 @@ import type {
   SessionTurn,
 } from "#channel/types.js";
 import { ContextKey } from "#core/context/key.js";
+import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import type { SandboxAccess } from "#sandbox/state.js";
 import type { RunMode } from "#shared/run-mode.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
@@ -151,9 +152,7 @@ export const TurnDynamicToolMetadataKey = new ContextKey<readonly DurableDynamic
  * framework tools (which lack bundler step-function metadata) work.
  * Re-resolved every step — no cross-step persistence needed.
  */
-export const LiveStepToolsKey = new ContextKey<
-  import("#harness/execute-tool.js").HarnessToolDefinition[]
->("eve.liveStepTools");
+export const LiveStepToolsKey = new ContextKey<HarnessToolDefinition[]>("eve.liveStepTools");
 
 // ---------------------------------------------------------------------------
 // Dynamic skill keys

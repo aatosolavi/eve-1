@@ -9,7 +9,7 @@ import {
   projectSessionState,
   readDurableSession,
 } from "#execution/durable-session-store.js";
-import type { NextDriverAction } from "#execution/next-driver-action.js";
+import type { NextDriverAction } from "#core/next-driver-action.js";
 import { projectToDurableSession } from "#execution/session.js";
 
 const getRunMock = vi.hoisted(() => vi.fn());

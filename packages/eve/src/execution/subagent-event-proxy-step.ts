@@ -5,7 +5,7 @@ import type {
   SubagentInputRequestHookPayload,
 } from "#channel/types.js";
 import type { ContextContainer } from "#context/container.js";
-import { ModeKey } from "#context/keys.js";
+import { ModeKey } from "#core/context/keys.js";
 import { withContextScope } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { setChannelContext } from "#execution/channel-context.js";
@@ -15,9 +15,9 @@ import {
   type DurableSessionState,
   readDurableSession,
 } from "#execution/durable-session-store.js";
-import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
+import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import { hydrateDurableSession } from "#execution/session.js";
-import { emitProxiedInputRequest } from "#execution/subagent-hitl-proxy.js";
+import { emitProxiedInputRequest } from "#core/subagent-hitl-proxy.js";
 import { upsertProxyInputRequests } from "#core/proxy-input-requests.js";
 import type { HarnessSession } from "#harness/types.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";

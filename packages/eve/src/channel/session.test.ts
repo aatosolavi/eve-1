@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { buildSessionHandle, createGetSessionFn, createSession } from "#channel/session.js";
 import type { Runtime } from "#channel/types.js";
 import { ContextContainer } from "#context/container.js";
-import { AuthKey, ContinuationTokenKey, InitiatorAuthKey, SessionIdKey } from "#context/keys.js";
+import {
+  AuthKey,
+  ContinuationTokenKey,
+  InitiatorAuthKey,
+  SessionIdKey,
+} from "#core/context/keys.js";
 
 function createRuntime(): Runtime {
   return {

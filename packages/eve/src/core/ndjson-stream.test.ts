@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseNdjsonStream } from "#execution/ndjson-stream.js";
+import { parseNdjsonStream } from "#core/ndjson-stream.js";
 
 const encoder = new TextEncoder();
 

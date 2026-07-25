@@ -3,7 +3,7 @@ import type { SkillHandle } from "#execution/skills/types.js";
 import type { SandboxSession } from "#shared/sandbox-session.js";
 import { createSandboxSkillHandle } from "#runtime/skills/sandbox-access.js";
 import { loadContext } from "#context/container.js";
-import { SandboxKey, SessionKey } from "#context/keys.js";
+import { SandboxKey, SessionKey } from "#core/context/keys.js";
 
 /**
  * Builds a {@link SessionContext} from the active ALS scope.

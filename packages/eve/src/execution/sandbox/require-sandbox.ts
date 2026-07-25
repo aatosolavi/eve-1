@@ -1,5 +1,5 @@
 import { loadContext } from "#context/container.js";
-import { SandboxKey } from "#context/keys.js";
+import { SandboxKey } from "#core/context/keys.js";
 import type { SandboxSession } from "#public/definitions/sandbox.js";
 import { bindSandboxAbortSignal } from "#execution/sandbox/abort-bound-session.js";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { contextStorage, ContextContainer } from "#context/container.js";
-import { AuthKey, type SessionAuthContext } from "#context/keys.js";
+import { AuthKey, type SessionAuthContext } from "#core/context/keys.js";
 import {
   ConnectionAuthorizationFailedError,
   isConnectionAuthorizationFailedError,

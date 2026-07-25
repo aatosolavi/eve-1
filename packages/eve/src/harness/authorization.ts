@@ -1,5 +1,5 @@
 import { loadContext } from "#context/container.js";
-import { SessionIdKey } from "#context/keys.js";
+import { SessionIdKey } from "#core/context/keys.js";
 import { createEveConnectionCallbackRoutePath } from "#protocol/routes.js";
 import {
   authHookToken,

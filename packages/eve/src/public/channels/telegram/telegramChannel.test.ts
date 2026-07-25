@@ -5,7 +5,7 @@ import { callAdapterEventHandler, type ChannelAdapter } from "#channel/adapter.j
 import { isCompiledChannel, type CompiledChannel } from "#channel/compiled-channel.js";
 import { isHttpRouteDefinition } from "#channel/routes.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
-import { SessionKey } from "#context/keys.js";
+import { SessionKey } from "#core/context/keys.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { telegramChannel, type TelegramChannelState } from "#public/channels/telegram/index.js";
 

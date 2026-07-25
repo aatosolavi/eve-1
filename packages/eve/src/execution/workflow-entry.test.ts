@@ -3,7 +3,7 @@ import { createHook } from "#compiled/@workflow/core/index.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
 
 import type { HookPayload } from "#channel/types.js";
-import { ChannelRequestIdKey, SubagentDepthKey } from "#context/keys.js";
+import { ChannelRequestIdKey, SubagentDepthKey } from "#core/context/keys.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { notifyDelegatedParentStep } from "#execution/delegated-parent-notification.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";

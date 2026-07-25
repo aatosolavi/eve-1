@@ -8,7 +8,7 @@ export type {
   SessionAuthContext,
   SessionParent,
   SessionTurn,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 
 /**
  * Returns the current value of a context key, or `undefined` when unset.

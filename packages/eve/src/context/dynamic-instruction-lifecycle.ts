@@ -11,7 +11,7 @@ import { createLogger } from "#internal/logging.js";
 import { toErrorMessage } from "#core/shared/errors.js";
 import type { ContextContainer } from "#context/container.js";
 import type { ContextKey } from "#core/context/key.js";
-import { SessionDynamicInstructionsKey, TurnDynamicInstructionsKey } from "#context/keys.js";
+import { SessionDynamicInstructionsKey, TurnDynamicInstructionsKey } from "#core/context/keys.js";
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 
 const log = createLogger("dynamic-instructions");

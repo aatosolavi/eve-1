@@ -1,5 +1,5 @@
 import type { ContextAccessor } from "#core/context/key.js";
-import { ContinuationTokenKey } from "#context/keys.js";
+import { ContinuationTokenKey } from "#core/context/keys.js";
 import type { HarnessSession } from "#harness/types.js";
 
 /** Re-stamps a session after a channel handler changes its continuation token. */

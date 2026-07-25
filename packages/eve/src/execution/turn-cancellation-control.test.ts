@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTurnCancellationControl } from "#execution/turn-cancellation-control.js";
-import { sessionCancelHookToken } from "#execution/turn-cancellation-token.js";
+import { sessionCancelHookToken } from "#core/turn-cancellation-token.js";
 import { TurnCancelledError } from "#core/turn-cancellation.js";
 
 const createHookMock = vi.fn();

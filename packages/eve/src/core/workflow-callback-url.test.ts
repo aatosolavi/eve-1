@@ -4,7 +4,7 @@ import {
   createWorkflowCallbackUrl,
   resolveVercelProductionCallbackBaseUrl,
   resolveWorkflowCallbackBaseUrl,
-} from "#execution/workflow-callback-url.js";
+} from "#core/workflow-callback-url.js";
 
 describe("resolveVercelProductionCallbackBaseUrl", () => {
   afterEach(() => {

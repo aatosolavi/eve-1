@@ -2,12 +2,12 @@ import { getWorkflowMetadata, getWritable } from "#compiled/@workflow/core/index
 
 import type { RunInput, SessionCapabilities } from "#channel/types.js";
 import { runSession } from "#core/index.js";
-import { readChannelRequestId, readRootSessionId } from "#execution/eve-workflow-attributes.js";
+import { readChannelRequestId, readRootSessionId } from "#core/eve-workflow-attributes.js";
 import type { RunMode } from "#shared/run-mode.js";
 import type { DurableCompiledArtifactsSource } from "#runtime/durable-compiled-artifacts-source.js";
 import { notifyDelegatedParentStep } from "#execution/delegated-parent-notification.js";
 import { createDelegatedSubagentErrorResult } from "#execution/delegated-parent-result.js";
-import { normalizeSerializableError } from "#execution/workflow-errors.js";
+import { normalizeSerializableError } from "#core/workflow-errors.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { emitTerminalSessionFailureStep } from "#execution/terminal-session-failure-step.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";

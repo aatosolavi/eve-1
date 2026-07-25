@@ -7,7 +7,7 @@ import {
   ContinuationTokenKey,
   InitiatorAuthKey,
   SessionIdKey,
-} from "#context/keys.js";
+} from "#core/context/keys.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 

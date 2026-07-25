@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
 import type { RunInput } from "#channel/types.js";
-import { ChannelRequestIdKey, SessionIdKey } from "#context/keys.js";
+import { ChannelRequestIdKey, SessionIdKey } from "#core/context/keys.js";
 import {
   DURABLE_SESSION_VERSION,
   type DurableSessionState,
 } from "#execution/durable-session-store.js";
-import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
+import { isRuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import type { EveEntryInput } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
 import {

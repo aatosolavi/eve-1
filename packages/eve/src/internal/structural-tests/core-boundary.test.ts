@@ -64,10 +64,10 @@ async function listSourceFiles(dir: string): Promise<string[]> {
   return files;
 }
 
-/** Import specifiers with at least one runtime (non-type-only) binding. */
+/** Import/re-export specifiers with at least one runtime (non-type-only) binding. */
 function findValueImports(source: string): string[] {
   const specifiers: string[] = [];
-  const importRe = /^import\s+([^;]*?)\s*from\s*["']([^"']+)["']/gms;
+  const importRe = /^(?:import|export)\s+([^;]*?)\s*from\s*["']([^"']+)["']/gms;
   for (const match of source.matchAll(importRe)) {
     const clause = match[1] ?? "";
     const specifier = match[2] ?? "";
