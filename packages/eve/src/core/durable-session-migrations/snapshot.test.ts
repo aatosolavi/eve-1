@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DURABLE_SESSION_VERSION,
   type DurableSessionSnapshot,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { projectToDurableSession } from "#execution/session.js";
 import type { HarnessSession } from "#harness/types.js";
 

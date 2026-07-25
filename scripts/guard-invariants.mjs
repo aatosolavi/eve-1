@@ -361,6 +361,11 @@ function checkRule37(posixPath, lines, violations) {
   // flag tracks a multi-line `import type {` statement until its `from`.
   let inTypeImport = false;
   lines.forEach((line, idx) => {
+    // Doc comments reference modules via {@link import("...")}; those are
+    // documentation, not imports.
+    if (/^\s*(\*|\/\/|\/\*)/.test(line)) {
+      return;
+    }
     if (/^\s*import\b/.test(line)) {
       inTypeImport = /^\s*import\s+type\b/.test(line);
     }

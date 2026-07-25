@@ -1,5 +1,7 @@
 import type { DurableSession } from "#execution/durable-session-store.js";
 import { formatAvailableSkillsSection } from "#execution/skills/instructions.js";
+
+export { projectToDurableSession } from "#core/durable-session-store.js";
 import type { HarnessSession, SessionLimits, SessionToolDefinition } from "#harness/types.js";
 import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
 
@@ -161,70 +163,6 @@ function createSessionSystemPrompt(input: { readonly turnAgent: RuntimeTurnAgent
  */
 export function mintSubagentContinuationToken(suffix?: string): string {
   return `subagent:${suffix ?? crypto.randomUUID()}`;
-}
-
-/**
- * Projects a {@link HarnessSession} to {@link DurableSession}.
- *
- * Drops fields rebuilt every turn from `bundle.turnAgent`; keeps
- * `agent.system` and `compaction.lastKnown*` so compaction stays
- * informed after rehydration.
- */
-export function projectToDurableSession(session: HarnessSession): DurableSession {
-  const durable: {
-    agent: { system: string };
-    compaction?: {
-      lastKnownInputTokens?: number;
-      lastKnownPromptMessageCount?: number;
-    };
-    continuationToken: string;
-    history: HarnessSession["history"];
-    limits?: HarnessSession["limits"];
-    outputSchema?: HarnessSession["outputSchema"];
-    rootSessionId?: string;
-    sandboxState?: HarnessSession["sandboxState"];
-    sessionId: string;
-    state?: HarnessSession["state"];
-    subagentDepth?: number;
-    workflowMaxSubagents?: number;
-  } = {
-    agent: { system: session.agent.system },
-    continuationToken: session.continuationToken,
-    history: session.history,
-    sessionId: session.sessionId,
-  };
-
-  if (
-    session.compaction.lastKnownInputTokens !== undefined ||
-    session.compaction.lastKnownPromptMessageCount !== undefined
-  ) {
-    durable.compaction = {
-      lastKnownInputTokens: session.compaction.lastKnownInputTokens,
-      lastKnownPromptMessageCount: session.compaction.lastKnownPromptMessageCount,
-    };
-  }
-  if (session.rootSessionId !== undefined) {
-    durable.rootSessionId = session.rootSessionId;
-  }
-  if (session.limits !== undefined) {
-    durable.limits = session.limits;
-  }
-  if (session.outputSchema !== undefined) {
-    durable.outputSchema = session.outputSchema;
-  }
-  if (session.sandboxState !== undefined) {
-    durable.sandboxState = session.sandboxState;
-  }
-  if (session.state !== undefined) {
-    durable.state = session.state;
-  }
-  if (session.subagentDepth !== undefined) {
-    durable.subagentDepth = session.subagentDepth;
-  }
-  if (session.workflowMaxSubagents !== undefined) {
-    durable.workflowMaxSubagents = session.workflowMaxSubagents;
-  }
-  return durable;
 }
 
 /**

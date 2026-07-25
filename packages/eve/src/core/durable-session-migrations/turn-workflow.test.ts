@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { HookPayload } from "#channel/types.js";
-import {
-  DURABLE_SESSION_VERSION,
-  type DurableSessionState,
-} from "#execution/durable-session-store.js";
+import { DURABLE_SESSION_VERSION, type DurableSessionState } from "#core/durable-session-store.js";
 
 import {
   createTurnWorkflowInput,
