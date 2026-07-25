@@ -13,7 +13,10 @@ import {
 } from "#internal/mcp/streamable-http-server.js";
 import { inputResponseSchema } from "#runtime/input/types.js";
 import { readMcpSessionAuth } from "#public/channels/mcp-auth.js";
-import { readRouteAgent } from "#internal/nitro/routes/channel-route-context.js";
+import {
+  readAgentInfoRouteResponse,
+  readRouteAgent,
+} from "#internal/nitro/routes/channel-route-context.js";
 
 export {
   mcpProtectedResourceMetadataRoute,
@@ -25,10 +28,6 @@ export {
 export type { McpProtectedResourceMetadataOptions } from "#internal/mcp/protected-resource.js";
 
 export interface McpChannelInput {
-  readonly agent: {
-    readonly description: string;
-    readonly outputSchema?: JsonObject;
-  };
   /** Streamable HTTP endpoint path. Defaults to `/mcp`. */
   readonly path?: string;
 }
@@ -44,45 +43,56 @@ export type McpChannel = Channel;
  * it behind an authenticated gateway that forwards verifiable signed identity.
  * The file containing this channel must be `agent/channels/mcp.ts`.
  */
-export function mcpChannel(input: McpChannelInput): McpChannel {
+export function mcpChannel(input: McpChannelInput = {}): McpChannel {
   const path = input.path ?? "/mcp";
 
   return defineChannel({
     routes: [
-      GET(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
-      POST(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
-      DELETE(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
+      GET(path, async (request, args) => await handleMcpRequest(request, args)),
+      POST(path, async (request, args) => await handleMcpRequest(request, args)),
+      DELETE(path, async (request, args) => await handleMcpRequest(request, args)),
     ],
   });
 }
 
-async function handleMcpRequest(
-  request: Request,
-  args: RouteHandlerArgs,
-  config: McpChannelInput["agent"],
-): Promise<Response> {
+async function handleMcpRequest(request: Request, args: RouteHandlerArgs): Promise<Response> {
   const auth = readMcpSessionAuth(request);
   const agent = readRouteAgent(args);
-  if (agent === undefined) {
+  const respondWithAgentInfo = readAgentInfoRouteResponse(args);
+  if (agent === undefined || respondWithAgentInfo === undefined) {
     return Response.json({ error: "MCP requires agent route context." }, { status: 500 });
   }
+  const agentInfoResponse = await respondWithAgentInfo();
+  if (!agentInfoResponse.ok) return agentInfoResponse;
+  const agentInfo = (await agentInfoResponse.json()) as {
+    readonly agent?: { readonly description?: unknown; readonly name?: unknown };
+  };
+  if (typeof agentInfo.agent?.name !== "string") {
+    return Response.json({ error: "MCP requires compiled agent metadata." }, { status: 500 });
+  }
+  const description =
+    typeof agentInfo.agent.description === "string" ? agentInfo.agent.description : undefined;
   const service = new AgentInvocationService(new WorkflowAgentInvocationExecution(agent, "mcp"));
   return await createMcpStreamableHttpServer({
     authenticate: async () => auth,
-    name: "eve-agent",
-    tools: createInvocationTools(service, config),
+    name: agentInfo.agent.name,
+    tools: createInvocationTools(service, description),
     version: "1.0.0",
   })(request);
 }
 
 function createInvocationTools(
   service: AgentInvocationService,
-  config: McpChannelInput["agent"],
+  agentDescription: string | undefined,
 ): readonly McpServerTool[] {
+  const startDescription = "Starts durable work and returns an invocation handle immediately.";
   const tools: McpServerTool[] = [
     {
       definition: {
-        description: `${config.description} Starts durable work and returns an invocation handle immediately.`,
+        description:
+          agentDescription === undefined
+            ? startDescription
+            : `${agentDescription} ${startDescription}`,
         inputSchema: {
           additionalProperties: false,
           properties: {
@@ -103,7 +113,7 @@ function createInvocationTools(
           auth: context.auth,
           message: body.message,
           mode: body.mode === "conversation" ? "conversation" : "task",
-          outputSchema: asJsonObject(body.outputSchema) ?? config.outputSchema,
+          outputSchema: asJsonObject(body.outputSchema),
         });
         return invocationResult(invocation);
       },

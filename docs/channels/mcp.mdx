@@ -13,19 +13,13 @@ Create `agent/channels/mcp.ts`:
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { mcpChannel, withMcpAuth } from "eve/channels/mcp";
 
-const channel = mcpChannel({
-  agent: {
-    description: "Investigates software tasks and returns a concise report.",
-  },
-});
-
 async function verifyToken(request: Request, bearerToken?: string): Promise<AuthInfo | undefined> {
   // Verify with your identity provider, gateway, or resource server.
   if (!bearerToken) return undefined;
   return myTokenVerifier(request, bearerToken);
 }
 
-export default withMcpAuth(channel, verifyToken, {
+export default withMcpAuth(mcpChannel(), verifyToken, {
   required: true,
   requiredScopes: ["agent:invoke"],
   protectedResourceMetadata: {
@@ -35,6 +29,12 @@ export default withMcpAuth(channel, verifyToken, {
   },
 });
 ```
+
+The MCP server name and `agent_start` description come from the compiled root
+agent definition. `mcpChannel` options are limited to transport concerns such
+as a custom `path`. Define a default structured output schema on the agent, or
+pass `outputSchema` to an individual `agent_start` invocation; it is not channel
+identity.
 
 The verifier uses the standard MCP SDK `AuthInfo` contract and is portable with
 `mcp-handler`'s `withMcpAuth`. eve extracts bearer credentials, enforces token

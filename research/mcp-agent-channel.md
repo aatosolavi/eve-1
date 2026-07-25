@@ -62,34 +62,36 @@ the remote transport or the receiving agent's public MCP endpoint.
 An agent opts in explicitly:
 
 ```ts title="agent/channels/mcp.ts"
-import { mcpChannel } from "eve/channels/mcp";
-import { oidc } from "eve/channels/auth";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { mcpChannel, withMcpAuth } from "eve/channels/mcp";
 
-export default mcpChannel({
-  agent: {
-    description: "Investigates software tasks and returns a concise report.",
-  },
-  auth: oidc({
-    issuer: process.env.MCP_OIDC_ISSUER!,
-    audience: process.env.MCP_OIDC_AUDIENCE!,
-  }),
-  oauth: {
+async function verifyToken(request: Request, bearerToken?: string): Promise<AuthInfo | undefined> {
+  if (!bearerToken) return undefined;
+  return myTokenVerifier(request, bearerToken);
+}
+
+export default withMcpAuth(mcpChannel(), verifyToken, {
+  required: true,
+  requiredScopes: ["agent:invoke"],
+  protectedResourceMetadata: {
     authorizationServers: [process.env.MCP_OIDC_ISSUER!],
     resource: process.env.MCP_RESOURCE_URL!,
+    scopesSupported: ["agent:invoke"],
   },
 });
 ```
 
-`mcpChannel()` owns `POST /mcp` and the OAuth protected-resource metadata route. It uses the same
-`AuthFn` contract and `SessionAuthContext` projection as other HTTP channels. The OAuth metadata
-config describes an external authorization server; eve is a protected resource, not a token issuer.
-A static bearer/header path may be used for deterministic tests and local smoke checks, but the
-manual demo must exercise `claude mcp login`.
+`mcpChannel()` owns the Streamable HTTP transport and durable eve invocation tools. Its options are
+limited to transport and exposure concerns such as `path`. The MCP server name and model-facing
+description come from the compiled root agent definition because a channel already belongs to that
+agent. A default output schema belongs on the agent definition; a request-specific schema belongs
+on `agent_start`.
 
-The initial `agent` options are intentionally narrow:
-
-- `description`: required model-facing description;
-- `outputSchema`: optional fixed structured result schema for every invocation;
+`withMcpAuth` is separate generic protocol glue. It accepts the standard MCP SDK `AuthInfo`
+contract, projects verified identity into `SessionAuthContext`, enforces required scopes, and can
+publish OAuth protected-resource metadata. The verifier remains provider-owned and swappable. A
+static bearer/header path may be used for deterministic tests and local smoke checks, but the manual
+demo must exercise `claude mcp login`.
 
 The channel does not automatically publish the agent's authored tools, connections, instructions,
 skills, or subagents. Publishing those capabilities directly is a separate surface from invoking
@@ -103,6 +105,7 @@ Clients without MCP Tasks support receive ordinary, short-lived tools:
 
 - `agent_start({ message, outputSchema? })`
 - `agent_get({ invocationId })`
+- `agent_send({ invocationId, message })`
 - `agent_update({ invocationId, responses })`
 - `agent_cancel({ invocationId })`
 
@@ -261,7 +264,7 @@ Suggested branch: `mcp-agent/invocation-service` stacked on PR 1.
 ### PR 3 — Public MCP channel and Claude Code demo
 
 Ship `mcpChannel()` from `eve/channels/mcp`, route registration, protected-resource metadata, and the
-four compatibility tools. Add a fixture agent with deterministic work plus an auth policy. Document:
+compatibility tools. Add a fixture agent with deterministic work plus an auth policy. Document:
 
 ```sh
 claude mcp add --transport http eve-demo https://<deployment>/mcp
