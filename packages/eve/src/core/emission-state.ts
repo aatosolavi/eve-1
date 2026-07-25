@@ -1,4 +1,4 @@
-import type { HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HarnessSession, SessionStateMap } from "#core/step-types.js";
 
 /**
  * The per-session emission lifecycle state: sequence numbers, turn

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SUBAGENT_ADAPTER_KIND } from "#execution/subagent-adapter.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import type { RuntimeSubagentCallActionRequest } from "#core/actions/types.js";
 import { buildSubagentRunInput } from "#execution/subagent-tool.js";
 

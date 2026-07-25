@@ -5,7 +5,7 @@ import {
   type DurableSessionSnapshot,
 } from "#core/durable-session-store.js";
 import { projectToDurableSession } from "#execution/session.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 import { migrateDurableSessionSnapshot } from "./snapshot.js";
 

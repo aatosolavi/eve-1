@@ -12,8 +12,8 @@ import { buildRuntimeActionsFromWorkflowInterrupt } from "#core/workflow-runtime
 import {
   planWorkflowSubagentDispatch,
   type WorkflowSubagentDispatchPlan,
-} from "#harness/workflow-subagent-limit.js";
-import { getSubagentDelegationName, isSubagentDelegationAction } from "#harness/subagent-depth.js";
+} from "#core/workflow-subagent-limit.js";
+import { getSubagentDelegationName, isSubagentDelegationAction } from "#core/subagent-depth.js";
 import { createLogger } from "#internal/logging.js";
 import { BundleKey } from "#runtime/sessions/runtime-context-keys.js";
 import type {

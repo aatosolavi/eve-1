@@ -16,7 +16,7 @@ import type { JsonObject } from "#core/shared/json.js";
 import { setTurnUsageState } from "#core/turn-tag-state.js";
 import { TurnCancelledError } from "#core/turn-cancellation.js";
 import type { LoopMode } from "#core/types.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 type Group<K extends keyof EntryServices> = Partial<EntryServices[K]>;
 

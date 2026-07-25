@@ -5,7 +5,7 @@ import {
   setHarnessEmissionState,
 } from "#core/emission.js";
 import { getProxyInputRequests, toProxyInputRequestEntries } from "#core/proxy-input-requests.js";
-import type { HandleEventFn, HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession, SessionStateMap } from "#core/step-types.js";
 import { createInputRequestedEvent } from "#core/protocol/message.js";
 import type { RunMode } from "#shared/run-mode.js";
 import type { InputResponse } from "#core/input/types.js";

@@ -1,5 +1,5 @@
 import type { InputRequest } from "#core/input/types.js";
-import type { HarnessToolMap } from "#harness/types.js";
+import type { HarnessToolMap } from "#core/step-types.js";
 
 /**
  * Creates an approval-key resolver from the tool map. The resolver computes

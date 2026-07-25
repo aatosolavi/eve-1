@@ -17,7 +17,7 @@ import { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
 import { WorkflowTurnBackend } from "#internal/loops/workflow/turn-backend.js";
 import type { TurnInput } from "#internal/loops/types.js";
 import { normalizeSerializableError } from "#core/workflow-errors.js";
-import { activeTurnId } from "#harness/active-turn-id.js";
+import { activeTurnId } from "#core/active-turn-id.js";
 
 // A cancelled turn settles by parking the session, so the cancel hook is
 // only claimed where a park can land: conversation sessions always accept

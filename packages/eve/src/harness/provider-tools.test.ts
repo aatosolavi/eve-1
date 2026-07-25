@@ -8,11 +8,11 @@ import {
   WEB_SEARCH_PARALLEL_OUTPUT_SCHEMA,
 } from "#runtime/framework-tools/web-search.js";
 import {
-  resolveFrameworkToolFromUpstreamType,
   resolveWebSearchBackend,
   resolveWebSearchOutputSchema,
   resolveWebSearchProviderTool,
 } from "#harness/provider-tools.js";
+import { resolveFrameworkToolFromUpstreamType } from "#core/provider-tool-mapping.js";
 
 const {
   anthropicWebSearch_20250305,

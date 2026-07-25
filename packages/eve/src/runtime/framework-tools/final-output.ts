@@ -3,11 +3,6 @@ import type { Tool } from "ai";
 import { toInputSchema } from "#shared/tool-schema.js";
 import type { JsonObject } from "#core/shared/json.js";
 
-/**
- * Stable model-visible name for the framework structured-output tool.
- */
-export const FINAL_OUTPUT_TOOL_NAME = "final_output";
-
 const FINAL_OUTPUT_TOOL_DESCRIPTION =
   "Deliver your final answer in the required structure by calling this tool. " +
   "Call it exactly once, when you are done; do not answer in prose.";

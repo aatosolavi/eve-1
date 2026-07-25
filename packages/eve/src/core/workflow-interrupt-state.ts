@@ -1,8 +1,8 @@
 import type { ModelMessage } from "ai";
 
-import type { HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HarnessSession, SessionStateMap } from "#core/step-types.js";
 import { WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND } from "#core/workflow-runtime-action-state.js";
-import type { WorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
+import type { WorkflowSandboxInterrupt } from "#core/workflow-sandbox-module.js";
 
 const PENDING_KEY = "eve.harness.pendingWorkflowInterrupt";
 

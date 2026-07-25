@@ -25,7 +25,7 @@ import type {
   TurnOutcome,
   TurnProgramInput,
 } from "#internal/loops/types.js";
-import { activeTurnId } from "#harness/active-turn-id.js";
+import { activeTurnId } from "#core/active-turn-id.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession } from "#execution/durable-session-store.js";
 import { RuntimeNoActiveSessionError } from "#core/runtime-errors.js";

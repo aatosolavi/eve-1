@@ -36,7 +36,7 @@ import {
 } from "#internal/workflow/runtime.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
-import { ROOT_RUNTIME_AGENT_NODE_ID } from "#runtime/graph.js";
+import { ROOT_RUNTIME_AGENT_NODE_ID } from "#core/runtime-agent.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { buildRunContext } from "#execution/runtime-context.js";

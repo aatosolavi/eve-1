@@ -1,4 +1,5 @@
 import { context as otelContext, trace } from "#compiled/@opentelemetry/api/index.js";
+import { generateText } from "ai";
 
 import { isScheduleAppAuth } from "#channel/schedule-auth.js";
 import { contextStorage } from "#context/container.js";
@@ -14,17 +15,12 @@ import {
 } from "#core/model-call-error.js";
 import { toErrorMessage } from "#core/shared/errors.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
-import { createErrorId, createLogger, recordErrorOnSpan } from "#internal/logging.js";
+import { createErrorId, createLogger, formatError, recordErrorOnSpan } from "#internal/logging.js";
 import {
   hydrateSandboxAttachments,
   stageAttachmentsToSandbox,
 } from "#harness/attachment-staging.js";
-import {
-  compactMessages,
-  getInputTokenCount,
-  resolveCompactionModel,
-  shouldCompact,
-} from "#harness/compaction.js";
+import { compactMessages, resolveCompactionModel } from "#core/compaction.js";
 import { getInstrumentationConfig } from "#harness/instrumentation-config.js";
 import {
   buildGatewayAttributionHeaders,
@@ -38,17 +34,17 @@ import {
   attemptUnsupportedProviderToolRecovery,
   buildModelCallFailureDetails,
   buildModelCallFailureLogFields,
-} from "#harness/model-call-recovery.js";
+} from "#core/model-call-recovery.js";
 import {
   enrichTelemetry,
   ensureOtelIntegration,
   resolveStepOtelContext,
   setTurnTraceState,
 } from "#harness/otel-integration.js";
-import { handleStepResult } from "#harness/step-result.js";
-import type { GenerateConfig } from "#harness/types.js";
-import { continuePendingWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
+import type { GenerateConfig } from "#core/step-types.js";
+import { continuePendingWorkflowInterrupt } from "#core/workflow-interrupt-continuation.js";
 import { summarizeKnownError } from "#core/semantic-errors/index.js";
+import { readToolInterrupt } from "#core/tool-interrupts.js";
 
 const log = createLogger("harness.generate");
 
@@ -68,6 +64,10 @@ export function createStepServices(config: GenerateConfig): StepServices {
       dynamicInstructionEntries: (ctx) => buildDynamicInstructionMessages(ctx),
       hasParentSession: (ctx) => ctx.get(ParentSessionKey) !== undefined,
       isScheduleAuth: (ctx) => isScheduleAppAuth(ctx.get(AuthKey)),
+      readToolInterrupt(callId) {
+        const ctx = contextStorage.getStore();
+        return ctx === undefined ? undefined : readToolInterrupt(ctx, callId);
+      },
       skillAnnouncementEntry(ctx) {
         const announcement = ctx.get(PendingSkillAnnouncementKey);
         return announcement === undefined || announcement.length === 0
@@ -98,6 +98,7 @@ export function createStepServices(config: GenerateConfig): StepServices {
               catalogSummary,
               error,
               errorId,
+              formatError,
               modelCallDetails,
               upstreamRejection,
             }),
@@ -165,13 +166,18 @@ export function createStepServices(config: GenerateConfig): StepServices {
           [...history],
           compactionModel.model,
           state.compaction,
+          async (input) =>
+            (
+              await generateText({
+                ...input,
+                telemetry: telemetry ? { ...telemetry, functionId: "eve.compaction" } : undefined,
+                temperature: 0,
+              })
+            ).text,
           compactionModel.providerOptions,
-          telemetry,
           buildGatewayAttributionHeaders(compactionModel.model, config.runtimeIdentity),
           config.abortSignal,
         ),
-
-      compactionInputTokens: (history, state) => getInputTokenCount([...history], state.compaction),
 
       continueWorkflowInterrupt: ({ emissionState, input, prompt }) =>
         continuePendingWorkflowInterrupt({
@@ -179,6 +185,7 @@ export function createStepServices(config: GenerateConfig): StepServices {
           config,
           emit: config.handleEvent,
           emissionState,
+          log,
           session: prompt.session,
         }),
 
@@ -243,20 +250,6 @@ export function createStepServices(config: GenerateConfig): StepServices {
           preparedInput: attempt,
           suppressStepStartedEmission: true,
         }),
-
-      shouldCompact: (history, state) => shouldCompact([...history], state.compaction),
-    },
-
-    settle: {
-      step: ({ emissionState, prompt, result, state }) =>
-        handleStepResult({
-          config,
-          emit: config.handleEvent,
-          emissionState,
-          promptMessages: prompt.messages,
-          result,
-          session: state,
-        }),
     },
 
     trace: {
@@ -318,6 +311,7 @@ function createRecoveryStages(): readonly RecoveryStage[] {
       asStageResult(
         await attemptUnsupportedProviderToolRecovery({
           error,
+          log,
           runOneModelCall: runner.modelCall.runOneModelCall,
           sessionId: runner.prompt.session.sessionId,
           turnId: runner.emissionState.turnId,
@@ -328,6 +322,7 @@ function createRecoveryStages(): readonly RecoveryStage[] {
         await attemptEmptyResponseRecovery({
           emptyDeliveryEnabled: runner.prompt.emptyDeliveryEnabled,
           error,
+          log,
           retryCallOptions: retryOptions,
           runOneModelCall: runner.modelCall.runOneModelCall,
           sessionId: runner.prompt.session.sessionId,

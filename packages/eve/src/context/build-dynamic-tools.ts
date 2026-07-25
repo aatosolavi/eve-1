@@ -1,4 +1,4 @@
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
 import type { ContextKey } from "#core/context/key.js";
 import {
   SessionDynamicToolMetadataKey,

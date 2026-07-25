@@ -8,7 +8,7 @@ import type { CompiledModuleMap } from "../src/compiler/module-map.js";
 import { defineAgent } from "../src/public/definitions/agent.js";
 import { createNodeHarnessTools } from "../src/execution/node-generate.js";
 import { TEST_DEFAULT_MODEL_ID } from "../src/internal/testing/app-harness.js";
-import { ROOT_RUNTIME_AGENT_NODE_ID } from "../src/runtime/graph.js";
+import { ROOT_RUNTIME_AGENT_NODE_ID } from "../src/core/runtime-agent.js";
 import { resolveRuntimeAgentGraph } from "../src/runtime/resolve-agent-graph.js";
 
 const SUBAGENT_TOOL_INPUT_SCHEMA = {

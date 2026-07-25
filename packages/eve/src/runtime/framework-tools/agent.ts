@@ -1,10 +1,6 @@
 import { SUBAGENT_TOOL_INPUT_SCHEMA } from "#runtime/subagents/registry.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
-
-/**
- * Stable model-visible name for the root-only agent delegation tool.
- */
-export const AGENT_TOOL_NAME = "agent";
+import { AGENT_TOOL_NAME } from "#core/runtime-agent.js";
 
 /**
  * Model-facing instructions for the root-only agent delegation tool.

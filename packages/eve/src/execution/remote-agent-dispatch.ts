@@ -4,7 +4,7 @@ import { createEveCallbackRoutePath, createEveCancelTurnRoutePath } from "#proto
 import type { CancelTurnResult } from "#channel/types.js";
 import { createWorkflowCallbackUrl } from "#core/workflow-callback-url.js";
 import { formatSubagentInput } from "#core/subagent-invocation.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import type { RuntimeRemoteAgentCallActionRequest } from "#core/actions/types.js";
 import type { RuntimeSubagentRegistry } from "#runtime/subagents/registry.js";
 import type { ResolvedRuntimeRemoteAgentNode } from "#runtime/types.js";

@@ -7,7 +7,7 @@ import { createConnectionSearchResolver } from "#runtime/framework-tools/connect
 import type { AgentInfoManifestData } from "#internal/nitro/routes/agent-info/load-agent-info-data.js";
 import type { ResolvedChannelDefinition } from "#runtime/types.js";
 import { LOAD_SKILL_TOOL_NAME } from "#runtime/skills/fragment-context.js";
-import { WORKFLOW_TOOL_NAME } from "#shared/workflow-sandbox.js";
+import { WORKFLOW_TOOL_NAME } from "#core/workflow-sandbox-module.js";
 import type {
   AgentInfoFrameworkChannelEntry,
   AgentInfoResponse,

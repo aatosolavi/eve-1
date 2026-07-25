@@ -5,11 +5,11 @@ import type { AlsContext } from "#context/container.js";
 import type { HarnessEmissionState } from "#core/emission.js";
 import type { JsonObject } from "#core/shared/json.js";
 import type { TurnUsageState } from "#core/turn-tag-state.js";
-import type { HarnessStepResult } from "#harness/step-hooks.js";
-import type { resolveCompactionModel } from "#harness/compaction.js";
+import type { HarnessStepResult } from "#core/step-hooks.js";
+import type { resolveCompactionModel } from "#core/compaction.js";
 import type { ModelCallRunner, PreparedModelCallInput } from "#harness/model-call.js";
-import type { RecoveryRetryCallOptions } from "#harness/model-call-recovery.js";
-import type { GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
+import type { RecoveryRetryCallOptions } from "#core/model-call-recovery.js";
+import type { GenerateOutcome, HarnessSession, StepInput } from "#core/step-types.js";
 import type { AnthropicCacheMarker, PromptCachePath } from "#core/prompt-cache.js";
 
 /** Failure content emitted by the step flow. */
@@ -70,7 +70,6 @@ export interface ModelCallServices {
     readonly history: readonly ModelMessage[];
     readonly state: HarnessSession;
   }): Promise<readonly ModelMessage[]>;
-  compactionInputTokens(history: readonly ModelMessage[], state: HarnessSession): number;
   continueWorkflowInterrupt(input: {
     readonly emissionState: HarnessEmissionState;
     readonly input: StepInput | undefined;
@@ -102,7 +101,6 @@ export interface ModelCallServices {
     readonly attempt: PreparedModelCallInput;
     readonly runner: ModelCallRunner;
   }): Promise<HarnessStepResult>;
-  shouldCompact(history: readonly ModelMessage[], state: HarnessSession): boolean;
 }
 
 export interface AttachmentServices {
@@ -115,6 +113,7 @@ export interface AmbientServices {
   dynamicInstructionEntries(ctx: AlsContext): readonly SystemModelMessage[];
   hasParentSession(ctx: AlsContext): boolean;
   isScheduleAuth(ctx: AlsContext): boolean;
+  readToolInterrupt(callId: string): unknown;
   skillAnnouncementEntry(ctx: AlsContext): SystemModelMessage | undefined;
 }
 
@@ -133,15 +132,6 @@ export interface FailureServices {
     readonly content: StepFailureContent;
     readonly logFields: Record<string, unknown>;
   };
-}
-
-export interface SettleServices {
-  step(input: {
-    readonly emissionState: HarnessEmissionState;
-    readonly prompt: PreparedModelCall;
-    readonly result: HarnessStepResult;
-    readonly state: HarnessSession;
-  }): Promise<GenerateOutcome>;
 }
 
 export interface UsageServices {
@@ -182,7 +172,6 @@ export interface StepServices {
   readonly failure: FailureServices;
   readonly log: StepLog;
   readonly modelCall: ModelCallServices;
-  readonly settle: SettleServices;
   readonly trace: TraceServices;
   readonly usage: UsageServices;
 }

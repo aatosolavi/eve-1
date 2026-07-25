@@ -6,7 +6,7 @@ import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { withOutcomeState } from "#core/step-outcome.js";
 import { createGenerate } from "#harness/generate.js";
 import { TurnCancelledError } from "#core/turn-cancellation.js";
-import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession, GenerateConfig } from "#core/step-types.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;

@@ -1,5 +1,5 @@
 import type { SubagentInputRequestHookPayload } from "#channel/types.js";
-import type { HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HarnessSession, SessionStateMap } from "#core/step-types.js";
 
 const PROXY_INPUT_REQUESTS_KEY = "eve.runtime.proxyInputRequests";
 

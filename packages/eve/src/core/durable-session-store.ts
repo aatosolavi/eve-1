@@ -19,7 +19,7 @@ import type { ModelMessage } from "ai";
 
 import { getHarnessEmissionState, type HarnessEmissionState } from "#core/emission-state.js";
 import { hasProxyInputRequests } from "#core/proxy-input-requests.js";
-import type { HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HarnessSession, SessionStateMap } from "#core/step-types.js";
 import { migrateDurableSessionSnapshot } from "#core/durable-session-migrations/snapshot.js";
 import type { SandboxState } from "#sandbox/state.js";
 import type { JsonObject } from "#core/shared/json.js";

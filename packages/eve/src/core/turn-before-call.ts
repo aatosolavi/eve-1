@@ -20,6 +20,7 @@ import {
   resolvePendingInput,
 } from "#core/input-requests.js";
 import { normalizeUserContent } from "#core/messages.js";
+import { getInputTokenCount, shouldCompact } from "#core/compaction.js";
 import { detectPromptCachePath, getAnthropicCacheMarker } from "#core/prompt-cache.js";
 import { resolvePendingRuntimeActions } from "#core/runtime-actions.js";
 import { applySessionLimitContinuation } from "#core/session-limit-enforcement.js";
@@ -28,7 +29,12 @@ import type { PreparedModelCall, StepServices } from "#core/step-services.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
 import { resolveApprovalKeyFromTools } from "#core/tool-approval.js";
 import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#core/shared/empty-delivery.js";
-import type { GenerateConfig, GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
+import type {
+  GenerateConfig,
+  GenerateOutcome,
+  HarnessSession,
+  StepInput,
+} from "#core/step-types.js";
 import type { Span } from "#compiled/@opentelemetry/api/index.js";
 
 export type TurnInputResolution =
@@ -206,7 +212,7 @@ export async function assemblePrompt(input: {
   const marker = cachePath.kind === "anthropic-direct" ? getAnthropicCacheMarker() : undefined;
   const attributionHeaders = services.modelCall.attributionHeaders(model);
 
-  if (services.modelCall.shouldCompact(history, state)) {
+  if (shouldCompact(history, state.compaction)) {
     const compactionModel = await services.modelCall.resolveCompaction({ model, state });
     if (emit !== undefined) {
       await emit(
@@ -215,7 +221,7 @@ export async function assemblePrompt(input: {
           sequence: emissionState.sequence,
           sessionId: state.sessionId,
           turnId: emissionState.turnId,
-          usageInputTokens: services.modelCall.compactionInputTokens(history, state),
+          usageInputTokens: getInputTokenCount(history, state.compaction),
         }),
       );
     }

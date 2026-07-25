@@ -7,7 +7,7 @@ import {
   setPendingRuntimeActionBatch,
 } from "#core/runtime-actions.js";
 import { getSessionTokenUsage, setTurnUsageState } from "#core/turn-tag-state.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 function createParkedSession(): HarnessSession {
   const base: HarnessSession = {

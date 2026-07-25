@@ -19,7 +19,7 @@ import { reconcileSessionContinuationToken } from "#core/reconcile-session-conti
 import { hydrateDurableSession } from "#execution/session.js";
 import { emitProxiedInputRequest } from "#core/subagent-hitl-proxy.js";
 import { upsertProxyInputRequests } from "#core/proxy-input-requests.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   encodeMessageStreamEvent,

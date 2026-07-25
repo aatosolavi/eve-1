@@ -33,7 +33,7 @@ import {
   type SessionTokenLimitViolation,
 } from "#core/turn-tag-state.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
-import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#core/step-types.js";
 
 const SESSION_TOKEN_LIMIT_REACHED_CODE = "SESSION_TOKEN_LIMIT_REACHED";
 

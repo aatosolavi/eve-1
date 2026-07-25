@@ -6,7 +6,7 @@ import {
   getWorkflowRuntimeActionInterrupts,
   WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND,
 } from "#core/workflow-runtime-action-state.js";
-import type { WorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
+import type { WorkflowSandboxInterrupt } from "#core/workflow-sandbox-module.js";
 
 function concurrentWorkflowInterrupt(): WorkflowSandboxInterrupt {
   const continuation = {

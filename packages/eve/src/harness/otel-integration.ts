@@ -7,7 +7,7 @@ import {
 import { OpenTelemetry } from "#compiled/@ai-sdk/otel/index.js";
 import { registerTelemetry, type TelemetryOptions } from "ai";
 import type { InstrumentationDefinition } from "#public/instrumentation/index.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 let registered = false;
 

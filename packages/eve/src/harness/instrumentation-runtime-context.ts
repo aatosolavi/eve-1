@@ -10,7 +10,7 @@ import {
   ParentSessionKey,
 } from "#core/context/keys.js";
 import type { HarnessEmissionState } from "#core/emission.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import {
   normalizeInstrumentationChannelKind,
   resolveInstrumentationProjection,

@@ -9,7 +9,7 @@ import {
   getTurnUsageState,
   setTurnUsageState,
 } from "#core/turn-tag-state.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 const ZERO_SESSION_USAGE = {
   cacheReadTokens: 0,

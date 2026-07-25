@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { getPendingInputRequestIds } from "#core/input-requests.js";
 import { createGenerate } from "#harness/generate.js";
-import type { HarnessSession, GenerateConfig } from "#harness/types.js";
+import type { HarnessSession, GenerateConfig } from "#core/step-types.js";
 import {
   ASK_QUESTION_INPUT_SCHEMA,
   ASK_QUESTION_TOOL_DEFINITION,

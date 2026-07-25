@@ -1,5 +1,5 @@
 import type { ContextAccessor } from "#core/context/key.js";
-import type { StepInput } from "#harness/types.js";
+import type { StepInput } from "#core/step-types.js";
 import { createLogger } from "#internal/logging.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { SessionHandle } from "#channel/session.js";

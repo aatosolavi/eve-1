@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
 import type { ApprovalContext } from "#public/definitions/approval.js";
 import type { DynamicToolEntry } from "#shared/dynamic-tool-definition.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";

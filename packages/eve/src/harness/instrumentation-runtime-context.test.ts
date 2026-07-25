@@ -8,7 +8,7 @@ import {
   buildTelemetryRuntimeContext,
   type BuildTelemetryRuntimeContextInput,
 } from "#harness/instrumentation-runtime-context.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import type {
   InstrumentationStepStartedEventInput,
   InstrumentationStepStartedEventResult,

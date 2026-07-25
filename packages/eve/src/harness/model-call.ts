@@ -10,7 +10,7 @@ import {
 import { buildDynamicTools } from "#context/build-dynamic-tools.js";
 import { contextStorage } from "#context/container.js";
 import { getActiveDynamicModelSelection } from "#context/dynamic-model-lifecycle.js";
-import { getAdvertisedTools } from "#harness/advertised-tools.js";
+import { getAdvertisedTools } from "#core/advertised-tools.js";
 import { emitStreamContent, type HarnessEmissionState } from "#core/emission.js";
 import { buildTelemetryRuntimeContext } from "#harness/instrumentation-runtime-context.js";
 import { EmptyModelResponseError } from "#core/model-call-error.js";
@@ -21,7 +21,7 @@ import {
   rethrowNoOutputAsEmptyResponse,
   runModelCallWithRetries,
   withAccumulatedResponseMessages,
-} from "#harness/model-call-recovery.js";
+} from "#core/model-call-recovery.js";
 import { enrichTelemetry } from "#harness/otel-integration.js";
 import {
   type AnthropicCacheMarker,
@@ -30,36 +30,40 @@ import {
   type PromptCachePath,
 } from "#core/prompt-cache.js";
 import { summarizeKnownError } from "#core/semantic-errors/index.js";
-import { buildStepHooks, emitStepActions, type HarnessStepResult } from "#harness/step-hooks.js";
+import { buildStepHooks, emitStepActions, type HarnessStepResult } from "#core/step-hooks.js";
 import {
   buildToolApproval,
   buildToolSetFromDefinitions,
   buildToolSetWithProviderTools,
 } from "#harness/tools.js";
 import { throwIfTurnAborted } from "#core/turn-cancellation.js";
+import { readToolInterrupt } from "#core/tool-interrupts.js";
 import type {
   CompactionConfig,
   HarnessSession,
   HarnessToolMap,
   GenerateConfig,
-} from "#harness/types.js";
-import { createWorkflowLifecycle } from "#harness/workflow-lifecycle.js";
+} from "#core/step-types.js";
+import { createWorkflowLifecycle } from "#core/workflow-lifecycle.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { resolveProviderHeaders } from "#internal/gateway.js";
-import { isInlineAuthorizationToolResult } from "#harness/inline-tool-authorization.js";
+import { isInlineAuthorizationToolResult } from "#core/inline-tool-authorization.js";
 import { createLogger, logError } from "#internal/logging.js";
 import type { InstrumentationDefinition } from "#public/instrumentation/index.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import { ASK_QUESTION_TOOL_NAME } from "#runtime/framework-tools/ask-question.js";
-import {
-  buildFinalOutputTool,
-  FINAL_OUTPUT_TOOL_NAME,
-} from "#runtime/framework-tools/final-output.js";
+import { buildFinalOutputTool } from "#runtime/framework-tools/final-output.js";
+import { FINAL_OUTPUT_TOOL_NAME } from "#core/output-schema.js";
 
 export const environment = process.env.NODE_ENV ?? "unknown";
 export const eveVersion = resolveInstalledPackageInfo().version;
 
 const log = createLogger("harness.generate");
+
+function readStashedToolInterrupt(callId: string): unknown {
+  const ctx = contextStorage.getStore();
+  return ctx === undefined ? undefined : readToolInterrupt(ctx, callId);
+}
 
 /**
  * Wired as the agent's `onToolExecutionEnd`. On the `tool-error` branch
@@ -382,6 +386,7 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
             createWorkflowLifecycle({
               emit,
               emissionState,
+              log,
               tools,
             })
         : undefined;
@@ -462,7 +467,8 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
           trailingInlineToolResultParts,
         } = await emitStreamContent(emit, emissionState, streamResult.fullStream, {
           excludedActionToolNames,
-          isAuthorizationToolResult: isInlineAuthorizationToolResult,
+          isAuthorizationToolResult: (toolResult) =>
+            isInlineAuthorizationToolResult(toolResult, readStashedToolInterrupt),
           tools: config.tools,
         });
         throwIfTurnAborted(config.abortSignal);
@@ -483,6 +489,7 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
           excludedActionCallIds: invalidInputToolCallIds,
           excludedActionToolNames,
           handledInlineToolResultCallIds,
+          readStashedToolInterrupt,
           tools: advertisedHarnessTools,
         });
         const existingToolResults = stepResult.toolResults as TypedToolResult<ToolSet>[];
@@ -535,6 +542,7 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
         sessionId: session.sessionId,
         turnId: emissionState.turnId,
       },
+      log,
       config.abortSignal,
     );
 

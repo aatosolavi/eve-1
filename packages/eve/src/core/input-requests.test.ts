@@ -5,7 +5,7 @@ import { ContextContainer, contextStorage } from "#context/container.js";
 import { SessionKey } from "#core/context/keys.js";
 import { once } from "#public/tools/approval/approval-helpers.js";
 import type { InputRequest } from "#core/input/types.js";
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
 import {
   consumeDeferredStepInput,
   createRuntimeToolCallActionFromToolCall,
@@ -17,7 +17,7 @@ import {
 } from "#core/input-requests.js";
 import { createSessionLimitContinuationRequest } from "#core/session-limit-continuation.js";
 import { buildToolApproval, buildToolSet } from "#harness/tools.js";
-import type { HarnessSession, HarnessToolMap } from "#harness/types.js";
+import type { HarnessSession, HarnessToolMap } from "#core/step-types.js";
 
 function createHarnessSession(): HarnessSession {
   return {

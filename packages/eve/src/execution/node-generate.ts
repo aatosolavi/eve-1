@@ -2,9 +2,9 @@ import type { LanguageModel } from "ai";
 
 import type { Runtime, SessionCapabilities } from "#channel/types.js";
 import { dispatchDynamicModelEvent } from "#context/dynamic-model-lifecycle.js";
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
 import { createGenerate } from "#harness/generate.js";
-import type { HandleEventFn, HarnessToolMap, GenerateFn } from "#harness/types.js";
+import type { HandleEventFn, HarnessToolMap, GenerateFn } from "#core/step-types.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { createLogger } from "#internal/logging.js";
 import type { RuntimeIdentity } from "#core/protocol/message.js";
@@ -16,8 +16,9 @@ import {
   type RuntimeModelResolutionScope,
 } from "#runtime/agent/resolve-model.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
-import { AGENT_TOOL_DESCRIPTION, AGENT_TOOL_NAME } from "#runtime/framework-tools/agent.js";
-import { ROOT_RUNTIME_AGENT_NODE_ID, type ResolvedRuntimeAgentNode } from "#runtime/graph.js";
+import { AGENT_TOOL_DESCRIPTION } from "#runtime/framework-tools/agent.js";
+import type { ResolvedRuntimeAgentNode } from "#runtime/graph.js";
+import { AGENT_TOOL_NAME, ROOT_RUNTIME_AGENT_NODE_ID } from "#core/runtime-agent.js";
 
 import type { PreparedRuntimeTool } from "#runtime/sessions/turn.js";
 import { SUBAGENT_TOOL_INPUT_SCHEMA } from "#runtime/subagents/registry.js";

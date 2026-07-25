@@ -13,7 +13,7 @@ import {
 } from "#core/runtime-actions.js";
 import { getPendingAuthorization, setPendingAuthorization } from "#core/authorization.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
-import type { GenerateOutcome, HarnessSession } from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession } from "#core/step-types.js";
 import { createEmptyHookRegistry } from "#runtime/hooks/registry.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
 import { readDurableSession } from "#execution/durable-session-store.js";

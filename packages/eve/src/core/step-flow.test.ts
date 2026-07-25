@@ -11,9 +11,9 @@ import { EmptyModelResponseError } from "#core/model-call-error.js";
 import type { RecoveryStage, StepServices } from "#core/step-services.js";
 import { setTurnUsageState } from "#core/turn-tag-state.js";
 import { assemblePrompt, generateStep, resolveTurnInput } from "#core/index.js";
-import type { HarnessStepResult } from "#harness/step-hooks.js";
+import type { HarnessStepResult } from "#core/step-hooks.js";
 import type { ModelCallRunner } from "#harness/model-call.js";
-import type { GenerateConfig, HarnessSession, StepInput } from "#harness/types.js";
+import type { GenerateConfig, HarnessSession, StepInput } from "#core/step-types.js";
 
 interface Overrides {
   readonly ambient?: Partial<StepServices["ambient"]>;
@@ -22,7 +22,6 @@ interface Overrides {
   readonly events?: boolean;
   readonly failure?: Partial<StepServices["failure"]>;
   readonly modelCall?: Partial<StepServices["modelCall"]>;
-  readonly settle?: Partial<StepServices["settle"]>;
   readonly trace?: Partial<StepServices["trace"]>;
   readonly usage?: Partial<StepServices["usage"]>;
 }
@@ -117,6 +116,7 @@ function createFixture(overrides: Overrides = {}): {
       dynamicInstructionEntries: () => [],
       hasParentSession: () => false,
       isScheduleAuth: () => false,
+      readToolInterrupt: () => undefined,
       skillAnnouncementEntry: () => undefined,
       ...overrides.ambient,
     },
@@ -148,7 +148,6 @@ function createFixture(overrides: Overrides = {}): {
     modelCall: {
       attributionHeaders: () => undefined,
       compact: async ({ history }) => history,
-      compactionInputTokens: () => 0,
       continueWorkflowInterrupt: async () => {
         note("modelCall.continueWorkflowInterrupt");
         return null;
@@ -171,15 +170,7 @@ function createFixture(overrides: Overrides = {}): {
         note("modelCall.run");
         return runner.runOneModelCall({});
       },
-      shouldCompact: () => false,
       ...overrides.modelCall,
-    },
-    settle: {
-      step: async ({ result: stepResult, state }) => {
-        note("settle.step");
-        return { action: "done", output: stepResult.text, state };
-      },
-      ...overrides.settle,
     },
     trace: {
       bind: ({ state }) => state,
@@ -403,10 +394,16 @@ describe("assemblePrompt", () => {
       config: { onCompaction: () => [{ content: "reinjected", role: "user" }] },
       modelCall: {
         compact: async () => [{ content: "summary", role: "user" }],
-        shouldCompact: () => true,
       },
     });
-    const prompt = await assemblePrompt({ config, resolved: resolvedInput(), services });
+    const prompt = await assemblePrompt({
+      config,
+      resolved: {
+        ...resolvedInput(),
+        state: createSession({ compaction: { recentWindowSize: 10, threshold: 0 } }),
+      },
+      services,
+    });
 
     expect(prompt.messages).toEqual([
       { content: "summary", role: "user" },
@@ -462,7 +459,7 @@ describe("generateStep", () => {
     const { calls, config, services } = createFixture();
     const outcome = await generateStep({ config, services, ...input });
 
-    expect(outcome).toMatchObject({ action: "done", output: "result" });
+    expect(outcome).toMatchObject({ action: "park" });
     expect(calls).toEqual([
       "event.session.started",
       "event.turn.started",
@@ -474,7 +471,8 @@ describe("generateStep", () => {
       "modelCall.continueWorkflowInterrupt",
       "modelCall.run",
       "usage.publish",
-      "settle.step",
+      "event.turn.completed",
+      "event.session.waiting",
     ]);
   });
 
@@ -539,7 +537,7 @@ describe("generateStep", () => {
     });
 
     await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
-      output: "recovered",
+      action: "park",
     });
     expect(seen).toEqual(["first:boom", "second:rewritten:retry"]);
   });
@@ -678,6 +676,6 @@ describe("generateStep", () => {
     });
     await expect(
       generateStep({ config, input: undefined, services, state: createSession() }),
-    ).resolves.toMatchObject({ action: "done" });
+    ).resolves.toMatchObject({ action: "park" });
   });
 });

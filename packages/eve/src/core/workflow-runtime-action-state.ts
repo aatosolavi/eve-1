@@ -1,8 +1,8 @@
-import type { HarnessRuntimeActionDefinition } from "#harness/execute-tool.js";
+import type { HarnessRuntimeActionDefinition } from "#core/execute-tool.js";
 import { getRuntimeActionRequestKey } from "#core/actions/keys.js";
 import type { RuntimeActionRequest } from "#core/actions/types.js";
 import type { JsonObject } from "#core/shared/json.js";
-import type { WorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
+import type { WorkflowSandboxInterrupt } from "#core/workflow-sandbox-module.js";
 
 export const WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND = "eve.workflow-runtime-action";
 

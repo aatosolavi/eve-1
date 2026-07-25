@@ -13,9 +13,9 @@ import {
   WEB_SEARCH_PARALLEL_OUTPUT_SCHEMA,
 } from "#runtime/framework-tools/web-search.js";
 import type { JsonObject } from "#core/shared/json.js";
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
 import { buildToolApproval, buildToolSet, buildToolSetWithProviderTools } from "#harness/tools.js";
-import type { HarnessToolMap } from "#harness/types.js";
+import type { HarnessToolMap } from "#core/step-types.js";
 import { createToolExecuteWithAuth } from "#execution/tool-auth.js";
 import type { ToolContext } from "#public/definitions/tool.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";

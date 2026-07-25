@@ -7,8 +7,8 @@ import {
   type HarnessEmissionState,
   setHarnessEmissionState,
 } from "#core/emission.js";
-import type { HarnessToolDefinition } from "#harness/execute-tool.js";
-import type { HandleEventFn, HarnessSession } from "#harness/types.js";
+import type { HarnessToolDefinition } from "#core/execute-tool.js";
+import type { HandleEventFn, HarnessSession } from "#core/step-types.js";
 import { EMPTY_DELIVERY_SENTINEL } from "#core/shared/empty-delivery.js";
 
 async function* streamOf(parts: TextStreamPart<ToolSet>[]): AsyncIterable<TextStreamPart<ToolSet>> {

@@ -1,5 +1,6 @@
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 import type { JsonObject } from "#core/shared/json.js";
+import { WEB_SEARCH_TOOL_NAME } from "#core/provider-tool-mapping.js";
 
 /**
  * Output schema for OpenAI's provider-managed `webSearch` tool.
@@ -197,7 +198,7 @@ export const WEB_SEARCH_TOOL_DEFINITION: ResolvedToolDefinition = {
     "Search the web for real-time information. Use this to find up-to-date information about current events, recent developments, or topics that may have changed since the knowledge cutoff.",
   inputSchema: null,
   logicalPath: "eve:framework/web-search",
-  name: "web_search",
+  name: WEB_SEARCH_TOOL_NAME,
   sourceId: "eve:web-search-tool",
   sourceKind: "module",
 };

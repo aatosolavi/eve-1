@@ -6,7 +6,7 @@ import {
   hasProxyInputRequests,
   upsertProxyInputRequests,
 } from "#core/proxy-input-requests.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 function createSession(state?: Record<string, unknown>): HarnessSession {
   return {

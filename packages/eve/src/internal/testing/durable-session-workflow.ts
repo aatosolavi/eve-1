@@ -12,7 +12,7 @@ import {
   createDurableSessionState,
   type DurableSessionState,
 } from "#core/durable-session-store.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 /** Synthetic minimal session for storage-layer round-trips. */
 function buildSyntheticSession(input: {

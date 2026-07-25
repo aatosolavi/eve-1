@@ -1,5 +1,5 @@
 import type { Span } from "#compiled/@opentelemetry/api/index.js";
-import type { HarnessStepResult } from "#harness/step-hooks.js";
+import type { HarnessStepResult } from "#core/step-hooks.js";
 
 import {
   emitFailedStep,
@@ -13,6 +13,7 @@ import { hasStepInput } from "#core/input-requests.js";
 import { enforceSessionTokenLimit } from "#core/session-limit-enforcement.js";
 import type { RecoveryStage, StepCallRunner, StepServices } from "#core/step-services.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
+import { handleStepResult } from "#core/step-result.js";
 import {
   accumulateTurnUsage,
   extractGatewayCostUsd,
@@ -23,7 +24,12 @@ import {
 import { throwIfTurnAborted } from "#core/turn-cancellation.js";
 import { extractWorkflowStreamWriteErrorDetails } from "#core/workflow-stream-error.js";
 import { assemblePrompt, resolveTurnInput } from "#core/turn-before-call.js";
-import type { GenerateConfig, GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
+import type {
+  GenerateConfig,
+  GenerateOutcome,
+  HarnessSession,
+  StepInput,
+} from "#core/step-types.js";
 
 /** Runs one concrete generate step inside its turn trace. */
 export async function generateStep(input: {
@@ -141,11 +147,15 @@ async function runStepFlow(input: {
   });
   const accountedState = setTurnUsageState(state, snapshot);
   await services.usage.publish({ runner, snapshot });
-  return await services.settle.step({
+  return await handleStepResult({
+    config,
     emissionState,
-    prompt,
+    emit: config.handleEvent,
+    log: services.log,
+    promptMessages: prompt.messages,
+    readStashedToolInterrupt: services.ambient.readToolInterrupt,
     result,
-    state: accountedState,
+    session: accountedState,
   });
 }
 

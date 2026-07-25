@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ContextContainer } from "#context/container.js";
 import { ContinuationTokenKey } from "#core/context/keys.js";
 import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 
 function makeSession(continuationToken: string): HarnessSession {
   return {

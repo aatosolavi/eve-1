@@ -23,8 +23,8 @@
  * session total crosses into it.
  */
 import type { ProviderMetadata } from "ai";
-import type { HarnessStepResult } from "#harness/step-hooks.js";
-import type { HarnessSession, SessionStateMap } from "#harness/types.js";
+import type { HarnessStepResult } from "#core/step-hooks.js";
+import type { HarnessSession, SessionStateMap } from "#core/step-types.js";
 import type { TokenUsage } from "#core/shared/token-usage.js";
 
 const HARNESS_TURN_USAGE_STATE_KEY = "eve.harness.turnUsage";

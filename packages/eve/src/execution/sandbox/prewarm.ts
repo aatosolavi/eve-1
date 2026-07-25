@@ -17,7 +17,8 @@ import {
   type RuntimeCompiledArtifactsSource,
   type RuntimeDiskCompiledArtifactsSource,
 } from "#runtime/compiled-artifacts-source.js";
-import { type ResolvedAgentGraphBundle, ROOT_RUNTIME_AGENT_NODE_ID } from "#runtime/graph.js";
+import type { ResolvedAgentGraphBundle } from "#runtime/graph.js";
+import { ROOT_RUNTIME_AGENT_NODE_ID } from "#core/runtime-agent.js";
 import { loadCompileMetadata } from "#runtime/loaders/compile-metadata.js";
 import { withBundledCompiledArtifacts } from "#runtime/loaders/bundled-artifacts.js";
 import { loadCompiledManifest } from "#runtime/loaders/manifest.js";

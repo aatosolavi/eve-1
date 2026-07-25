@@ -4,7 +4,7 @@ import type {
   MessageAppendedStreamEvent,
   ReasoningAppendedStreamEvent,
 } from "#core/protocol/message.js";
-import type { HandleEventFn } from "#harness/types.js";
+import type { HandleEventFn } from "#core/step-types.js";
 
 const MAX_PENDING_EVENTS = 64;
 const MAX_PENDING_DELTA_CHARACTERS = 64 * 1024;

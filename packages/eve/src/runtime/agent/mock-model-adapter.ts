@@ -30,7 +30,7 @@ import {
   getAvailableSkills,
 } from "#runtime/agent/mock-model-skill-selection.js";
 import { createJsonSchemaSample } from "#runtime/agent/mock-structured-output.js";
-import { FINAL_OUTPUT_TOOL_NAME } from "#runtime/framework-tools/final-output.js";
+import { FINAL_OUTPUT_TOOL_NAME } from "#core/output-schema.js";
 import { LOAD_SKILL_TOOL_NAME } from "#runtime/skills/fragment-context.js";
 
 const MOCK_RUNTIME_MODEL_PROVIDER = "eve-runtime-mock";

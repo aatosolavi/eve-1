@@ -2,7 +2,7 @@ import type { ModelMessage, TextPart, UserContent } from "ai";
 
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
 import type { InputResponse } from "#core/input/types.js";
-import type { StepInput } from "#harness/types.js";
+import type { StepInput } from "#core/step-types.js";
 
 /**
  * Merges two {@link StepInput} values into one.

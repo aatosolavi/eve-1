@@ -7,7 +7,8 @@ import type {
   SandboxBackendPrewarmResult,
 } from "#public/definitions/sandbox-backend.js";
 import { createDiskRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
-import { ROOT_RUNTIME_AGENT_NODE_ID, type ResolvedAgentGraphBundle } from "#runtime/graph.js";
+import type { ResolvedAgentGraphBundle } from "#runtime/graph.js";
+import { ROOT_RUNTIME_AGENT_NODE_ID } from "#core/runtime-agent.js";
 import type { ResolvedSandboxDefinition } from "#runtime/types.js";
 
 vi.mock("#execution/sandbox/template-prewarm-lock.js", () => ({

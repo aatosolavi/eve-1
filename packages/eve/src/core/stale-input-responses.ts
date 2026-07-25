@@ -3,7 +3,7 @@ import type { ModelMessage, UserContent } from "ai";
 import { extractHistoricalInputRequests } from "#core/input-extraction.js";
 import { isApprovalRequest } from "#core/input-requests.js";
 import { appendUserContent, normalizeUserContent } from "#core/messages.js";
-import type { StepInput } from "#harness/types.js";
+import type { StepInput } from "#core/step-types.js";
 import type { InputRequest, InputResponse } from "#core/input/types.js";
 
 type StaleResponseConversion =

@@ -4,11 +4,7 @@ import type { RuntimeSandboxRegistry } from "#runtime/sandbox/registry.js";
 import type { RuntimeSubagentRegistry } from "#runtime/subagents/registry.js";
 import type { RuntimeToolRegistry } from "#runtime/tools/registry.js";
 import type { ResolvedAgent, ResolvedChannelDefinition } from "#runtime/types.js";
-
-/**
- * Stable node id used by the runtime-owned graph bundle for the root agent.
- */
-export const ROOT_RUNTIME_AGENT_NODE_ID = "__root__";
+import { ROOT_RUNTIME_AGENT_NODE_ID } from "#core/runtime-agent.js";
 
 /**
  * One resolved runtime-owned agent node in the recursive compiled graph.

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { setPendingInputBatch } from "#core/input-requests.js";
 import { createGenerate } from "#harness/generate.js";
-import type { HarnessSession, GenerateConfig } from "#harness/types.js";
+import type { HarnessSession, GenerateConfig } from "#core/step-types.js";
 
 const usage = {
   inputTokens: {

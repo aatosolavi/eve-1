@@ -43,7 +43,7 @@ import { buildSubagentRunInput, type SubagentInputSource } from "#execution/suba
 import { createWorkflowRuntime, workflowEntryReference } from "#internal/loops/workflow/runtime.js";
 import { createLogger, logError } from "#internal/logging.js";
 import { toErrorMessage } from "#core/shared/errors.js";
-import { resolveSubagentDepth } from "#harness/subagent-depth.js";
+import { resolveSubagentDepth } from "#core/subagent-depth.js";
 
 const log = createLogger("execution.dispatch-runtime-actions");
 

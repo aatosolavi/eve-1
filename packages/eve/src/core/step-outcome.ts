@@ -8,7 +8,7 @@ import {
   getRuntimeActionKeysFromWorkflowInterrupt,
   isWorkflowRuntimeActionInterrupt,
 } from "#core/workflow-runtime-action-state.js";
-import type { GenerateOutcome, HarnessLoopTypes, HarnessSession } from "#harness/types.js";
+import type { GenerateOutcome, HarnessLoopTypes, HarnessSession } from "#core/step-types.js";
 
 /**
  * Outcome classification over parked session state, and the state

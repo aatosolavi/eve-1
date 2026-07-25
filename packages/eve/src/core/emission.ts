@@ -52,7 +52,7 @@ import { normalizeModelStreamError } from "#core/model-call-error.js";
 import { createOrderedStreamEmitter } from "#core/ordered-stream-emitter.js";
 import { interruptStreamOnFailure } from "#core/interruptible-stream.js";
 import { isPendingAuthorizationToolOutput } from "#core/authorization.js";
-import type { HandleEventFn, HarnessToolMap, StepInput } from "#harness/types.js";
+import type { HandleEventFn, HarnessToolMap, StepInput } from "#core/step-types.js";
 
 export * from "#core/emission-state.js";
 

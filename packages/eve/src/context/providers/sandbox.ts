@@ -1,5 +1,5 @@
 import { ensureSandboxAccess } from "#execution/sandbox/ensure.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import type { SandboxAccess, SandboxState } from "#sandbox/state.js";
 import { type ChannelAdapter, getAdapterKind } from "#channel/adapter.js";
 import type { ContextContainer } from "#context/container.js";

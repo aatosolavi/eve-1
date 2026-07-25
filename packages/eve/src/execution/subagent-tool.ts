@@ -7,12 +7,12 @@ import type {
   SessionAuthContext,
   SessionCapabilities,
 } from "#channel/types.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import { isJsonObjectValue } from "#core/shared/json.js";
 import type { RuntimeSubagentCallActionRequest } from "#core/actions/types.js";
 import { mintSubagentContinuationToken } from "#execution/session.js";
-import { resolveSubagentDepth } from "#harness/subagent-depth.js";
-import { resolveRemainingSessionTokenLimits } from "#harness/subagent-token-budget.js";
+import { resolveSubagentDepth } from "#core/subagent-depth.js";
+import { resolveRemainingSessionTokenLimits } from "#core/subagent-token-budget.js";
 
 /**
  * Pending runtime-action batch event metadata needed for child run lineage.

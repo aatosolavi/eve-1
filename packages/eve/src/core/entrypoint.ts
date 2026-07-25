@@ -29,7 +29,12 @@ import { classifyParkedSession, withOutcomeState } from "#core/step-outcome.js";
 import { getTurnUsageState, toUsage } from "#core/turn-tag-state.js";
 import { isTurnCancellation, throwIfTurnAborted } from "#core/turn-cancellation.js";
 import type { LoopTypes, TurnStepResult } from "#core/types.js";
-import type { GenerateOutcome, HandleEventFn, HarnessSession, StepInput } from "#harness/types.js";
+import type {
+  GenerateOutcome,
+  HandleEventFn,
+  HarnessSession,
+  StepInput,
+} from "#core/step-types.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
 import type { AuthorizationCallback } from "#runtime/connections/types.js";
 

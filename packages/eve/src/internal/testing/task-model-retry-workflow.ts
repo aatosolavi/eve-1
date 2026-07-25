@@ -14,7 +14,7 @@ import {
 } from "#core/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { createGenerate } from "#harness/generate.js";
-import type { HarnessSession } from "#harness/types.js";
+import type { HarnessSession } from "#core/step-types.js";
 import { createBootstrapGenerateResult } from "#runtime/agent/bootstrap-model-utils.js";
 import type { RuntimeTurnAgent } from "#runtime/agent/bootstrap.js";
 

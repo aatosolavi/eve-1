@@ -12,7 +12,7 @@ import { createSessionStep } from "#execution/create-session-step.js";
 import { emitTerminalSessionFailureStep } from "#execution/terminal-session-failure-step.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";
 import { WorkflowSessionBackend } from "#internal/loops/workflow/session-backend.js";
-import { readSerializedSubagentDepth } from "#harness/subagent-depth.js";
+import { readSerializedSubagentDepth } from "#core/subagent-depth.js";
 
 // workflow-entry.ts is the durable workflow body — the bundler rejects
 // node built-ins here, so `internal/logging.ts` cannot be imported.

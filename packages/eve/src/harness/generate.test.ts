@@ -29,7 +29,7 @@ import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { InstrumentationStepStartedEventInput } from "#public/instrumentation/index.js";
 import type { RunMode } from "#shared/run-mode.js";
-import { compactMessages, shouldCompact } from "#harness/compaction.js";
+import { compactMessages, shouldCompact } from "#core/compaction.js";
 import { getHarnessEmissionState, isHarnessBetweenTurns } from "#core/emission.js";
 import {
   getPendingAuthorization,
@@ -42,7 +42,7 @@ import {
   setPendingInputBatch,
 } from "#core/input-requests.js";
 import { getPendingRuntimeActionBatch } from "#core/runtime-actions.js";
-import { stashToolInterrupt } from "#harness/tool-interrupts.js";
+import { stashToolInterrupt } from "#core/tool-interrupts.js";
 import { createGenerate } from "#harness/generate.js";
 import { TurnCancelledError } from "#core/turn-cancellation.js";
 import {
@@ -55,7 +55,7 @@ import type {
   HandleEventFn,
   HarnessSession,
   GenerateConfig,
-} from "#harness/types.js";
+} from "#core/step-types.js";
 import {
   CONDITIONAL_DELIVERY_INSTRUCTION,
   EMPTY_DELIVERY_SENTINEL,
@@ -83,8 +83,8 @@ vi.mock("./instrumentation-config.js", () => ({
   getInstrumentationConfig: (...args: unknown[]) => mockGetInstrumentationConfig(...args),
 }));
 
-vi.mock("./compaction.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./compaction.js")>()),
+vi.mock("#core/compaction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#core/compaction.js")>()),
   compactMessages: vi.fn(),
   estimateTokens: vi.fn().mockReturnValue(5000),
   getInputTokenCount: vi.fn().mockReturnValue(5000),
@@ -7558,7 +7558,7 @@ describe("createGenerate", () => {
         threshold: 100_000,
       }),
     );
-    expect(call?.[3]).toBeUndefined();
+    expect(call?.[4]).toBeUndefined();
   });
 
   it("emits reasoning.completed when reasoning text is available", async () => {

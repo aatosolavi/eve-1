@@ -1,4 +1,4 @@
-import type { StepInput } from "#harness/types.js";
+import type { StepInput } from "#core/step-types.js";
 
 /**
  * Narrowed form of {@link StepInput} whose `message` is always a plain string.

@@ -12,7 +12,7 @@ import {
   isSessionLimitContinuationRequest,
   resolveSessionLimitContinuation,
 } from "#core/session-limit-continuation.js";
-import type { HarnessSession, SessionStateMap, StepInput } from "#harness/types.js";
+import type { HarnessSession, SessionStateMap, StepInput } from "#core/step-types.js";
 
 const PENDING_INPUT_BATCH_KEY = "eve.runtime.pendingInputBatch";
 const APPROVED_TOOLS_KEY = "eve.runtime.hitl.approvedTools";

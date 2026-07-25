@@ -16,7 +16,7 @@ import type {
   HarnessToolMap,
   SessionStateMap,
   StepInput,
-} from "#harness/types.js";
+} from "#core/step-types.js";
 
 const PENDING_RUNTIME_ACTION_BATCH_KEY = "eve.runtime.pendingActionBatch";
 type ToolResponsePart = Extract<ModelMessage, { role: "tool" }>["content"][number];

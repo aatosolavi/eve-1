@@ -10,7 +10,7 @@ import type { CompiledBundle } from "#runtime/sessions/runtime-context-keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { serializeContext } from "#context/serialize.js";
 import { hasProxyInputRequests, upsertProxyInputRequests } from "#core/proxy-input-requests.js";
-import type { HandleEventFn, HarnessSession } from "#harness/types.js";
+import type { HandleEventFn, HarnessSession } from "#core/step-types.js";
 import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { InputRequest } from "#core/input/types.js";
 import { createRuntimeAdapterRegistry } from "#runtime/channels/registry.js";
