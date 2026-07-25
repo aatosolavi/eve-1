@@ -141,47 +141,43 @@ const notificationEventSchema = z.union([
 ]);
 
 /**
+ * Full notification POST body: correlation fields plus the enveloped event.
+ * The whole payload is validated as one schema — `sessionId` is optional
+ * (older callees omit it) and unknown top-level keys are stripped.
+ */
+const notificationCallbackPayloadSchema = z.object({
+  callId: z.string().min(1),
+  event: notificationEventSchema,
+  sessionId: z.string().optional(),
+  subagentName: z.string().min(1),
+});
+
+/**
  * Projects one notification POST into the wrapped `subagent.event` appended
  * to the session's durable stream — the canonical form both followers and
  * channel rendering read.
  */
 function projectWrappedNotificationEvent(value: unknown): SubagentChildEventStreamEvent | Response {
-  if (value === null || typeof value !== "object") {
-    return Response.json({ error: "Expected a JSON object.", ok: false }, { status: 400 });
-  }
-
-  const payload = value as {
-    readonly callId?: unknown;
-    readonly event?: unknown;
-    readonly sessionId?: unknown;
-    readonly subagentName?: unknown;
-  };
-  if (typeof payload.callId !== "string" || payload.callId.length === 0) {
-    return Response.json({ error: "Missing callback callId.", ok: false }, { status: 400 });
-  }
-  if (typeof payload.subagentName !== "string" || payload.subagentName.length === 0) {
-    return Response.json({ error: "Missing callback subagentName.", ok: false }, { status: 400 });
-  }
-
-  const parsed = notificationEventSchema.safeParse(payload.event);
+  const parsed = notificationCallbackPayloadSchema.safeParse(value);
   if (!parsed.success) {
     return Response.json(
-      { error: "Invalid notification callback event.", ok: false },
+      { error: "Invalid notification callback payload.", ok: false },
       { status: 400 },
     );
   }
 
+  const { callId, event: parsedEvent, sessionId, subagentName } = parsed.data;
   const event: SubagentAuthorizationEvent =
-    parsed.data.type === "authorization.required"
-      ? { data: parsed.data.data, type: "authorization.required" }
-      : { data: parsed.data.data, type: "authorization.completed" };
+    parsedEvent.type === "authorization.required"
+      ? { data: parsedEvent.data, type: "authorization.required" }
+      : { data: parsedEvent.data, type: "authorization.completed" };
 
   return {
     data: {
-      callId: payload.callId,
-      childSessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
+      callId,
+      childSessionId: sessionId ?? "",
       event,
-      subagentName: payload.subagentName,
+      subagentName,
     },
     type: "subagent.event",
   };
