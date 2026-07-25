@@ -43,8 +43,11 @@ describe("session callback route", () => {
       new Request("https://app.example.com/eve/v1/callback/tok123", {
         body: JSON.stringify({
           callId: "call-1",
-          kind: "session.completed",
-          output: "done",
+          event: {
+            kind: "session.completed",
+            output: "done",
+            status: "termination",
+          },
           sessionId: "remote-session",
           subagentName: "research",
         }),
@@ -67,6 +70,62 @@ describe("session callback route", () => {
     });
   });
 
+  it("resumes a failed remote-agent result with the reported error", async () => {
+    resumeHookMock.mockResolvedValue(undefined);
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            error: { code: "SESSION_FAILED", message: "remote exploded" },
+            kind: "session.failed",
+            status: "termination",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(resumeHookMock).toHaveBeenCalledWith("tok123", {
+      kind: "runtime-action-result",
+      results: [
+        {
+          callId: "call-1",
+          isError: true,
+          kind: "subagent-result",
+          output: { code: "SESSION_FAILED", message: "remote exploded" },
+          subagentName: "research",
+        },
+      ],
+    });
+  });
+
+  it.each(["notification", "working", "input_required", "unknown-status"])(
+    "rejects the non-terminal callback event status %s on the durable lane",
+    async (status) => {
+      const response = await handleSessionCallbackRequest(
+        new Request("https://app.example.com/eve/v1/callback/tok123", {
+          body: JSON.stringify({
+            callId: "call-1",
+            event: { status },
+            sessionId: "remote-session",
+            subagentName: "research",
+          }),
+          method: "POST",
+        }),
+        createRouteContext({ token: "tok123" }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(resumeHookMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("projects reported usage onto the resumed result", async () => {
     resumeHookMock.mockResolvedValue(undefined);
 
@@ -74,11 +133,14 @@ describe("session callback route", () => {
       new Request("https://app.example.com/eve/v1/callback/tok123", {
         body: JSON.stringify({
           callId: "call-1",
-          kind: "session.completed",
-          output: "done",
+          event: {
+            kind: "session.completed",
+            output: "done",
+            status: "termination",
+            usage: { cacheReadTokens: 10, cacheWriteTokens: 5, inputTokens: 100, outputTokens: 50 },
+          },
           sessionId: "remote-session",
           subagentName: "research",
-          usage: { cacheReadTokens: 10, cacheWriteTokens: 5, inputTokens: 100, outputTokens: 50 },
         }),
         method: "POST",
       }),
@@ -107,17 +169,20 @@ describe("session callback route", () => {
       new Request("https://app.example.com/eve/v1/callback/tok123", {
         body: JSON.stringify({
           callId: "call-1",
-          kind: "session.completed",
-          output: "done",
+          event: {
+            kind: "session.completed",
+            output: "done",
+            status: "termination",
+            usage: {
+              cacheReadTokens: 10,
+              cacheWriteTokens: 5,
+              inputTokens: 100,
+              outputTokens: 50,
+              reasoningOutputTokens: 7,
+            },
+          },
           sessionId: "remote-session",
           subagentName: "research",
-          usage: {
-            cacheReadTokens: 10,
-            cacheWriteTokens: 5,
-            inputTokens: 100,
-            outputTokens: 50,
-            reasoningOutputTokens: 7,
-          },
         }),
         method: "POST",
       }),
@@ -143,16 +208,19 @@ describe("session callback route", () => {
       new Request("https://app.example.com/eve/v1/callback/tok123", {
         body: JSON.stringify({
           callId: "call-1",
-          kind: "session.completed",
-          output: "done",
+          event: {
+            kind: "session.completed",
+            output: "done",
+            status: "termination",
+            usage: {
+              cacheReadTokens: 10,
+              cacheWriteTokens: 5,
+              inputTokens: "lots",
+              outputTokens: 50,
+            },
+          },
           sessionId: "remote-session",
           subagentName: "research",
-          usage: {
-            cacheReadTokens: 10,
-            cacheWriteTokens: 5,
-            inputTokens: "lots",
-            outputTokens: 50,
-          },
         }),
         method: "POST",
       }),
