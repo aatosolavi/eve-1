@@ -63,21 +63,20 @@ An agent opts in explicitly:
 
 ```ts title="agent/channels/mcp.ts"
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import { mcpChannel, withMcpAuth } from "eve/channels/mcp";
+import { bearerAuth, mcpChannel } from "eve/channels/mcp";
 
 async function verifyToken(request: Request, bearerToken?: string): Promise<AuthInfo | undefined> {
   if (!bearerToken) return undefined;
   return myTokenVerifier(request, bearerToken);
 }
 
-export default withMcpAuth(mcpChannel(), verifyToken, {
-  required: true,
-  requiredScopes: ["agent:invoke"],
-  protectedResourceMetadata: {
-    authorizationServers: [process.env.MCP_OIDC_ISSUER!],
-    resource: process.env.MCP_RESOURCE_URL!,
-    scopesSupported: ["agent:invoke"],
-  },
+export default mcpChannel({
+  auth: bearerAuth(verifyToken, {
+    requiredScopes: ["agent:invoke"],
+    protectedResource: {
+      authorizationServers: [process.env.MCP_OIDC_ISSUER!],
+    },
+  }),
 });
 ```
 
@@ -87,11 +86,13 @@ description come from the compiled root agent definition because a channel alrea
 agent. A default output schema belongs on the agent definition; a request-specific schema belongs
 on `agent_start`.
 
-`withMcpAuth` is separate generic protocol glue. It accepts the standard MCP SDK `AuthInfo`
-contract, projects verified identity into `SessionAuthContext`, enforces required scopes, and can
-publish OAuth protected-resource metadata. The verifier remains provider-owned and swappable. A
-static bearer/header path may be used for deterministic tests and local smoke checks, but the manual
-demo must exercise `claude mcp login`.
+`McpAuth` is separate generic protocol policy. `bearerAuth` preserves the standard MCP SDK
+`AuthInfo` verifier contract, projects verified identity into `SessionAuthContext`, enforces
+required scopes, and publishes OAuth protected-resource metadata. Provider packages can return the
+same strategy object directly, such as `vercelMcpAuth()` or `betterAuthMcpAuth(auth)`. The verifier
+remains provider-owned and swappable. Omitted auth fails closed; `publicMcpAuth()` is the explicit
+unauthenticated mode. A static bearer path may be used for deterministic tests and local smoke
+checks, but the manual demo must exercise `claude mcp login`.
 
 The channel does not automatically publish the agent's authored tools, connections, instructions,
 skills, or subagents. Publishing those capabilities directly is a separate surface from invoking

@@ -11,7 +11,7 @@ Create `agent/channels/mcp.ts`:
 
 ```ts
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import { mcpChannel, withMcpAuth } from "eve/channels/mcp";
+import { bearerAuth, mcpChannel } from "eve/channels/mcp";
 
 async function verifyToken(request: Request, bearerToken?: string): Promise<AuthInfo | undefined> {
   // Verify with your identity provider, gateway, or resource server.
@@ -19,14 +19,13 @@ async function verifyToken(request: Request, bearerToken?: string): Promise<Auth
   return myTokenVerifier(request, bearerToken);
 }
 
-export default withMcpAuth(mcpChannel(), verifyToken, {
-  required: true,
-  requiredScopes: ["agent:invoke"],
-  protectedResourceMetadata: {
-    authorizationServers: [process.env.MCP_OIDC_ISSUER!],
-    resource: process.env.MCP_RESOURCE_URL!,
-    scopesSupported: ["agent:invoke"],
-  },
+export default mcpChannel({
+  auth: bearerAuth(verifyToken, {
+    requiredScopes: ["agent:invoke"],
+    protectedResource: {
+      authorizationServers: ["https://vercel.com"],
+    },
+  }),
 });
 ```
 
@@ -36,21 +35,28 @@ as a custom `path`. Define a default structured output schema on the agent, or
 pass `outputSchema` to an individual `agent_start` invocation; it is not channel
 identity.
 
-The verifier uses the standard MCP SDK `AuthInfo` contract and is portable with
-`mcp-handler`'s `withMcpAuth`. eve extracts bearer credentials, enforces token
-expiration and required scopes, returns MCP-compatible `401`/`403` challenges,
-and projects the verified identity into `ctx.session.auth`. It does not
-introspect Vercel tokens, run Better Auth, register OAuth clients, or issue
-tokens.
+`bearerAuth` returns the public `McpAuth` strategy consumed by the channel. The
+verifier uses the standard MCP SDK `AuthInfo` contract and is portable with
+`mcp-handler`'s `withMcpAuth`. External integrations can return the strategy
+directly, for example `auth: vercelMcpAuth()` or
+`auth: betterAuthMcpAuth(auth)`. eve extracts bearer credentials, enforces
+token expiration and required scopes, returns MCP-compatible `401`/`403`
+challenges, and projects the verified identity into `ctx.session.auth`. It
+does not introspect Vercel tokens, run Better Auth, register OAuth clients, or
+issue tokens.
 
 Use `toSessionAuth` when provider claims need a custom principal mapping. The
 default mapping never persists the bearer token. A gateway can instead verify
 the user and forward a signed identity token to a private eve origin; the
 `verifyToken` implementation verifies that signature and returns `AuthInfo`.
-Set `resourceUrl` to the gateway's public origin so challenges point clients at
-the public metadata URL.
+Set `protectedResource.resource` to the gateway's canonical public MCP URL so
+metadata and challenges point clients at the public resource.
 
-The resource URL should be the canonical deployed MCP URL, for example `https://agent.example/mcp`. Unauthenticated MCP requests receive an RFC 9728 protected-resource challenge.
+When `protectedResource.resource` is omitted, eve derives it from the request
+origin and channel path. Unauthenticated MCP requests receive an RFC 9728
+protected-resource challenge. Authentication cannot be omitted: use
+`publicMcpAuth()` only when intentionally publishing an unauthenticated MCP
+endpoint.
 
 ## Connect Claude Code
 

@@ -12,22 +12,27 @@ import {
   type McpServerTool,
 } from "#internal/mcp/streamable-http-server.js";
 import { inputResponseSchema } from "#runtime/input/types.js";
-import { readMcpSessionAuth } from "#public/channels/mcp-auth.js";
+import { applyMcpAuth, readMcpSessionAuth, type McpAuth } from "#public/channels/mcp-auth.js";
 import {
   readAgentInfoRouteResponse,
   readRouteAgent,
 } from "#internal/nitro/routes/channel-route-context.js";
 
 export {
-  mcpProtectedResourceMetadataRoute,
-  withMcpAuth,
+  bearerAuth,
+  publicMcpAuth,
   type AuthInfo,
-  type McpAuthOptions,
+  type McpAuth,
+  type McpBearerAuth,
+  type McpBearerAuthOptions,
+  type McpProtectedResource,
+  type McpPublicAuth,
   type McpTokenVerifier,
 } from "#public/channels/mcp-auth.js";
-export type { McpProtectedResourceMetadataOptions } from "#internal/mcp/protected-resource.js";
 
 export interface McpChannelInput {
+  /** Authentication is required unless explicit public mode is selected. */
+  readonly auth: McpAuth;
   /** Streamable HTTP endpoint path. Defaults to `/mcp`. */
   readonly path?: string;
 }
@@ -38,21 +43,29 @@ export type McpChannel = Channel;
 /**
  * Publishes this agent as a stateless Streamable HTTP MCP server.
  *
- * This channel owns only MCP transport and durable eve invocation. Wrap it in
- * {@link withMcpAuth} when the endpoint itself verifies bearer tokens, or put
- * it behind an authenticated gateway that forwards verifiable signed identity.
+ * This channel owns only MCP transport and durable eve invocation. Its auth
+ * strategy provides generic protocol policy while provider verification stays
+ * external. A gateway must forward cryptographically verifiable signed
+ * identity, never an implicitly trusted identity header.
  * The file containing this channel must be `agent/channels/mcp.ts`.
  */
-export function mcpChannel(input: McpChannelInput = {}): McpChannel {
+export function mcpChannel(input: McpChannelInput): McpChannel {
+  if (input?.auth === undefined) {
+    throw new Error("mcpChannel requires auth. Use bearerAuth(...) or explicit publicMcpAuth().");
+  }
   const path = input.path ?? "/mcp";
 
-  return defineChannel({
-    routes: [
-      GET(path, async (request, args) => await handleMcpRequest(request, args)),
-      POST(path, async (request, args) => await handleMcpRequest(request, args)),
-      DELETE(path, async (request, args) => await handleMcpRequest(request, args)),
-    ],
-  });
+  return applyMcpAuth(
+    defineChannel({
+      routes: [
+        GET(path, async (request, args) => await handleMcpRequest(request, args)),
+        POST(path, async (request, args) => await handleMcpRequest(request, args)),
+        DELETE(path, async (request, args) => await handleMcpRequest(request, args)),
+      ],
+    }),
+    input.auth,
+    path,
+  );
 }
 
 async function handleMcpRequest(request: Request, args: RouteHandlerArgs): Promise<Response> {
