@@ -6,7 +6,7 @@
 
 import type { LanguageModel, SystemModelMessage } from "ai";
 
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type {
   ChannelInstrumentationProjection,
   SessionAuthContext,
@@ -15,7 +15,7 @@ import type {
   SessionParent,
   SessionTurn,
 } from "#channel/types.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import type { SandboxAccess } from "#sandbox/state.js";
 import type { RunMode } from "#shared/run-mode.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";

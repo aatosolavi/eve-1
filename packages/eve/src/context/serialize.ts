@@ -1,5 +1,5 @@
 import { type AlsContext, ContextContainer } from "#context/container.js";
-import { resolveKey } from "#context/key.js";
+import { resolveKey } from "#core/context/key.js";
 import { createLogger, logError } from "#internal/logging.js";
 import { BundleKey } from "#runtime/sessions/runtime-context-keys.js";
 

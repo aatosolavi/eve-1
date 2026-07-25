@@ -1,4 +1,4 @@
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /** Max structural depth the schema dereferencer descends before truncating. */
 const MAX_DEREF_DEPTH = 12;

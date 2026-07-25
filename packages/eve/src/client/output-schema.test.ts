@@ -5,7 +5,7 @@ import {
   createResultCompletedEvent,
   createTurnCompletedEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
 describe("output schema client helpers", () => {
   it("extracts the most recent completed structured result", () => {

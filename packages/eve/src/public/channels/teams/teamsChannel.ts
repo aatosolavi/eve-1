@@ -5,7 +5,7 @@ import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { ChannelSessionOps } from "#public/definitions/channel.js";
 
 import { createLogger, logError } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   buildTeamsTurnMessage,
   collectTeamsFileParts,
@@ -54,7 +54,7 @@ import {
   type TeamsMessageActivity,
 } from "#public/channels/teams/inbound.js";
 import { verifyTeamsRequest, type TeamsWebhookVerifier } from "#public/channels/teams/verify.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 import { defineChannel, POST, type Channel, type SendFn } from "#public/definitions/channel.js";
 
 const log = createLogger("teams.channel");

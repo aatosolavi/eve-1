@@ -1,4 +1,4 @@
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /** GitHub conversation kinds represented by the channel state. */
 export type GitHubConversationKind = "issue" | "pull_request" | "review_thread";

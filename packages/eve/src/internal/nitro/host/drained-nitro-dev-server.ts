@@ -13,7 +13,7 @@ import {
   type DevelopmentRunnerFactory,
 } from "#internal/nitro/host/dev-runner.js";
 import { stampDevelopmentClientAddress } from "#internal/nitro/dev-client-address.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 const RUNNER_READY_TIMEOUT_MS = 60_000;
 

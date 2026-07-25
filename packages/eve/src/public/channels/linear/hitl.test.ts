@@ -5,7 +5,7 @@ import {
   resolveLinearPromptInputResponses,
   stripLinearHitlMarker,
 } from "#public/channels/linear/hitl.js";
-import type { InputRequest } from "#runtime/input/types.js";
+import type { InputRequest } from "#core/input/types.js";
 
 function makeRequest(overrides: Partial<InputRequest> = {}): InputRequest {
   return {

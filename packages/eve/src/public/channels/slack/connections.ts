@@ -17,7 +17,7 @@
  * `timed-out`).
  */
 
-import type { ConnectionAuthorizationOutcome } from "#protocol/message.js";
+import type { ConnectionAuthorizationOutcome } from "#core/protocol/message.js";
 
 export type { ConnectionAuthorizationOutcome };
 

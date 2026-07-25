@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { type ContextAccessor, type ContextKey, resolveKey } from "#context/key.js";
+import { type ContextAccessor, type ContextKey, resolveKey } from "#core/context/key.js";
 
 const EVE_CONTEXT_STORAGE_KEY = Symbol.for("eve.context-storage");
 

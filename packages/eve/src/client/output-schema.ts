@@ -1,4 +1,7 @@
-import type { HandleMessageStreamEvent, ResultCompletedStreamEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  ResultCompletedStreamEvent,
+} from "#core/protocol/message.js";
 
 /**
  * Extracts the most recent finalized structured result from a turn event list.

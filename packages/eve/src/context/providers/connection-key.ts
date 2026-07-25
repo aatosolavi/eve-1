@@ -1,4 +1,4 @@
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import type { ConnectionRegistry } from "#runtime/connections/types.js";
 
 /**

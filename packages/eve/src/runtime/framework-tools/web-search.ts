@@ -1,5 +1,5 @@
 import type { ResolvedToolDefinition } from "#runtime/types.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Output schema for OpenAI's provider-managed `webSearch` tool.

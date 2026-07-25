@@ -7,7 +7,7 @@ import {
   detectPromptCachePath,
   getAnthropicCacheMarker,
   mergeGatewayAutoCaching,
-} from "#harness/prompt-cache.js";
+} from "#core/prompt-cache.js";
 
 function makeObjectModel(provider: string, modelId = "test-model"): LanguageModel {
   return {

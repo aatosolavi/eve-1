@@ -2,7 +2,7 @@ import type { CompiledDynamicToolDefinition } from "#compiler/manifest.js";
 import type { CompiledModuleMap } from "#compiler/module-map.js";
 import { expectFunction, expectObjectRecord } from "#internal/authored-module.js";
 import { registerDefinitionSource, stampDefinitionKey } from "#public/tool-result-narrowing.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { loadResolvedModuleExport, ResolveAgentError } from "#runtime/resolve-helpers.js";
 import type { ResolvedDynamicToolResolver } from "#runtime/types.js";
 

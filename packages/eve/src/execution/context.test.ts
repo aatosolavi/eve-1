@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter } from "#channel/adapter.js";
 import { ensureContext, getContext, setContext } from "#context/accessors.js";
 import { ContextContainer, loadContext } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import {
   AuthKey,
   InitiatorAuthKey,
@@ -15,7 +15,7 @@ import {
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
+import type { HarnessEmissionState } from "#core/emission.js";
 import type { HarnessSession } from "#harness/types.js";
 
 vi.mock("./sandbox/ensure.js", () => ({

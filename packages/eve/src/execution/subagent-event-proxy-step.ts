@@ -18,10 +18,13 @@ import {
 import { reconcileSessionContinuationToken } from "#execution/reconcile-session-continuation-token.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { emitProxiedInputRequest } from "#execution/subagent-hitl-proxy.js";
-import { upsertProxyInputRequests } from "#harness/proxy-input-requests.js";
+import { upsertProxyInputRequests } from "#core/proxy-input-requests.js";
 import type { HarnessSession } from "#harness/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { encodeMessageStreamEvent, timestampHandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import {
+  encodeMessageStreamEvent,
+  timestampHandleMessageStreamEvent,
+} from "#core/protocol/message.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
 type SubagentEventHookPayload =

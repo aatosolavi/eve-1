@@ -1,4 +1,4 @@
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * Error thrown when the eve server returns a non-successful HTTP response.

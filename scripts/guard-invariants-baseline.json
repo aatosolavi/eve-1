@@ -19,7 +19,7 @@
     "packages/eve/src/execution/node-generate.test.ts": 4,
     "packages/eve/src/execution/workflow-entry.integration.test.ts": 1,
     "packages/eve/src/execution/workflow-entry.ts": 1,
-    "packages/eve/src/harness/prompt-cache.test.ts": 6,
+    "packages/eve/src/core/prompt-cache.test.ts": 4,
     "packages/eve/src/harness/generate-compaction-accounting.test.ts": 2,
     "packages/eve/src/harness/generate.test.ts": 16,
     "packages/eve/src/harness/tool-result-pruning.ts": 1,

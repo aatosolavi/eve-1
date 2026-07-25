@@ -1,4 +1,4 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { InMemoryLoopEventLog, type LoopEventPublication } from "#internal/loops/event-log.js";
 import { TemporalLoopAddressStore, type TemporalLoopAddress } from "./address-store.js";
 

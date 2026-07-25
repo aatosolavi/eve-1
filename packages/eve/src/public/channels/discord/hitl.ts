@@ -10,7 +10,7 @@ import {
   type DiscordComponentInteraction,
   type DiscordModalSubmitInteraction,
 } from "#public/channels/discord/inbound.js";
-import type { InputOption, InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { InputOption, InputRequest, InputResponse } from "#core/input/types.js";
 
 /** Maps Discord component kinds (ACTION_ROW, BUTTON, STRING_SELECT, TEXT_INPUT) to their wire `type` integers used in component payloads. */
 export const DISCORD_COMPONENT_TYPE = {

@@ -1,7 +1,7 @@
 import { join, relative, resolve } from "node:path";
 
 import { lowerSkillMarkdown } from "#internal/helpers/markdown.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { createDiscoverErrorDiagnostic, type DiscoverDiagnostic } from "#discover/diagnostics.js";
 import {
   classifySkillPackageEntry,

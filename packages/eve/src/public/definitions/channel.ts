@@ -16,7 +16,7 @@ import type {
   RunInput,
 } from "#channel/types.js";
 import { buildCallbackContext } from "#context/build-callback-context.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { GenericChannelDefinition, GenericReceiveInput } from "#shared/channel-definition.js";
 

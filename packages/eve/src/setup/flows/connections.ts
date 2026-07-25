@@ -6,7 +6,7 @@ import {
 import { createPromptCommandOutput, withPhase } from "#setup/cli/index.js";
 import { detectPackageManager } from "#setup/package-manager.js";
 import { runPackageManagerInstall } from "#setup/primitives/pm/run.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 import { interactiveAsker } from "../ask.js";
 import { addConnections, type AddConnectionsDeps } from "../boxes/add-connections.js";

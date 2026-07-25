@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * Development environment files loaded by local CLI commands such as

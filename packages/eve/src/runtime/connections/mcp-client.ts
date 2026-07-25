@@ -7,7 +7,7 @@ import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { ResolvedConnectionDefinition } from "#runtime/types.js";
 import { evictScopedToken, resolveScopedToken } from "#runtime/connections/scoped-authorization.js";
 import { resolveConnectionAuthorization } from "#runtime/connections/resolve-authorization.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 import type {
   AuthorizationDefinition,
   ConnectionClient,

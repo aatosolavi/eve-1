@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useEveAgent } from "#svelte/use-eve-agent.js";
-import { EVE_SESSION_ID_HEADER } from "#protocol/message.js";
+import { EVE_SESSION_ID_HEADER } from "#core/protocol/message.js";
 import {
   createMessageCompletedEvent,
   createMessageReceivedEvent,
   createSessionWaitingEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
 function createStartedMessageResponse(sessionId: string, continuationToken: string): Response {
   return new Response(JSON.stringify({ continuationToken, ok: true, sessionId }), {

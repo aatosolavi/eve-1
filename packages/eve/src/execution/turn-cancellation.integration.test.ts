@@ -14,7 +14,7 @@ import { sessionCancelHookToken } from "#execution/turn-cancellation-token.js";
 import { workflowEntry } from "#internal/loops/workflow/session-workflow.js";
 import { createWorkflowRuntime } from "#internal/loops/workflow/runtime.js";
 import { createEveCancelTurnRoutePath } from "#protocol/routes.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { createCancelFn } from "#channel/cancel.js";
 import type { RouteHandlerArgs } from "#channel/routes.js";
 import { createSession } from "#channel/session.js";

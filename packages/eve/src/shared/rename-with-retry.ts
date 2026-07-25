@@ -1,6 +1,6 @@
 import { rename } from "node:fs/promises";
 
-import { isErrnoCode } from "#shared/guards.js";
+import { isErrnoCode } from "#core/shared/guards.js";
 
 const TRANSIENT_RENAME_RETRY_DELAYS_MS = [10, 20, 40, 80, 160, 320, 640];
 

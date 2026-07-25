@@ -1,4 +1,4 @@
-import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
+import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 
 export interface LoopEventPublication {
   readonly encoded: Uint8Array;

@@ -1,5 +1,5 @@
 import type { ResolvedVercelDeployment, VerifiedVercelTarget } from "#setup/vercel-deployment.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 import {
   appendRemoteAuthMutationSummary,

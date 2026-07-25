@@ -5,9 +5,9 @@
  * step-proxy transform.
  */
 
-import type { RuntimeSubagentResultActionResult } from "#runtime/actions/types.js";
-import type { JsonValue } from "#shared/json.js";
-import { toErrorMessage } from "#shared/errors.js";
+import type { RuntimeSubagentResultActionResult } from "#core/actions/types.js";
+import type { JsonValue } from "#core/shared/json.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { SUBAGENT_ADAPTER_KIND } from "#execution/subagent-adapter.js";
 
 /**

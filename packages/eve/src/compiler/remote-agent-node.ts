@@ -1,7 +1,7 @@
 import { z } from "#compiled/zod/index.js";
 
-import { jsonObjectSchema } from "#shared/json-schemas.js";
-import type { JsonObject } from "#shared/json.js";
+import { jsonObjectSchema } from "#core/shared/json-schemas.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { Node } from "#shared/node.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 

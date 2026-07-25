@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "#client/client.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { executeTask } from "#evals/runner/execute-task.js";
 import type { EveEval, EveEvalContext } from "#evals/types.js";
 import { createEvalTargetHandle } from "#evals/target.js";

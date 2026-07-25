@@ -11,7 +11,7 @@ import {
 import type { ChannelRouteMethod } from "#public/definitions/channel.js";
 import type { NormalizedChannelCorsOptions } from "#channel/cors.js";
 import type { InternalInstructionsDefinition } from "#shared/instructions-definition.js";
-import { jsonObjectSchema } from "#shared/json-schemas.js";
+import { jsonObjectSchema } from "#core/shared/json-schemas.js";
 import type { Node } from "#shared/node.js";
 import type {
   MarkdownSourceRef,

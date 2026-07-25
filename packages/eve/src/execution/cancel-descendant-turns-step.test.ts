@@ -9,12 +9,9 @@ import {
   resolveRemoteAgentForAction,
 } from "#execution/remote-agent-dispatch.js";
 import { requestWorkflowTurnCancellation } from "#internal/loops/workflow/runtime.js";
-import {
-  recordPendingSubagentChild,
-  setPendingRuntimeActionBatch,
-} from "#harness/runtime-actions.js";
+import { recordPendingSubagentChild, setPendingRuntimeActionBatch } from "#core/runtime-actions.js";
 import type { HarnessSession } from "#harness/types.js";
-import type { RuntimeActionRequest } from "#runtime/actions/types.js";
+import type { RuntimeActionRequest } from "#core/actions/types.js";
 
 vi.mock("#context/serialize.js", () => ({
   deserializeContext: vi.fn(),

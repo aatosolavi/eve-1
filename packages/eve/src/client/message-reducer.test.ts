@@ -14,7 +14,7 @@ import {
   createResultCompletedEvent,
   createStepStartedEvent,
   createTurnCancelledEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
 describe("defaultMessageReducer", () => {
   it("projects messages, reasoning, and actions into UIMessage-compatible parts", () => {

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { atomicWriteFile } from "#shared/atomic-write-file.js";
-import { isErrnoCode } from "#shared/guards.js";
+import { isErrnoCode } from "#core/shared/guards.js";
 
 export type OutputPublicationPhase = "acquired" | "prepared" | "backed-up" | "committed";
 

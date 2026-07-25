@@ -6,7 +6,7 @@
  * refs are resolved explicitly by the staging layer.
  */
 
-import { isAttachmentRefUrl, parseAttachmentRef } from "#internal/attachments/refs.js";
+import { isAttachmentRefUrl, parseAttachmentRef } from "#core/attachments/refs.js";
 
 /**
  * Converts any inline AI SDK `FilePart.data` value into raw bytes.

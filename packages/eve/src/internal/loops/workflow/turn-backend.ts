@@ -18,8 +18,8 @@ import type { TurnInboxPayload } from "#execution/turn-control-protocol.js";
 import type { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
 import { resolveWorkflowCallbackBaseUrl } from "#execution/workflow-callback-url.js";
 import { turnStep } from "#internal/loops/workflow/steps.js";
-import { resolveRuntimeActionResultsForKeys } from "#harness/runtime-actions.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
+import { resolveRuntimeActionResultsForKeys } from "#core/runtime-actions.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
 
 /**
  * The Workflow engine's {@link TurnBackend}: `generate` is one durable

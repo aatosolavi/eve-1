@@ -4,8 +4,8 @@ import {
   describeActionRequest,
   describeActionRequests,
 } from "#public/channels/slack/action-status.js";
-import type { RuntimeActionRequest } from "#runtime/actions/types.js";
-import type { JsonObject } from "#shared/json.js";
+import type { RuntimeActionRequest } from "#core/actions/types.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 function toolCall(toolName: string, input: JsonObject = {}): RuntimeActionRequest {
   return { callId: "c1", input, kind: "tool-call", toolName };

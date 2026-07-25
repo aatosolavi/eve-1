@@ -1,6 +1,6 @@
 import type { Client } from "#client/client.js";
-import type { HandleMessageStreamEvent, RuntimeIdentity } from "#protocol/message.js";
-import { toErrorMessage } from "#shared/errors.js";
+import type { HandleMessageStreamEvent, RuntimeIdentity } from "#core/protocol/message.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type {
   AssertionResult,
   EveEval,

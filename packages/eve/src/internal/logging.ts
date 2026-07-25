@@ -8,8 +8,8 @@ import { type Span, SpanStatusCode, trace } from "#compiled/@opentelemetry/api/i
 import { getErrorMessage } from "#compiled/@ai-sdk/provider/index.js";
 import { inspect } from "node:util";
 
-import { isNonEmptyString, isObject } from "#shared/guards.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import { isNonEmptyString, isObject } from "#core/shared/guards.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 
 const MAX_INSPECT_STRING_LENGTH = 8 * 1024;
 const MAX_DETAIL_BYTES = 16 * 1024;

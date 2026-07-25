@@ -1,7 +1,7 @@
 import type { LanguageModel } from "ai";
 
 import type { ModelRouting } from "#shared/agent-definition.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 const GATEWAY_PROVIDER = "gateway";
 

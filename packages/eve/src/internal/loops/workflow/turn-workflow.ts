@@ -7,7 +7,7 @@ import type { TurnInboxPayload } from "#execution/turn-control-protocol.js";
 import {
   migrateTurnWorkflowInput,
   type TurnWorkflowInput,
-} from "#execution/durable-session-migrations/turn-workflow.js";
+} from "#core/durable-session-migrations/turn-workflow.js";
 import { claimHookOwnership, disposeHook, isHookConflictError } from "#execution/hook-ownership.js";
 import {
   createTurnCancellationControl,

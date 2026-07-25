@@ -21,7 +21,7 @@ import {
 } from "#internal/authored-module.js";
 import { EVE_CREATE_SESSION_ROUTE_PATH } from "#protocol/routes.js";
 import { serializeOutputSchema, type ToolSchemaSource } from "#shared/tool-schema.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Callback the subagent compiler uses to recurse into the per-node

@@ -1,4 +1,4 @@
-import type { ContextAccessor } from "#context/key.js";
+import type { ContextAccessor } from "#core/context/key.js";
 import type { ChannelAdapter, ChannelAdapterContext } from "#channel/adapter.js";
 import { buildSessionHandle } from "#channel/session.js";
 

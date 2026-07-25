@@ -6,7 +6,7 @@ import {
   createSessionWaitingEvent,
   timestampHandleMessageStreamEvent,
   type TimedHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
 const encoder = new TextEncoder();
 

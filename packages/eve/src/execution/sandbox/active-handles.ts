@@ -1,4 +1,4 @@
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 /**
  * The slice of `SandboxBackendHandle` the shutdown registry needs.

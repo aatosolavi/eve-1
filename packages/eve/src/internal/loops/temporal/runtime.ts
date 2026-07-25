@@ -183,7 +183,7 @@ export class TemporalLoopRuntime implements Runtime {
   async getEventStream(
     sessionId: string,
     options?: GetEventStreamOptions,
-  ): Promise<ReadableStream<import("#protocol/message.js").HandleMessageStreamEvent>> {
+  ): Promise<ReadableStream<import("#core/protocol/message.js").HandleMessageStreamEvent>> {
     return this.#service.stream(sessionId, options?.startIndex);
   }
 

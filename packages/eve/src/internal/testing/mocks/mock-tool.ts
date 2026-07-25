@@ -1,6 +1,6 @@
 import type { SessionContext } from "#public/definitions/callback-context.js";
 import { buildCallbackContext } from "#context/build-callback-context.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 import { toInputSchema } from "#shared/tool-schema.js";
 

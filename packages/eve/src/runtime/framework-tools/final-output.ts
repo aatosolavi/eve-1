@@ -1,7 +1,7 @@
 import type { Tool } from "ai";
 
 import { toInputSchema } from "#shared/tool-schema.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Stable model-visible name for the framework structured-output tool.

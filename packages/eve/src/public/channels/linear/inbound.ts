@@ -1,7 +1,7 @@
 import type { UserContent } from "ai";
 
-import { isObject } from "#shared/guards.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 /** Linear Agent Session webhook actions supported by the channel. */
 export type LinearAgentSessionAction = "created" | "prompted" | (string & {});

@@ -3,8 +3,8 @@
  * JSON HTTP API rather than exposing a third-party SDK through eve.
  */
 
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
-import { isObject } from "#shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
+import { isObject } from "#core/shared/guards.js";
 
 import { resolveDiscordPublicKey, type DiscordPublicKey } from "#public/channels/discord/verify.js";
 

@@ -1,5 +1,5 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { EVE_SESSION_ID_HEADER, isCurrentTurnBoundaryEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import { EVE_SESSION_ID_HEADER, isCurrentTurnBoundaryEvent } from "#core/protocol/message.js";
 import { CancelTurnResponseSchema } from "#protocol/cancel-turn.js";
 import {
   EVE_CREATE_SESSION_ROUTE_PATH,

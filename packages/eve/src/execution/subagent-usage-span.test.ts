@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
 
 const startSpanMock = vi.fn();
 const endSpanMock = vi.fn();

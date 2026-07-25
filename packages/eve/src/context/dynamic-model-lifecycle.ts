@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 import type { AlsContext } from "#context/container.js";
-import type { ContextKey } from "#context/key.js";
+import type { ContextKey } from "#core/context/key.js";
 import {
   LiveStepDynamicModelSelectionKey,
   SessionDynamicModelReferenceKey,
@@ -10,7 +10,7 @@ import {
   type LiveDynamicModelSelection,
 } from "#context/keys.js";
 import { createLogger } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type {
   RuntimeDynamicModelReference,
   RuntimeModelReference,
@@ -22,7 +22,7 @@ import {
   type ResolvedRuntimeModelSelection,
   type RuntimeModelResolutionScope,
 } from "#runtime/agent/resolve-model.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { DynamicToolEventName } from "#shared/dynamic-tool-definition.js";
 
 const log = createLogger("dynamic-models");

@@ -1,6 +1,6 @@
 import { getVercelOidcToken } from "#compiled/@vercel/oidc/index.js";
 import { readVercelProjectLink } from "#internal/vercel/project-link.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { z } from "zod";
 
 const VercelOidcClaimsSchema = z.object({

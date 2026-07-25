@@ -15,7 +15,7 @@ import { createWorkflowRuntime } from "#internal/loops/workflow/runtime.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { ROOT_COMPILED_AGENT_NODE_ID } from "#compiler/manifest.js";
 import { ConnectionAuthorizationRequiredError } from "#public/connections/errors.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { ToolContext } from "#public/definitions/tool.js";
 import type { AuthorizationDefinition, TokenResult } from "#runtime/connections/types.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";

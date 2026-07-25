@@ -1,6 +1,6 @@
 import { buildCallbackContext } from "#context/build-callback-context.js";
 import { type AlsContext, ContextContainer, contextStorage } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { ResolvedConnectionDefinition } from "#runtime/types.js";
 import type { AuthorizationDefinition } from "#runtime/connections/types.js";

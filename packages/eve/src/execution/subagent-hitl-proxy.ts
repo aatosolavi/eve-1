@@ -3,15 +3,12 @@ import {
   emitTurnEpilogue,
   getHarnessEmissionState,
   setHarnessEmissionState,
-} from "#harness/emission.js";
-import {
-  getProxyInputRequests,
-  toProxyInputRequestEntries,
-} from "#harness/proxy-input-requests.js";
+} from "#core/emission.js";
+import { getProxyInputRequests, toProxyInputRequestEntries } from "#core/proxy-input-requests.js";
 import type { HandleEventFn, HarnessSession, SessionStateMap } from "#harness/types.js";
-import { createInputRequestedEvent } from "#protocol/message.js";
+import { createInputRequestedEvent } from "#core/protocol/message.js";
 import type { RunMode } from "#shared/run-mode.js";
-import type { InputResponse } from "#runtime/input/types.js";
+import type { InputResponse } from "#core/input/types.js";
 
 // ---------------------------------------------------------------------------
 // Upward proxy emission

@@ -1,7 +1,7 @@
 import type { SessionHandle } from "#channel/session.js";
 import type { SessionAuthContext } from "#channel/types.js";
 import { createLogger } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   createLinearAgentActivity,
   createLinearAgentSessionOnComment,
@@ -34,9 +34,9 @@ import {
   type ChannelSessionOps,
   type SendFn,
 } from "#public/definitions/channel.js";
-import { isObject } from "#shared/guards.js";
-import type { JsonObject } from "#shared/json.js";
-import type { InputResponse } from "#runtime/input/types.js";
+import { isObject } from "#core/shared/guards.js";
+import type { JsonObject } from "#core/shared/json.js";
+import type { InputResponse } from "#core/input/types.js";
 
 const log = createLogger("linear.channel");
 

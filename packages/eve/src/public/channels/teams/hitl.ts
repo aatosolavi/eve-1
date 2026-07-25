@@ -2,7 +2,7 @@
  * Teams Adaptive Card rendering and decode helpers for eve HITL prompts.
  */
 
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
 import type {
   TeamsActivity,
   TeamsInvokeActivity,
@@ -15,8 +15,8 @@ import {
   TEAMS_ADAPTIVE_CARD_CHOICE_TITLE_MAX_LENGTH,
   TEAMS_ADAPTIVE_CARD_TEXT_MAX_LENGTH,
 } from "#public/channels/teams/limits.js";
-import { isObject } from "#shared/guards.js";
-import { parseJsonObject } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonObject } from "#core/shared/json.js";
 
 /** Adaptive Card attachment content type used by Teams. */
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive";

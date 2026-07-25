@@ -1,5 +1,5 @@
 import type { Client } from "#client/client.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type {
   AssertionResult,
   EveEval,

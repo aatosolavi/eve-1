@@ -16,7 +16,7 @@ import {
   encodeMessageStreamEvent,
   timestampHandleMessageStreamEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 
 import { createInlineLoopRuntime } from "./runtime.js";

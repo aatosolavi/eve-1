@@ -12,7 +12,7 @@ import { defaultMessageReducer, type EveMessageData } from "#client/message-redu
 import type { EveAgentReducer } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
 import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 export type { PrepareSend };
 

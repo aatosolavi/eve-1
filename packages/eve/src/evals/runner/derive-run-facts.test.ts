@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { JsonObject } from "#shared/json.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import type { JsonObject } from "#core/shared/json.js";
 import { createEmptyDerivedFacts, deriveRunFacts } from "#evals/runner/derive-run-facts.js";
 
 function turnStarted(turnId: string, sequence: number): HandleMessageStreamEvent {

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "#compiled/@standard-schema/spec/index.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   deepEquals,
   eventMatches,

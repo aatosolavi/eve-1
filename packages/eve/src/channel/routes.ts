@@ -2,10 +2,10 @@ import type { UserContent } from "ai";
 
 import type { CrossChannelReceiveFn } from "#channel/cross-channel-receive.js";
 import type { CancelTurnResult, SessionAuthContext, SessionCallback } from "#channel/types.js";
-import type { InputResponse } from "#runtime/input/types.js";
+import type { InputResponse } from "#core/input/types.js";
 import type { Session } from "#channel/session.js";
 import type { RunMode } from "#shared/run-mode.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { ChannelMethod } from "#public/definitions/channel.js";
 
 type WebSocketHeaders = Headers | readonly (readonly [string, string])[] | Record<string, string>;

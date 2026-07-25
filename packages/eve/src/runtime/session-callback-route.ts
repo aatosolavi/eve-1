@@ -2,9 +2,9 @@ import { resumeHook } from "#internal/workflow/runtime.js";
 import { EVE_CALLBACK_ROUTE_PATTERN } from "#protocol/routes.js";
 import type { ChannelMethod, RouteContext } from "#public/definitions/channel.js";
 import type { ResolvedChannelDefinition } from "#runtime/types.js";
-import type { RuntimeSubagentResultActionResult } from "#runtime/actions/types.js";
-import type { JsonValue } from "#shared/json.js";
-import { tokenUsageSchema, type TokenUsage } from "#shared/token-usage.js";
+import type { RuntimeSubagentResultActionResult } from "#core/actions/types.js";
+import type { JsonValue } from "#core/shared/json.js";
+import { tokenUsageSchema, type TokenUsage } from "#core/shared/token-usage.js";
 
 export const HTTP_SESSION_CALLBACK_CHANNEL_NAME_PREFIX = "eve/v1/callback";
 

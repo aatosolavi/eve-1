@@ -11,7 +11,7 @@ import { importJWK, jwtVerify } from "#compiled/jose/index.js";
 
 import { createLogger } from "#internal/logging.js";
 import { resolveTeamsAppId, type TeamsAppId, type TeamsFetch } from "#public/channels/teams/api.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 const log = createLogger("teams.verify");
 

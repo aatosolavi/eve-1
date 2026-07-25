@@ -12,7 +12,7 @@
  * strips unknown fields.
  */
 import type { DurableSessionState } from "#execution/durable-session-store.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 /** Discriminated union the driver workflow body dispatches on. */
 export type NextDriverAction =

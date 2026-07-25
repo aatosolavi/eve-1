@@ -2,8 +2,8 @@ import {
   resolveLinearAccessToken,
   type LinearChannelCredentials,
 } from "#public/channels/linear/auth.js";
-import { isObject } from "#shared/guards.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 export type LinearFetch = typeof fetch;
 

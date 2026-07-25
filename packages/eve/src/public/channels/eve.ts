@@ -3,7 +3,7 @@ import { type FilePart, type TextPart, type UserContent } from "ai";
 import type { CancelTurnResult, SessionAuthContext, SessionCallback } from "#channel/types.js";
 import type { CancelTurnResponse } from "#protocol/cancel-turn.js";
 import { parseSessionCallback } from "#channel/session-callback.js";
-import { hasInternalRefScheme } from "#internal/attachments/url-refs.js";
+import { hasInternalRefScheme } from "#core/attachments/url-refs.js";
 import { createLogger, logError } from "#internal/logging.js";
 import {
   readAgentInfoRouteResponse,
@@ -16,9 +16,9 @@ import {
   EVE_SESSION_ID_HEADER,
   EVE_STREAM_FORMAT_HEADER,
   EVE_STREAM_VERSION_HEADER,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { EVE_CANCEL_TURN_ROUTE_PATTERN, EVE_INFO_ROUTE_PATH } from "#protocol/routes.js";
-import { type InputResponse, isInputResponse } from "#runtime/input/types.js";
+import { type InputResponse, isInputResponse } from "#core/input/types.js";
 import { type AuthFn, routeAuth } from "#public/channels/auth.js";
 import {
   collectUploadPolicyViolations,
@@ -38,7 +38,7 @@ import {
 } from "#public/definitions/channel.js";
 import type { ChannelMethod } from "#public/definitions/channel.js";
 import type { RunMode } from "#shared/run-mode.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 const log = createLogger("eve.channel");
 

@@ -11,7 +11,7 @@ import {
   type UploadPolicyInput,
 } from "#public/channels/upload-policy.js";
 import type { UploadPolicy } from "#public/channels/upload-policy.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 const log = createLogger("teams.attachments");
 

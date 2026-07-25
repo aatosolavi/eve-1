@@ -20,7 +20,7 @@ import {
   type PublicAgentModelSelectionDefinition,
   type PublicAgentStaticModelDefinition,
 } from "#shared/agent-definition.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 export { shouldMockAuthoredRuntimeModels };
 

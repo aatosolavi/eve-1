@@ -7,7 +7,7 @@ import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-
 import { notifyDelegatedParentStep } from "#execution/delegated-parent-notification.js";
 import { SUBAGENT_ADAPTER, SUBAGENT_ADAPTER_KIND } from "#execution/subagent-adapter.js";
 import { resumeHook } from "#internal/workflow/runtime.js";
-import type { RuntimeSubagentResultActionResult } from "#runtime/actions/types.js";
+import type { RuntimeSubagentResultActionResult } from "#core/actions/types.js";
 
 vi.mock("../runtime/sessions/compiled-agent-cache.js", () => ({
   getCompiledRuntimeAgentBundle: vi.fn(),

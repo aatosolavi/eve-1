@@ -1,13 +1,13 @@
 import { buildAdapterContext } from "#channel/adapter-context.js";
 import { callAdapterEventHandler } from "#channel/adapter.js";
 import { deserializeContext } from "#context/serialize.js";
-import { summarizeKnownError } from "#harness/semantic-errors/index.js";
+import { summarizeKnownError } from "#core/semantic-errors/index.js";
 import { createLogger, formatError } from "#internal/logging.js";
 import {
   createSessionFailedEvent,
   encodeMessageStreamEvent,
   timestampHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
 const log = createLogger("execution.workflow-entry");

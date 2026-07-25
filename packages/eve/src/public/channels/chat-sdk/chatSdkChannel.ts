@@ -1,9 +1,9 @@
 import type { SessionAuthContext } from "#channel/types.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import { createLogger, extractErrorId, formatErrorHint } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { InputRequest } from "#runtime/input/types.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import type { InputRequest } from "#core/input/types.js";
 import type {
   ActionEvent,
   Adapter,

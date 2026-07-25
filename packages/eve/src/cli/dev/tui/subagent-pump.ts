@@ -12,8 +12,8 @@ import {
   type ActionResultStreamEvent,
   type HandleMessageStreamEvent,
   type SubagentCalledStreamEvent,
-} from "#protocol/message.js";
-import { toErrorMessage } from "#shared/errors.js";
+} from "#core/protocol/message.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 import { isAbortLikeError } from "./errors.js";
 

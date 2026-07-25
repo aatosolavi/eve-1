@@ -6,8 +6,8 @@
  * eve public APIs.
  */
 
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
-import { isObject } from "#shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
+import { isObject } from "#core/shared/guards.js";
 
 /** Microsoft application id, materialized directly or from an async secret provider. */
 export type TeamsAppId = string | (() => string | Promise<string>);

@@ -12,14 +12,14 @@ import type { SessionAuthContext } from "#channel/types.js";
 import type { RouteHandlerArgs, SendFn, SendOptions, SendPayload } from "#channel/routes.js";
 import type { Session as ChannelSession } from "#channel/session.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
-import type { ContextAccessor } from "#context/key.js";
+import type { ContextAccessor } from "#core/context/key.js";
 import {
   ContinuationTokenKey,
   SessionIdKey,
   SessionKey,
   type Session as RuntimeSession,
 } from "#context/keys.js";
-import { createMessageCompletedEvent } from "#protocol/message.js";
+import { createMessageCompletedEvent } from "#core/protocol/message.js";
 
 /**
  * Unit coverage for the inbound HTTP route's message-body parser and

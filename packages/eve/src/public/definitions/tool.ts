@@ -4,7 +4,7 @@ import { stampDefinitionKey } from "#public/tool-result-narrowing.js";
 import type { PublicToolDefinition, ToolModelOutput } from "#shared/tool-definition.js";
 import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { Approval } from "#public/definitions/approval.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type {
   AuthorizationDefinition,
   ConnectionAuthorizationContext,

@@ -1,5 +1,5 @@
-import type { InputResponse } from "#runtime/input/types.js";
-import type { AuthorizationOutcome } from "#protocol/message.js";
+import type { InputResponse } from "#core/input/types.js";
+import type { AuthorizationOutcome } from "#core/protocol/message.js";
 
 /**
  * UIMessage-compatible eve message projection for chat and agent UIs.

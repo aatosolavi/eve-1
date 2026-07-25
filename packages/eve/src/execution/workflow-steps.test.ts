@@ -3,14 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChannelAdapterContext } from "#channel/adapter.js";
 import type { DeliverPayload, SubagentInputRequestHookPayload } from "#channel/types.js";
 import { ContextContainer } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import { AuthKey, ContinuationTokenKey, ModeKey, SessionIdKey } from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { serializeContext } from "#context/serialize.js";
 import {
   getPendingRuntimeActionBatch,
   setPendingRuntimeActionBatch,
-} from "#harness/runtime-actions.js";
+} from "#core/runtime-actions.js";
 import { getPendingAuthorization, setPendingAuthorization } from "#harness/authorization.js";
 import { classifyParkedSession } from "#harness/step-result.js";
 import type { GenerateOutcome, HarnessSession } from "#harness/types.js";
@@ -23,7 +23,7 @@ import {
   projectSessionState,
   readDurableSession,
 } from "#execution/durable-session-store.js";
-import { createTurnWorkflowInput } from "#execution/durable-session-migrations/turn-workflow.js";
+import { createTurnWorkflowInput } from "#core/durable-session-migrations/turn-workflow.js";
 import { projectToDurableSession } from "#execution/session.js";
 import { createNodeGenerate } from "#execution/node-generate.js";
 import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";

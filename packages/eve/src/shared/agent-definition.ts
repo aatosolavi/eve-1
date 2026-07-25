@@ -1,6 +1,6 @@
 import type { CallSettings, LanguageModel } from "ai";
 import type { StandardJSONSchemaV1 } from "#compiled/@standard-schema/spec/index.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 import {
   isDynamicSentinel,

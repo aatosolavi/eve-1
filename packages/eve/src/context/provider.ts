@@ -1,8 +1,8 @@
 import type { HarnessSession } from "#harness/types.js";
 import type { ContextContainer } from "#context/container.js";
-import type { ContextKey } from "#context/key.js";
+import type { ContextKey } from "#core/context/key.js";
 
-export type { ContextReader } from "#context/key.js";
+export type { ContextReader } from "#core/context/key.js";
 
 /**
  * Value returned by a framework provider's `create` method.

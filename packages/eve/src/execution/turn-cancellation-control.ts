@@ -5,7 +5,7 @@ import {
   sessionCancelHookToken,
   type TurnCancelPayload,
 } from "#execution/turn-cancellation-token.js";
-import { TurnCancelledError } from "#harness/turn-cancellation.js";
+import { TurnCancelledError } from "#core/turn-cancellation.js";
 
 /**
  * Owns one turn's cancellation surface inside the turn workflow: the

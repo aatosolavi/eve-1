@@ -2,7 +2,7 @@ import { chmod, mkdir, open, type FileHandle } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
 import type { LogLevel } from "#internal/logging.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 export type DevDiagnosticSource = "stderr" | "stdout" | "sandbox" | "workflow" | "tool" | "log";
 

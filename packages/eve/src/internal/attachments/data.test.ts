@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { fileDataToBytes, getKnownByteLength } from "#internal/attachments/data.js";
-import { encodeAttachmentRef } from "#internal/attachments/refs.js";
+import { encodeAttachmentRef } from "#core/attachments/refs.js";
 
 describe("fileDataToBytes", () => {
   it("passes Uint8Array payloads through as Buffer copies", async () => {

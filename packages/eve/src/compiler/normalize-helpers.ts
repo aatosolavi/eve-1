@@ -8,7 +8,7 @@ import {
   type AuthoredModuleLoadOptions,
   loadAuthoredModuleNamespace,
 } from "#internal/authored-module-loader.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 import type { CompiledRuntimeModelCatalogLoader } from "#compiler/model-catalog.js";
 

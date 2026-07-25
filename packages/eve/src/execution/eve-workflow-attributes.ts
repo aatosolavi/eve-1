@@ -27,7 +27,7 @@
 
 import { ChannelRequestIdKey } from "#context/keys.js";
 import type { EveAttributeValue } from "#runtime/attributes/normalize.js";
-import { isNonEmptyString } from "#shared/guards.js";
+import { isNonEmptyString } from "#core/shared/guards.js";
 
 /**
  * Active compiled graph node id for the session's agent. Returned by

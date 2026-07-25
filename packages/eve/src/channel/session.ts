@@ -1,5 +1,5 @@
-import type { ContextAccessor } from "#context/key.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { ContextAccessor } from "#core/context/key.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { CancelTurnResult, Runtime } from "#channel/types.js";
 import type { SessionAuth } from "#context/keys.js";
 import { AuthKey, ContinuationTokenKey, InitiatorAuthKey, SessionIdKey } from "#context/keys.js";

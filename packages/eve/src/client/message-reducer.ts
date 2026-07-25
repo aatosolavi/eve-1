@@ -20,8 +20,11 @@ import {
   stringifyUnknown,
   toMessageInputRequest,
 } from "#client/message-action-parts.js";
-import type { InputResponse } from "#runtime/input/types.js";
-import type { AuthorizationCompletedStreamEvent, MessageReceivedPart } from "#protocol/message.js";
+import type { InputResponse } from "#core/input/types.js";
+import type {
+  AuthorizationCompletedStreamEvent,
+  MessageReceivedPart,
+} from "#core/protocol/message.js";
 
 export type {
   EveAuthorizationChallenge,

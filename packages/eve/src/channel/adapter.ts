@@ -1,11 +1,11 @@
-import type { ContextAccessor } from "#context/key.js";
+import type { ContextAccessor } from "#core/context/key.js";
 import type { StepInput } from "#harness/types.js";
 import { createLogger } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { SessionHandle } from "#channel/session.js";
 import type { DeliverPayload } from "#channel/types.js";
 import type { FetchFileResult, FetchFileFunction } from "#shared/channel-definition.js";
-import { toChannelLocalContinuationToken } from "#shared/continuation-token.js";
+import { toChannelLocalContinuationToken } from "#core/shared/continuation-token.js";
 
 const log = createLogger("channel.adapter");
 

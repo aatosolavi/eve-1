@@ -18,7 +18,7 @@ import {
   SessionIdKey,
 } from "#context/keys.js";
 import type { ResolvedDynamicInstructionsResolver } from "#runtime/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 function createResolver(
   slug: string,

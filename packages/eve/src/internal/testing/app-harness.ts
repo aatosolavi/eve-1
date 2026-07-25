@@ -1,4 +1,4 @@
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { ChannelAdapter } from "#channel/adapter.js";
 import { compileFromMemory } from "#compiler/compile-from-memory.js";
 import type { CompiledAgentManifest, CompiledSkillDefinition } from "#compiler/manifest.js";

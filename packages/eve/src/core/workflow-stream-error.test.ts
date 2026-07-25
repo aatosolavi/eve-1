@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractWorkflowStreamWriteErrorDetails,
   isWorkflowStreamWriteError,
-} from "#harness/workflow-stream-error.js";
+} from "#core/workflow-stream-error.js";
 
 describe("extractWorkflowStreamWriteErrorDetails", () => {
   it("parses status, url, and vercel headers from the timeout signature", () => {

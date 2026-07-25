@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 export function createPublicRequest(request: IncomingMessage, signal: AbortSignal): Request {
   const authority = request.headers.host ?? "localhost";

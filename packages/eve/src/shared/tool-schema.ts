@@ -4,8 +4,8 @@ import type {
 } from "#compiled/@standard-schema/spec/index.js";
 import { z } from "#compiled/zod/index.js";
 
-import { toErrorMessage } from "#shared/errors.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 /**
  * eve-owned schema contract for tool input and output schemas: a Standard

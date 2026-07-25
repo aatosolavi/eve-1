@@ -2,8 +2,8 @@ import type { DeliverHookPayload, HookPayload } from "#channel/types.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { sendTurnControlStep } from "#execution/turn-control-protocol.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
-import type { TurnStepInput } from "#execution/durable-session-migrations/turn-workflow.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import type { TurnStepInput } from "#core/durable-session-migrations/turn-workflow.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 interface TurnTransition {
   readonly serializedContext?: Record<string, unknown>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { createEmptyDerivedFacts } from "#evals/runner/derive-run-facts.js";
 import type {
   EveEvalDerivedFacts,

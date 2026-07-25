@@ -1,7 +1,7 @@
 import { z } from "#compiled/zod/index.js";
 
 import { loadContext } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import {
   type AuthorizationChallenge,
   type AuthorizationSignal,
@@ -15,7 +15,7 @@ import {
   isConnectionAuthorizationRequiredError,
 } from "#public/connections/errors.js";
 import type { JsonValue } from "#public/types/json.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import { writeCachedToken } from "#runtime/connections/authorization-tokens.js";
 import { principalKey, resolveConnectionPrincipal } from "#runtime/connections/principal.js";
 import { resolveConnectionAuthorization } from "#runtime/connections/resolve-authorization.js";

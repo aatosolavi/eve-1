@@ -11,11 +11,11 @@ import {
   removeSkillPackageFromSandbox,
   writeSkillPackageToSandbox,
 } from "#shared/skill-package.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { ResolvedDynamicSkillResolver } from "#runtime/types.js";
 import { formatAvailableSkillsSection } from "#execution/skills/instructions.js";
 import { createLogger } from "#internal/logging.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { ContextContainer } from "#context/container.js";
 import {
   type DurableDynamicSkillMetadata,
@@ -86,7 +86,7 @@ async function formatDynamicSkillAnnouncement(input: {
 // Context key for pending announcements
 // ---------------------------------------------------------------------------
 
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 
 /**
  * Durable pending skill announcement text. Set by

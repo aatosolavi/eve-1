@@ -5,7 +5,7 @@
  * Telegram's raw webhook payloads as the public API.
  */
 
-import { isNonEmptyString, isObject } from "#shared/guards.js";
+import { isNonEmptyString, isObject } from "#core/shared/guards.js";
 
 /**
  * Telegram chat types the channel recognizes. Note: the channel parses

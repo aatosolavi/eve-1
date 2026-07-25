@@ -1,5 +1,5 @@
 import type { ModuleDefinitionExport } from "#public/definitions/source.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 import type { AgentModelOptionsDefinition } from "#shared/agent-definition.js";
 

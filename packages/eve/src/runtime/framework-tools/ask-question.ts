@@ -1,6 +1,6 @@
 import { z } from "#compiled/zod/index.js";
 
-import { inputRequestSchema } from "#runtime/input/types.js";
+import { inputRequestSchema } from "#core/input/types.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 
 /**

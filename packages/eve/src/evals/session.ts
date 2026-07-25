@@ -10,15 +10,15 @@ import type {
   SendTurnPayload,
   SessionState,
 } from "#client/types.js";
-import type { HandleMessageStreamEvent, TurnFailureStreamEvent } from "#protocol/message.js";
-import { isCurrentTurnBoundaryEvent, isTurnFailureEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent, TurnFailureStreamEvent } from "#core/protocol/message.js";
+import { isCurrentTurnBoundaryEvent, isTurnFailureEvent } from "#core/protocol/message.js";
 import {
   deriveResultStatus,
   extractCompletedMessage,
   extractInputRequests,
 } from "#client/session-utils.js";
 import { extractCompletedResult } from "#client/output-schema.js";
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
 import { deriveRunFacts } from "#evals/runner/derive-run-facts.js";
 import { AssertionCollector } from "#evals/assertions/collector.js";
 import { createOutputAssertions, createScopedAssertions } from "#evals/assertions/scoped.js";

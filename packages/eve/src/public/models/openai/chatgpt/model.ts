@@ -4,7 +4,7 @@ import type {
   LanguageModelV4CallOptions,
 } from "#compiled/@ai-sdk/provider/index.js";
 import { createCodexFetch, type CodexTransportOptions } from "./transport.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 const CODEX_LOCAL_AUTH_API_KEY = "codex-local-auth";
 

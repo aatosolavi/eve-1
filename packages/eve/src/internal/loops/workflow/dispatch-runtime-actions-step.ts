@@ -17,21 +17,18 @@ import {
 } from "#context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { deserializeContext } from "#context/serialize.js";
-import {
-  getPendingRuntimeActionBatch,
-  recordPendingSubagentChild,
-} from "#harness/runtime-actions.js";
+import { getPendingRuntimeActionBatch, recordPendingSubagentChild } from "#core/runtime-actions.js";
 import {
   createSubagentCalledEvent,
   encodeMessageStreamEvent,
   timestampHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import type {
   RuntimeActionRequest,
   RuntimeRemoteAgentCallActionRequest,
   RuntimeSubagentCallActionRequest,
   RuntimeSubagentResultActionResult,
-} from "#runtime/actions/types.js";
+} from "#core/actions/types.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
@@ -45,7 +42,7 @@ import { hydrateDurableSession } from "#execution/session.js";
 import { buildSubagentRunInput, type SubagentInputSource } from "#execution/subagent-tool.js";
 import { createWorkflowRuntime, workflowEntryReference } from "#internal/loops/workflow/runtime.js";
 import { createLogger, logError } from "#internal/logging.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { resolveSubagentDepth } from "#harness/subagent-depth.js";
 
 const log = createLogger("execution.dispatch-runtime-actions");

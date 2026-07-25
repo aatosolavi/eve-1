@@ -1,6 +1,6 @@
 import type { ResolvedConnectionDefinition } from "#runtime/types.js";
 import { deref, isArray } from "#runtime/connections/openapi-schema.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * How the connection's resolved credential is placed on a request,

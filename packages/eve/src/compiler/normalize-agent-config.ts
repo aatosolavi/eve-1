@@ -7,8 +7,8 @@ import { serializeOutputSchema } from "#shared/tool-schema.js";
 import { formatLanguageModelGatewayId } from "#internal/runtime-model.js";
 import { classifyModelRouting } from "#internal/classify-model-routing.js";
 import { DEFAULT_AGENT_MODEL_ID } from "#shared/default-agent-model.js";
-import { toErrorMessage } from "#shared/errors.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 import type { ModuleSourceRef } from "#shared/source-ref.js";
 import {
   isDynamicModelDefinition,

@@ -7,7 +7,7 @@ import {
   SessionKey,
 } from "#context/keys.js";
 import type { FrameworkContextProvider } from "#context/provider.js";
-import { getHarnessEmissionState } from "#harness/emission.js";
+import { getHarnessEmissionState } from "#core/emission.js";
 
 export const sessionProvider: FrameworkContextProvider<Session> = {
   key: SessionKey,

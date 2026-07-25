@@ -5,7 +5,7 @@ import type { SessionContext } from "#public/definitions/callback-context.js";
 import type { ChannelSessionOps } from "#public/definitions/channel.js";
 
 import { createLogger, logError } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   callDiscordApi,
   createDiscordFollowupMessage,
@@ -47,7 +47,7 @@ import {
 } from "#public/channels/discord/responses.js";
 import { type DiscordWebhookVerifier } from "#public/channels/discord/verify.js";
 import { verifyDiscordInbound } from "#public/channels/discord/verifyInbound.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 import { defineChannel, POST, type Channel, type SendFn } from "#public/definitions/channel.js";
 
 const log = createLogger("discord.channel");

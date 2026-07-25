@@ -15,7 +15,7 @@ import {
   writeOutputPublicationJournal,
   writeRecoveryLeaseJournal,
 } from "#internal/application/output-publication-journal.js";
-import { isErrnoCode } from "#shared/guards.js";
+import { isErrnoCode } from "#core/shared/guards.js";
 import { pathExists } from "#shared/path-exists.js";
 import { renameWithTransientBusyRetry } from "#shared/rename-with-retry.js";
 

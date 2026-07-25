@@ -10,6 +10,8 @@ import {
 import { createNextCompactionConfig } from "#harness/compaction.js";
 import {
   advanceStep,
+  emitFailedStep,
+  emitRecoverableFailedTurn,
   emitTurnEpilogue,
   getHarnessEmissionState,
   setHarnessEmissionState,
@@ -32,25 +34,25 @@ import {
 import type { HarnessStepResult } from "#harness/step-hooks.js";
 import { isInvalidToolCall } from "#harness/tool-call-input-errors.js";
 import { readToolInterrupt } from "#harness/tool-interrupts.js";
-import { finishConversationTurn, finishTaskTurn } from "#harness/turn-finish.js";
-import type {
-  GenerateOutcome,
-  HarnessSession,
-  HarnessToolMap,
-  GenerateConfig,
-} from "#harness/types.js";
+import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { readWorkflowContinuationSecurity } from "#harness/workflow-continuation-security.js";
 import { isWorkflowRuntimeActionInterrupt } from "#harness/workflow-runtime-action-state.js";
 import { parkOnWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
 import { createLogger } from "#internal/logging.js";
-import { createAuthorizationRequiredEvent, createInputRequestedEvent } from "#protocol/message.js";
+import {
+  createAuthorizationRequiredEvent,
+  createInputRequestedEvent,
+  createResultCompletedEvent,
+} from "#protocol/message.js";
 import { FINAL_OUTPUT_TOOL_NAME } from "#runtime/framework-tools/final-output.js";
 import type { InputRequest } from "#runtime/input/types.js";
 import { hasEmptyDeliverySentinel } from "#shared/empty-delivery.js";
-import type { JsonValue } from "#shared/json.js";
+import type { RunMode } from "#shared/run-mode.js";
+import type { JsonObject, JsonValue } from "#shared/json.js";
 import { getWorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
 
 export { classifyParkedSession, withOutcomeState } from "#core/step-outcome.js";
+export { resolveApprovalKeyFromTools } from "#core/input-requests.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
 
 const log = createLogger("harness.generate");
@@ -357,23 +359,6 @@ export function persistStructuredAssistantTurn(
   };
 }
 
-/**
- * Creates an approval-key resolver from the tool map. The resolver computes
- * compound keys at recording time instead of pre-computing and persisting
- * them on the pending batch.
- */
-export function resolveApprovalKeyFromTools(
-  tools: HarnessToolMap,
-): (request: InputRequest) => string | undefined {
-  return (request) => {
-    const toolDef = tools.get(request.action.toolName);
-    if (toolDef?.approvalKey === undefined) {
-      return undefined;
-    }
-    return toolDef.approvalKey(request.action.input);
-  };
-}
-
 function findAuthorizationSignalFromToolResults(
   toolResults: readonly TypedToolResult<ToolSet>[] | undefined,
 ): AuthorizationSignal | undefined {
@@ -394,4 +379,142 @@ function findAuthorizationSignalFromToolResults(
   }
 
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Turn finish (absorbed from turn-finish.ts: settle is one service)
+// ---------------------------------------------------------------------------
+
+/** Emits `result.completed` followed by the turn epilogue for `mode`. */
+async function emitStructuredResult(
+  emit: NonNullable<GenerateConfig["handleEvent"]>,
+  emissionState: ReturnType<typeof getHarnessEmissionState>,
+  structured: JsonValue,
+  mode: RunMode,
+  continuationToken: string,
+): Promise<ReturnType<typeof getHarnessEmissionState>> {
+  await emit(
+    createResultCompletedEvent({
+      result: structured,
+      sequence: emissionState.sequence,
+      stepIndex: emissionState.stepIndex,
+      turnId: emissionState.turnId,
+    }),
+  );
+  return emitTurnEpilogue(emit, emissionState, mode, continuationToken);
+}
+
+/**
+ * Closes a terminal task turn. Task runs cannot park, so an unmet output
+ * schema fails as an error a delegating parent can surface; otherwise the
+ * structured value — or the plain assistant text — is the run's output.
+ */
+export async function finishTaskTurn(input: {
+  readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
+  readonly emit?: GenerateConfig["handleEvent"];
+  readonly history: readonly ModelMessage[];
+  readonly result: HarnessStepResult;
+  readonly schema: JsonObject | undefined;
+  readonly session: HarnessSession;
+  readonly stepOutput: string | null;
+}): Promise<GenerateOutcome> {
+  const { emit, history, result, schema, stepOutput } = input;
+  let { emissionState, session } = input;
+
+  if (schema === undefined) {
+    if (emit) {
+      emissionState = await emitTurnEpilogue(
+        emit,
+        emissionState,
+        "task",
+        session.continuationToken,
+      );
+      session = setHarnessEmissionState(session, emissionState);
+    }
+    return { action: "done", output: stepOutput ?? "", state: session };
+  }
+
+  const structured = extractFinalOutput(result);
+  if (structured === undefined) {
+    if (emit) {
+      await emitFailedStep(emit, emissionState, {
+        ...OUTPUT_SCHEMA_NOT_FULFILLED,
+        sessionId: session.sessionId,
+      });
+    }
+    return {
+      action: "done",
+      isError: true,
+      output: OUTPUT_SCHEMA_NOT_FULFILLED.message,
+      state: session,
+    };
+  }
+
+  session = persistStructuredAssistantTurn(session, history, structured);
+  if (emit) {
+    emissionState = await emitStructuredResult(
+      emit,
+      emissionState,
+      structured,
+      "task",
+      session.continuationToken,
+    );
+    session = setHarnessEmissionState(session, emissionState);
+  }
+  return { action: "done", output: structured, state: session };
+}
+
+/**
+ * Closes a terminal conversation turn. Conversation runs may park, so an unmet
+ * output schema parks recoverably; otherwise the structured value (or prose)
+ * ends the turn and the session waits for the next message.
+ */
+export async function finishConversationTurn(input: {
+  readonly emissionState: ReturnType<typeof getHarnessEmissionState>;
+  readonly emit?: GenerateConfig["handleEvent"];
+  readonly history: readonly ModelMessage[];
+  readonly result: HarnessStepResult;
+  readonly schema: JsonObject | undefined;
+  readonly session: HarnessSession;
+}): Promise<GenerateOutcome> {
+  const { emit, history, result, schema } = input;
+  let { emissionState, session } = input;
+
+  if (schema === undefined) {
+    if (emit) {
+      emissionState = await emitTurnEpilogue(
+        emit,
+        emissionState,
+        "conversation",
+        session.continuationToken,
+      );
+      session = setHarnessEmissionState(session, emissionState);
+    }
+    return classifyParkedSession(session);
+  }
+
+  const structured = extractFinalOutput(result);
+  if (structured === undefined) {
+    if (emit) {
+      emissionState = await emitRecoverableFailedTurn(emit, emissionState, {
+        ...OUTPUT_SCHEMA_NOT_FULFILLED,
+        continuationToken: session.continuationToken,
+      });
+      session = setHarnessEmissionState(session, emissionState);
+    }
+    return classifyParkedSession(session);
+  }
+
+  session = persistStructuredAssistantTurn(session, history, structured);
+  if (emit) {
+    emissionState = await emitStructuredResult(
+      emit,
+      emissionState,
+      structured,
+      "conversation",
+      session.continuationToken,
+    );
+    session = setHarnessEmissionState(session, emissionState);
+  }
+  return classifyParkedSession(session);
 }

@@ -16,8 +16,8 @@ import type {
   TurnStepResult as CoreTurnStepResult,
 } from "#core/types.js";
 import type { DurableSessionState } from "#execution/durable-session-store.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 /** The single binding from eve runtime values to the engine-neutral loop core. */
 export interface EveLoopTypes extends LoopTypes {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useEveAgent, type UseEveAgentHelpers } from "#react/use-eve-agent.js";
 import type { EveMessageData } from "#client/message-reducer.js";
-import { EVE_SESSION_ID_HEADER } from "#protocol/message.js";
+import { EVE_SESSION_ID_HEADER } from "#core/protocol/message.js";
 import {
   createMessageCompletedEvent,
   createMessageReceivedEvent,
@@ -13,7 +13,7 @@ import {
   createStepFailedEvent,
   createTurnFailedEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import type { SessionState } from "#client/types.js";
 
 function createStartedMessageResponse(sessionId: string, continuationToken: string): Response {

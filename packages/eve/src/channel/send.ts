@@ -5,7 +5,7 @@ import type { DeliverInput, RunInput, Runtime, SessionAuthContext } from "#chann
 import { createSession, type Session } from "#channel/session.js";
 import type { SendFn, SendOptions, SendPayload } from "#channel/routes.js";
 import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import { serializeUrlFilePart } from "#internal/attachments/url-refs.js";
+import { serializeUrlFilePart } from "#core/attachments/url-refs.js";
 import { createLogger } from "#internal/logging.js";
 
 const log = createLogger("channel.send");

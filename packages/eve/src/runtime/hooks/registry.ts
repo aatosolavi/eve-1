@@ -1,4 +1,4 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { StreamEventHook } from "../../public/definitions/hook.js";
 import type { ResolvedHookDefinition } from "../types.js";
 

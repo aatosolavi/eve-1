@@ -1,6 +1,6 @@
 import { createSign } from "node:crypto";
 
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 import type { GitHubWebhookVerifier } from "#public/channels/github/verify.js";
 
 /** GitHub App id, supplied directly or resolved lazily from a secret manager. */

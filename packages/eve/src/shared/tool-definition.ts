@@ -1,6 +1,6 @@
 import type { ToolExecutionOptions } from "ai";
 import type { StandardJSONSchemaV1 } from "#compiled/@standard-schema/spec/index.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Options forwarded from the AI SDK to the tool's {@link ToolDefinition.execute}

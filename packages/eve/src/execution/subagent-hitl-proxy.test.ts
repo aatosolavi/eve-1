@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { upsertProxyInputRequests } from "#harness/proxy-input-requests.js";
+import { upsertProxyInputRequests } from "#core/proxy-input-requests.js";
 import type { HarnessSession } from "#harness/types.js";
 import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
 

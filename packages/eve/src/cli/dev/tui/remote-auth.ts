@@ -19,7 +19,7 @@ import {
   type RemoteAuthCompletedMutation,
   type RemoteAuthPreparation,
 } from "./remote-auth-result.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import pc from "picocolors";
 
 /** Injectable entry point for the remote authentication flow. */

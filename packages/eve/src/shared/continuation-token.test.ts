@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toChannelLocalContinuationToken } from "#shared/continuation-token.js";
+import { toChannelLocalContinuationToken } from "#core/shared/continuation-token.js";
 
 describe("toChannelLocalContinuationToken", () => {
   it("removes only the runtime channel namespace", () => {

@@ -117,17 +117,17 @@ export type {
   TurnFailedStreamEvent,
   TurnStartedStreamEvent,
   TurnFailureStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
-export { isCurrentTurnBoundaryEvent, isTurnFailureEvent } from "#protocol/message.js";
+export { isCurrentTurnBoundaryEvent, isTurnFailureEvent } from "#core/protocol/message.js";
 
-export type { InputOption, InputRequest, InputResponse } from "#runtime/input/types.js";
+export type { InputOption, InputRequest, InputResponse } from "#core/input/types.js";
 export {
   inputOptionSchema,
   inputRequestSchema,
   inputResponseSchema,
   isInputRequest,
   isInputResponse,
-} from "#runtime/input/types.js";
+} from "#core/input/types.js";
 
-export { resolveTextToResponse, resolveTextToResponses } from "#channel/resolve-text.js";
+export { resolveTextToResponse, resolveTextToResponses } from "#core/input/resolve-text.js";

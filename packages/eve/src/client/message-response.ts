@@ -1,4 +1,4 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { extractCompletedResult } from "#client/output-schema.js";
 import {
   deriveResultStatus,

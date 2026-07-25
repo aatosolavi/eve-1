@@ -4,7 +4,7 @@ import { lazyBackend } from "#execution/sandbox/lazy-backend.js";
 import { expectObjectRecord } from "#internal/authored-module.js";
 import type { SandboxBackend } from "#public/definitions/sandbox-backend.js";
 import { defaultSandbox } from "#public/sandbox/backends/default.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { loadResolvedModuleExport, ResolveAgentError } from "#runtime/resolve-helpers.js";
 import type { ResolvedSandboxDefinition } from "#runtime/types.js";
 

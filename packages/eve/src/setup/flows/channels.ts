@@ -1,5 +1,5 @@
 import { SCAFFOLDABLE_CHANNELS, type ChannelKind } from "#setup/scaffold/index.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 import { interactiveAsker } from "../ask.js";
 import { addChannels, type AddChannelsDeps } from "../boxes/add-channels.js";

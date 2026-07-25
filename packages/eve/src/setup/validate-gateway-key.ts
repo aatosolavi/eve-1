@@ -1,7 +1,7 @@
 import { createGateway } from "ai";
 
 import { vercelGatewayFetch } from "#internal/gateway.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 /**
  * Detects the gateway's "this key is not authorized" failure structurally, by a

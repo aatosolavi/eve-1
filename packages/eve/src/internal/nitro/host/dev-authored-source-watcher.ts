@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { watch } from "#compiled/chokidar/index.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { resolveTsConfigDependencyPaths } from "#internal/application/tsconfig-dependencies.js";
 import { resolveDevelopmentSourceSnapshotWatchPaths } from "#internal/nitro/dev-runtime-source-snapshot.js";
 import type { PreparedDevelopmentApplicationHost } from "#internal/nitro/host/types.js";

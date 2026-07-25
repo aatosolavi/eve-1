@@ -16,18 +16,15 @@ import {
   getHarnessEmissionState,
   isHarnessBetweenTurns,
   setHarnessEmissionState,
-} from "#harness/emission.js";
-import {
-  clearAllProxyInputRequests,
-  hasProxyInputRequests,
-} from "#harness/proxy-input-requests.js";
-import { clearPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
-import { clearPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state.js";
+} from "#core/emission.js";
+import { clearAllProxyInputRequests, hasProxyInputRequests } from "#core/proxy-input-requests.js";
+import { clearPendingRuntimeActionBatch } from "#core/runtime-actions.js";
+import { clearPendingWorkflowInterrupt } from "#core/workflow-interrupt-state.js";
 import {
   encodeMessageStreamEvent,
   type HandleMessageStreamEvent,
   timestampHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
 export interface CancelledTurnSettleResult {

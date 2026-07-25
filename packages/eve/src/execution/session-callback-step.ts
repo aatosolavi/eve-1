@@ -2,8 +2,8 @@ import type { SessionCallback } from "#channel/types.js";
 import { parseSessionCallback } from "#channel/session-callback.js";
 import { SessionCallbackKey } from "#context/keys.js";
 import { createLogger } from "#internal/logging.js";
-import { toErrorMessage } from "#shared/errors.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 const SESSION_CALLBACK_TIMEOUT_MS = 30_000;
 const log = createLogger("execution.session-callback");

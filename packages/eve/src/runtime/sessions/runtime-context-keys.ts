@@ -5,7 +5,7 @@
 
 import type { ChannelAdapter } from "#channel/adapter.js";
 import { getAdapterKind } from "#channel/adapter.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import { deserializeRuntimeAdapter } from "#runtime/channels/registry.js";
 import {
   type DurableCompiledArtifactsSource,

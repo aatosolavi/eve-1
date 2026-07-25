@@ -25,7 +25,7 @@ import {
   TurnDynamicToolMetadataKey,
 } from "#context/keys.js";
 import type { ResolvedDynamicToolResolver } from "#runtime/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 // Re-implement the naming logic here to test it independently
 // (the production function is unexported — testing via the public behavior)

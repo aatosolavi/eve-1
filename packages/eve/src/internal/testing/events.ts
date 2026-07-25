@@ -1,5 +1,5 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { isCurrentTurnBoundaryEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import { isCurrentTurnBoundaryEvent } from "#core/protocol/message.js";
 
 /**
  * Minimal, duck-typed handle to one workflow `Run`'s readable stream.

@@ -7,7 +7,7 @@ import { createGenerate } from "#harness/generate.js";
 import type { HandleEventFn, HarnessToolMap, GenerateFn } from "#harness/types.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { createLogger } from "#internal/logging.js";
-import type { RuntimeIdentity } from "#protocol/message.js";
+import type { RuntimeIdentity } from "#core/protocol/message.js";
 import type { EveAttributeWriter } from "#runtime/attributes/normalize.js";
 import { UNSPECIFIED_INPUT_SCHEMA, toInputSchema, toOutputSchema } from "#shared/tool-schema.js";
 import type { RunMode } from "#shared/run-mode.js";

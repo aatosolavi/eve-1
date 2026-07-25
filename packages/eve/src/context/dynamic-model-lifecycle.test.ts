@@ -14,7 +14,7 @@ import {
   createSessionStartedEvent,
   createStepStartedEvent,
   createTurnStartedEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import type { RuntimeDynamicModelReference } from "#runtime/agent/bootstrap.js";
 
 const DYNAMIC_MODEL_SOURCE: RuntimeDynamicModelReference = {

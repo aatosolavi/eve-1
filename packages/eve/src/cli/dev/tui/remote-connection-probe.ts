@@ -4,8 +4,8 @@ import {
   isVercelAuthChallenge,
   vercelTrustedSourcesErrorCode,
 } from "#services/dev-client/vercel-auth-error.js";
-import { toErrorMessage } from "#shared/errors.js";
-import { isObject } from "#shared/guards.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import { isObject } from "#core/shared/guards.js";
 
 import { probeAgentInfo } from "./agent-info-probe.js";
 import type { RemoteConnectionState } from "./remote-connection-types.js";

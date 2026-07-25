@@ -2,7 +2,7 @@ import type { StandardJSONSchemaV1 } from "#compiled/@standard-schema/spec/index
 import type { HeadersValue } from "#client/types.js";
 import type { OutboundAuthFn } from "#public/agents/auth.js";
 import { EVE_CREATE_SESSION_ROUTE_PATH } from "#protocol/routes.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Base URL of a remote eve deployment, either a static string or a function

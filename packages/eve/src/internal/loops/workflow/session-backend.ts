@@ -27,7 +27,7 @@ import {
   type SessionDeliveryHookHandle,
 } from "#execution/session-delivery-hook.js";
 import { dispatchAndAwaitTurn } from "#execution/turn-dispatch.js";
-import { coalesceDeliveries } from "#harness/messages.js";
+import { coalesceDeliveries } from "#core/messages.js";
 
 /** Workflow adapter for the shared session program. */
 export class WorkflowSessionBackend implements SessionBackend {

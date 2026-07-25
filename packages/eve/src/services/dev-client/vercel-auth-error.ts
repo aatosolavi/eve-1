@@ -16,7 +16,7 @@
 
 import { ClientError } from "#client/client-error.js";
 import type { DevelopmentOidcTokenFailure } from "#services/dev-client/request-headers.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * Substrings that uniquely identify the Vercel Deployment Protection

@@ -5,7 +5,7 @@
  * Discord's raw interaction payloads as the primary public API.
  */
 
-import { isNonEmptyString, isObject } from "#shared/guards.js";
+import { isNonEmptyString, isObject } from "#core/shared/guards.js";
 
 /** Maps the Discord interaction kinds the channel handles to their wire `type` integers. */
 export const DISCORD_INTERACTION_TYPE = {

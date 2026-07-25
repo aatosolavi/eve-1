@@ -27,7 +27,7 @@ import { createRuntimeSandboxTemplateKey } from "#runtime/sandbox/keys.js";
 import type { RuntimeRegisteredSandbox } from "#runtime/sandbox/registry.js";
 import { createRuntimeSandboxTemplatePlan } from "#runtime/sandbox/template-plan.js";
 import { materializeWorkspaceDirectory } from "#runtime/workspace/seed-files.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { withSandboxTemplatePrewarmLock } from "./template-prewarm-lock.js";
 
 interface PrewarmTarget {

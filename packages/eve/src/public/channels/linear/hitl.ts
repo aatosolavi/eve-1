@@ -1,6 +1,6 @@
-import { resolveTextToResponses } from "#channel/resolve-text.js";
+import { resolveTextToResponses } from "#core/input/resolve-text.js";
 import type { LinearAgentActivityRecord } from "#public/channels/linear/api.js";
-import type { InputOption, InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { InputOption, InputRequest, InputResponse } from "#core/input/types.js";
 
 /** Hidden marker embedded in eve-created Linear elicitation bodies. */
 export const LINEAR_HITL_MARKER_PREFIX = "<!-- eve-input:";

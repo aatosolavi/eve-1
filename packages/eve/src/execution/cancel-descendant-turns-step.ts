@@ -8,12 +8,12 @@ import {
   resolveRemoteAgentForAction,
 } from "#execution/remote-agent-dispatch.js";
 import { requestWorkflowTurnCancellation } from "#internal/loops/workflow/runtime.js";
-import { getPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
+import { getPendingRuntimeActionBatch } from "#core/runtime-actions.js";
 import { createLogger, logError } from "#internal/logging.js";
 import type {
   RuntimeRemoteAgentCallActionRequest,
   RuntimeSubagentCallActionRequest,
-} from "#runtime/actions/types.js";
+} from "#core/actions/types.js";
 import type { RuntimeSubagentRegistry } from "#runtime/subagents/registry.js";
 
 const CANCEL_ATTEMPTS = 12;

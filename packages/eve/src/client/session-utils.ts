@@ -1,7 +1,10 @@
-import type { HandleMessageStreamEvent, MessageCompletedStreamEvent } from "#protocol/message.js";
-import { isCurrentTurnBoundaryEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  MessageCompletedStreamEvent,
+} from "#core/protocol/message.js";
+import { isCurrentTurnBoundaryEvent } from "#core/protocol/message.js";
 import type { SessionState } from "#client/types.js";
-import type { InputRequest } from "#runtime/input/types.js";
+import type { InputRequest } from "#core/input/types.js";
 
 /**
  * Returns a fresh session state with no active run.

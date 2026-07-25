@@ -1,8 +1,8 @@
 import { Client } from "#client/client.js";
 import type { EveAgentReducer, EveAgentReducerEvent } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { toError } from "#shared/errors.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import { toError } from "#core/shared/errors.js";
 import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
 import type { UserContent } from "ai";
 

@@ -9,7 +9,7 @@ import {
   TEAMS_HITL_FREEFORM_INPUT_ID,
 } from "#public/channels/teams/hitl.js";
 import { parseTeamsActivity } from "#public/channels/teams/inbound.js";
-import type { InputRequest } from "#runtime/input/types.js";
+import type { InputRequest } from "#core/input/types.js";
 
 describe("Teams HITL helpers", () => {
   it("renders approval tool input in the card and fallback text", () => {

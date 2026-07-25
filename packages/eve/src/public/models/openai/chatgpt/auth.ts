@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { decodeJwt } from "#compiled/jose/index.js";
 import { z } from "#compiled/zod/index.js";
-import { toErrorMessage } from "#shared/errors.js";
-import { isObject } from "#shared/guards.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import { isObject } from "#core/shared/guards.js";
 
 export type CodexAuthMode = "api-key" | "chatgpt";
 

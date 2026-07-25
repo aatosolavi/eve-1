@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRuntimeHookRegistry } from "#runtime/hooks/registry.js";
 import type { ResolvedHookDefinition } from "#runtime/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { ContextContainer, contextStorage } from "./container.js";
 import { dispatchStreamEventHooks } from "./hook-lifecycle.js";
 import {

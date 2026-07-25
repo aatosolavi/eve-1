@@ -1,5 +1,5 @@
 import type { ApplyModelOutcome } from "#setup/flows/model-source-change.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 import type {
   PromptCommandHandler,

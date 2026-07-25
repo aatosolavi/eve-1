@@ -1,4 +1,4 @@
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import { classifyModelRouting } from "#internal/classify-model-routing.js";
 import {
   type CompiledAgentDefinition,

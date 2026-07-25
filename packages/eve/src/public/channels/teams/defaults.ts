@@ -1,7 +1,7 @@
 import type { SessionAuthContext } from "#channel/types.js";
 
 import { extractErrorId, formatErrorHint } from "#internal/logging.js";
-import type { ConnectionAuthorizationOutcome } from "#protocol/message.js";
+import type { ConnectionAuthorizationOutcome } from "#core/protocol/message.js";
 import { splitTeamsMessageText, type TeamsMention } from "#public/channels/teams/api.js";
 import {
   renderAnsweredInputRequestMessage,
@@ -13,7 +13,7 @@ import type {
   TeamsContext,
   TeamsInboundResult,
 } from "#public/channels/teams/teamsChannel.js";
-import { parseJsonObject } from "#shared/json.js";
+import { parseJsonObject } from "#core/shared/json.js";
 
 /** Default auth projection for Teams message actors. */
 export function defaultTeamsAuth(

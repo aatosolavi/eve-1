@@ -10,7 +10,7 @@ import { turnWorkflow } from "#internal/loops/workflow/turn-workflow.js";
 import {
   TURN_WORKFLOW_INPUT_VERSION,
   type TurnWorkflowInput,
-} from "#execution/durable-session-migrations/turn-workflow.js";
+} from "#core/durable-session-migrations/turn-workflow.js";
 import { routeDeliverToChildren } from "#execution/route-child-delivery.js";
 import { turnStep } from "#internal/loops/workflow/steps.js";
 

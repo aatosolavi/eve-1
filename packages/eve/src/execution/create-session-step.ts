@@ -10,7 +10,7 @@ import {
 import { createSession } from "#execution/session.js";
 import { resolveInheritedTokenLimit } from "#execution/run-session-limits.js";
 import type { RunSessionLimits } from "#channel/types.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * Result returned by {@link createSessionStep}.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CHANNEL_SENTINEL, type CompiledChannel } from "#channel/compiled-channel.js";
 import { isCompiledChannel } from "#channel/compiled-channel.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   SCHEDULE_ADAPTER,
   SCHEDULE_ADAPTER_KIND,

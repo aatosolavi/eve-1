@@ -1,15 +1,15 @@
 import type { UserContent } from "ai";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { CancelTurnStatus } from "#protocol/cancel-turn.js";
 import type { RunMode } from "#shared/run-mode.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
 import type { ChannelAdapter } from "#channel/adapter.js";
 import type { AgentLimitsDefinition } from "#shared/agent-definition.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
-export type { ContextAccessor } from "#context/key.js";
+export type { ContextAccessor } from "#core/context/key.js";
 export type { ChannelInstrumentationProjection } from "#channel/instrumentation.js";
 
 import type { ChannelInstrumentationProjection } from "#channel/instrumentation.js";

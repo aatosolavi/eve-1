@@ -3,7 +3,7 @@ import type { ModelMessage } from "ai";
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import type { ApprovalContext } from "#public/definitions/approval.js";
 import type { DynamicToolEntry } from "#shared/dynamic-tool-definition.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import {
   ALLOWED_DYNAMIC_TOOL_EVENTS,
   isBrandedToolEntry,
@@ -16,9 +16,9 @@ import {
   toInputSchema,
   toOutputSchema,
 } from "#shared/tool-schema.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { ContextContainer } from "#context/container.js";
-import type { ContextKey } from "#context/key.js";
+import type { ContextKey } from "#core/context/key.js";
 import {
   SessionDynamicToolMetadataKey,
   TurnDynamicToolMetadataKey,

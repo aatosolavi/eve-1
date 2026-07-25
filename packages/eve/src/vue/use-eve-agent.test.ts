@@ -4,14 +4,14 @@ import { effectScope } from "vue";
 import { EveAgentStore, type EveAgentStoreSnapshot } from "#client/eve-agent-store.js";
 import { useEveAgent } from "#vue/use-eve-agent.js";
 import type { EveMessageData } from "#client/message-reducer.js";
-import { EVE_SESSION_ID_HEADER } from "#protocol/message.js";
+import { EVE_SESSION_ID_HEADER } from "#core/protocol/message.js";
 import {
   createMessageCompletedEvent,
   createMessageReceivedEvent,
   createSessionFailedEvent,
   createSessionWaitingEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { defaultMessageReducer } from "#client/message-reducer.js";
 import type { SessionState } from "#client/types.js";
 

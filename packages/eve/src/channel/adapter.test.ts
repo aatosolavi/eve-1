@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelAdapter, ChannelAdapterContext, FetchFileResult } from "#channel/adapter.js";
 import { callAdapterEventHandler, defaultDeliverResult, getAdapterKind } from "#channel/adapter.js";
-import { createSessionWaitingEvent } from "#protocol/message.js";
+import { createSessionWaitingEvent } from "#core/protocol/message.js";
 
 describe("ChannelAdapter (fetchFile field)", () => {
   it("treats the fetchFile field as optional", () => {

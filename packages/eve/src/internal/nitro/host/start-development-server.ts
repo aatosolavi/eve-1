@@ -16,7 +16,7 @@ import {
 } from "#protocol/routes.js";
 import { resolveDiscoveryProject } from "#discover/project.js";
 import { DevelopmentServerState } from "#internal/nitro/host/dev-server-state.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { isEveServerHealthy } from "#shared/eve-server-health.js";
 import { isLoopbackServerUrl } from "#shared/network-address.js";
 import { handleDevRuntimeArtifactsRequest } from "#internal/nitro/routes/dev-runtime-artifacts.js";

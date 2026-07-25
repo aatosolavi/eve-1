@@ -5,7 +5,7 @@ import type { RunInput } from "#channel/types.js";
 import { ROOT_COMPILED_AGENT_NODE_ID } from "#compiler/manifest.js";
 import { createTestRuntime } from "#internal/testing/app-harness.js";
 import { mockTool } from "#internal/testing/mocks/mock-tool.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { createBundledRuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { createTemporalLoopRuntime } from "./runtime.js";
 

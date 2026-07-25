@@ -1,5 +1,5 @@
 import { getAdapterKind } from "#channel/adapter.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { HookContext } from "#public/definitions/hook.js";
 import type { RuntimeHookRegistry } from "#runtime/hooks/registry.js";
 import { buildCallbackContext } from "#context/build-callback-context.js";

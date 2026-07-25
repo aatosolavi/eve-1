@@ -25,7 +25,7 @@ import type {
   ConnectionToolExecuteOptions,
   ConnectionToolMetadata,
 } from "#runtime/connections/types.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 import { toInputSchema, type ToolSchema } from "#shared/tool-schema.js";
 import { isLoopbackHostname } from "#shared/network-address.js";
 

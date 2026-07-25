@@ -11,8 +11,8 @@
  */
 import { type Logger, formatError } from "#internal/logging.js";
 import type { InstrumentationChannelKind } from "#public/channels/index.js";
-import { isPlainRecord, isThenable } from "#shared/guards.js";
-import { parseJsonObject } from "#shared/json.js";
+import { isPlainRecord, isThenable } from "#core/shared/guards.js";
+import { parseJsonObject } from "#core/shared/json.js";
 
 /**
  * Framework-owned channel kinds that are not derived from a route file

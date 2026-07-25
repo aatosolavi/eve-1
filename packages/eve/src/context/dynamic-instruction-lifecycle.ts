@@ -5,12 +5,12 @@ import {
   isBrandedInstructionsEntry,
 } from "#shared/dynamic-tool-definition.js";
 import type { InstructionsDefinition } from "#public/definitions/instructions.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { ResolvedDynamicInstructionsResolver } from "#runtime/types.js";
 import { createLogger } from "#internal/logging.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { ContextContainer } from "#context/container.js";
-import type { ContextKey } from "#context/key.js";
+import type { ContextKey } from "#core/context/key.js";
 import { SessionDynamicInstructionsKey, TurnDynamicInstructionsKey } from "#context/keys.js";
 import { buildResolveContext } from "#context/dynamic-resolve-context.js";
 

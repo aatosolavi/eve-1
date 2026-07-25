@@ -33,7 +33,7 @@ import { buildRunContext } from "#execution/runtime-context.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";
 import { InMemoryLoopEventLog } from "#internal/loops/event-log.js";
-import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
+import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { serializeDurableCompiledArtifactsSource } from "#runtime/durable-compiled-artifacts-source.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";

@@ -10,7 +10,7 @@ import { AuthKey, ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
 import { emitProxiedSubagentEvent } from "#execution/subagent-event-proxy-step.js";
 import { projectToDurableSession } from "#execution/session.js";
 import type { HarnessSession } from "#harness/types.js";
-import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
+import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 import { deserializeRuntimeAdapter } from "#runtime/channels/registry.js";
 import { createEmptyHookRegistry } from "#runtime/hooks/registry.js";
 import {

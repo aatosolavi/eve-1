@@ -5,7 +5,7 @@ import {
   resolveLinearWebhookSecret,
   type LinearWebhookSecret,
 } from "#public/channels/linear/auth.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 const log = createLogger("linear.verify");
 

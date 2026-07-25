@@ -6,9 +6,9 @@ import {
   readDurableSession,
 } from "#execution/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
-import { getPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state.js";
-import { setPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
-import { buildRuntimeActionsFromWorkflowInterrupt } from "#harness/workflow-runtime-action-state.js";
+import { getPendingWorkflowInterrupt } from "#core/workflow-interrupt-state.js";
+import { setPendingRuntimeActionBatch } from "#core/runtime-actions.js";
+import { buildRuntimeActionsFromWorkflowInterrupt } from "#core/workflow-runtime-action-state.js";
 import {
   planWorkflowSubagentDispatch,
   type WorkflowSubagentDispatchPlan,
@@ -19,7 +19,7 @@ import { BundleKey } from "#runtime/sessions/runtime-context-keys.js";
 import type {
   RuntimeActionRequest,
   RuntimeSubagentResultActionResult,
-} from "#runtime/actions/types.js";
+} from "#core/actions/types.js";
 
 const log = createLogger("execution.dispatch-workflow-runtime-actions");
 

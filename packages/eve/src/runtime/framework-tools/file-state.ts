@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
 import { type AlsContext, loadContext } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 
 // ---------------------------------------------------------------------------
 // Read-file stamp — tracks the last-known content of a file for stale-write

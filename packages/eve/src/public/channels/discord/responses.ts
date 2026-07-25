@@ -2,8 +2,8 @@ import {
   DISCORD_EPHEMERAL_MESSAGE_FLAG,
   DISCORD_INTERACTION_RESPONSE_TYPE,
 } from "#public/channels/discord/inbound.js";
-import { isNonEmptyString, isObject } from "#shared/guards.js";
-import { parseJsonObject } from "#shared/json.js";
+import { isNonEmptyString, isObject } from "#core/shared/guards.js";
+import { parseJsonObject } from "#core/shared/json.js";
 
 /** Builds the Discord acknowledgement response for deferred command handling. */
 export function discordDeferredJson(ephemeral: boolean): Response {

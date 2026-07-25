@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 
-import { isErrnoCode } from "#shared/guards.js";
+import { isErrnoCode } from "#core/shared/guards.js";
 
 /**
  * Returns `true` when `path` exists, `false` when it does not, and

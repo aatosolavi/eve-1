@@ -1,7 +1,7 @@
 import type {
   AuthorizationCompletedStreamEvent,
   AuthorizationRequiredStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import type { EveAuthorizationPart } from "#client/message-reducer-types.js";
 
 export function createAuthorizationRequiredPart(

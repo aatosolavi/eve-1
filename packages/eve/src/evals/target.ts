@@ -3,7 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Client } from "#client/client.js";
 import type { AgentInfoResult } from "#client/types.js";
 import { createEveDevDispatchSchedulePath } from "#protocol/routes.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { stripNpmPackageScope } from "#shared/package-name.js";
 import { EvalSessionManager } from "#evals/session.js";
 import type {

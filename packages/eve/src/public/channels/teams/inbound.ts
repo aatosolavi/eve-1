@@ -12,8 +12,8 @@ import type {
   TeamsChannelAccount,
   TeamsMention,
 } from "#public/channels/teams/api.js";
-import { isNonEmptyString, isObject } from "#shared/guards.js";
-import { parseJsonObject } from "#shared/json.js";
+import { isNonEmptyString, isObject } from "#core/shared/guards.js";
+import { parseJsonObject } from "#core/shared/json.js";
 
 /**
  * Normalized Teams conversation scope inferred from the inbound activity's

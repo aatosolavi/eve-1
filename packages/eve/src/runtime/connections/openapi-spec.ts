@@ -1,6 +1,6 @@
 import { parseFrontmatter } from "#internal/helpers/gray-matter.js";
 import { isArray } from "#runtime/connections/openapi-schema.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * Parses a fetched spec body as either JSON or YAML.

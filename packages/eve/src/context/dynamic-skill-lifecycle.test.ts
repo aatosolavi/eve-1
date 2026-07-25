@@ -7,7 +7,7 @@ import {
 } from "#context/dynamic-skill-lifecycle.js";
 import { DynamicSkillManifestKey, SessionIdKey, SandboxKey } from "#context/keys.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { defineSkill } from "#public/definitions/skill.js";
 import { BundleKey, type CompiledBundle } from "#runtime/sessions/runtime-context-keys.js";
 import type { ResolvedDynamicSkillResolver } from "#runtime/types.js";

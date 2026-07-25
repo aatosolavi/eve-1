@@ -78,13 +78,13 @@ import type {
   TerminalPartDisplayMode,
 } from "./types.js";
 import type { AgentInfoResult } from "#client/index.js";
-import { summarizeKnownError } from "#harness/semantic-errors/index.js";
+import { summarizeKnownError } from "#core/semantic-errors/index.js";
 import { inspectError, type LogRecord } from "#internal/logging.js";
 import {
   parseDevRebuildLogLine,
   type DevRebuildLogUpdate,
 } from "#internal/nitro/host/dev-watcher-log.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import {
   type Block,
   type DisplayBlock,

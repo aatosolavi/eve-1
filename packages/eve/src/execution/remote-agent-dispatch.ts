@@ -1,11 +1,11 @@
-import { EVE_SESSION_ID_HEADER } from "#protocol/message.js";
+import { EVE_SESSION_ID_HEADER } from "#core/protocol/message.js";
 import { CancelTurnResponseSchema } from "#protocol/cancel-turn.js";
 import { createEveCallbackRoutePath, createEveCancelTurnRoutePath } from "#protocol/routes.js";
 import type { CancelTurnResult } from "#channel/types.js";
 import { createWorkflowCallbackUrl } from "#execution/workflow-callback-url.js";
 import { formatSubagentInput } from "#execution/subagent-invocation.js";
 import type { HarnessSession } from "#harness/types.js";
-import type { RuntimeRemoteAgentCallActionRequest } from "#runtime/actions/types.js";
+import type { RuntimeRemoteAgentCallActionRequest } from "#core/actions/types.js";
 import type { RuntimeSubagentRegistry } from "#runtime/subagents/registry.js";
 import type { ResolvedRuntimeRemoteAgentNode } from "#runtime/types.js";
 

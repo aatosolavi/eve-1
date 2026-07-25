@@ -4,7 +4,7 @@ import {
   normalizeSkillDefinition,
   normalizeInstructionsDefinition,
 } from "#internal/authored-definition/core.js";
-import { isObject } from "#shared/guards.js";
+import { isObject } from "#core/shared/guards.js";
 import { defineSchedule, type ScheduleDefinition } from "#public/definitions/schedule.js";
 import { defineSkill, type SkillDefinition } from "#public/definitions/skill.js";
 import type { InstructionsDefinition } from "#public/definitions/instructions.js";

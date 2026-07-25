@@ -4,7 +4,7 @@ import { readDurableSession, type DurableSessionState } from "#execution/durable
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
-import type { TimedHandleMessageStreamEvent } from "#protocol/message.js";
+import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { serializeDurableCompiledArtifactsSource } from "#runtime/durable-compiled-artifacts-source.js";
 import type { TemporalLoopActivities, TemporalLoopTurnStepInput } from "./contracts.js";

@@ -1,6 +1,6 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { InputRequest } from "#runtime/input/types.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import type { InputRequest } from "#core/input/types.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 import type { EveEvalDerivedFacts, EveEvalSubagentCall, EveEvalToolCall } from "#evals/types.js";
 
 interface MutableToolCall {

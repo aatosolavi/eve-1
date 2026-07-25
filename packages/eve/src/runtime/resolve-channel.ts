@@ -8,7 +8,7 @@ import {
   type RouteDefinition,
 } from "#channel/routes.js";
 import { normalizeChannelDefinition } from "#internal/authored-definition/channel.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import {
   createResolvedModuleSourceRef,
   loadResolvedModuleExport,

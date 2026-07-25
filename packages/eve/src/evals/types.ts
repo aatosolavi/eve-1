@@ -1,10 +1,10 @@
 import type { LanguageModel } from "ai";
 
 import type { StandardSchemaV1 } from "#compiled/@standard-schema/spec/index.js";
-import type { HandleMessageStreamEvent, RuntimeIdentity } from "#protocol/message.js";
+import type { HandleMessageStreamEvent, RuntimeIdentity } from "#core/protocol/message.js";
 import type { CancelSessionResult, SendTurnInput, SessionState } from "#client/types.js";
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 import type { AgentModelOptionsDefinition } from "#shared/agent-definition.js";
 import type { EvalReporter } from "#evals/runner/reporters/types.js";
 import type {

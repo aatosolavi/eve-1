@@ -1,7 +1,7 @@
 import type { TextPart, UserContent } from "ai";
 
-import { isObject } from "#shared/guards.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 import type {
   GitHubAppRef,
   GitHubCheckRunWebhookEvent,

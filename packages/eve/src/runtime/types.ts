@@ -3,7 +3,7 @@ import type { CompiledChannel } from "#channel/compiled-channel.js";
 import type { NormalizedChannelCorsOptions } from "#channel/cors.js";
 import type { HeadersValue } from "#client/types.js";
 import type { DiscoverDiagnosticsSummary } from "#discover/diagnostics.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { ChannelRouteMethod, RouteContext } from "#public/definitions/channel.js";
 import type { RouteHandler, WebSocketRouteHandler } from "#channel/routes.js";
 import type { OutboundAuthFn } from "#public/agents/auth.js";
@@ -20,7 +20,7 @@ import type {
 import type { OpenAPISpecSource } from "#public/definitions/connections/openapi.js";
 import type { CompiledWorkspaceResourceRoot } from "#compiler/manifest.js";
 import type { WorkspaceRuntimeSpec } from "#runtime/workspace/types.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 import type { Optional } from "#shared/optional.js";
 import type { Node } from "#shared/node.js";
 import type {

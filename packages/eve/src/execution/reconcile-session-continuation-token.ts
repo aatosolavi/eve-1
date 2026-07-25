@@ -1,4 +1,4 @@
-import type { ContextAccessor } from "#context/key.js";
+import type { ContextAccessor } from "#core/context/key.js";
 import { ContinuationTokenKey } from "#context/keys.js";
 import type { HarnessSession } from "#harness/types.js";
 

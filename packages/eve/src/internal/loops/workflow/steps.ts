@@ -4,7 +4,7 @@ import {
   createTurnWorkflowInput,
   type TurnStepInput,
   type TurnWorkflowDispatchInput,
-} from "#execution/durable-session-migrations/turn-workflow.js";
+} from "#core/durable-session-migrations/turn-workflow.js";
 import { routeDeliverPayload } from "#execution/subagent-hitl-proxy.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";

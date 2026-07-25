@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { z } from "#compiled/zod/index.js";
 
 import { loadContext } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
+import { ContextKey } from "#core/context/key.js";
 import { TODO_COMPACTION_PRESERVATION_LABEL } from "#harness/compaction-prompt.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
 

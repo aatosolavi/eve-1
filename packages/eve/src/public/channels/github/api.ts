@@ -10,8 +10,8 @@ import {
   type GitHubAuthApiOptions,
   type GitHubChannelCredentials,
 } from "#public/channels/github/auth.js";
-import { isObject } from "#shared/guards.js";
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 
 /** JSON object accepted by GitHub helper calls. */
 export type GitHubJsonObject = JsonObject;

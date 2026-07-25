@@ -5,8 +5,8 @@
  * exposing a third-party SDK through eve public surfaces.
  */
 
-import { parseJsonObject, type JsonObject } from "#shared/json.js";
-import { isObject } from "#shared/guards.js";
+import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
+import { isObject } from "#core/shared/guards.js";
 import { parseTelegramChatType, type TelegramChatType } from "#public/channels/telegram/inbound.js";
 
 /** Telegram bot token, materialized directly or from an async secret provider. */

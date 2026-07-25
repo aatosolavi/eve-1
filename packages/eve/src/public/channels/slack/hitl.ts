@@ -19,7 +19,7 @@ import {
   truncatePlainText,
   truncateSectionText,
 } from "#public/channels/slack/limits.js";
-import type { InputRequest } from "#runtime/input/types.js";
+import type { InputRequest } from "#core/input/types.js";
 
 /**
  * Wire-format prefix every framework HITL widget mints onto its

@@ -1,5 +1,5 @@
 import { loadContext } from "#context/container.js";
-import type { ContextKey } from "#context/key.js";
+import type { ContextKey } from "#core/context/key.js";
 
 // Re-export so the public barrel can pull everything from one place.
 export type {

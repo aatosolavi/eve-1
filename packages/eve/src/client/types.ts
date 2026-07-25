@@ -1,10 +1,10 @@
 import type { UserContent } from "ai";
 import type { StandardJSONSchemaV1 } from "#compiled/@standard-schema/spec/index.js";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { CancelTurnStatus } from "#protocol/cancel-turn.js";
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
-import type { JsonObject } from "#shared/json.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 export type {
   AgentInfoChannelEntry,

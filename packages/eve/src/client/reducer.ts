@@ -1,5 +1,5 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import type { InputResponse } from "#runtime/input/types.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import type { InputResponse } from "#core/input/types.js";
 
 /**
  * Client-side reducer event emitted before eve confirms a submitted user

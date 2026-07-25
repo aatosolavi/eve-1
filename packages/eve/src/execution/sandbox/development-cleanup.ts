@@ -20,7 +20,7 @@ import {
   EVE_DEVELOPMENT_SANDBOX_METADATA_PATH_TAG,
   EVE_DEVELOPMENT_SANDBOX_RUN_ID_TAG,
 } from "#execution/sandbox/development-run.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 export async function stopDevelopmentSandboxResources(input: {
   readonly appRoot: string;

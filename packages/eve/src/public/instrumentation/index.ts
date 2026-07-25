@@ -8,7 +8,7 @@ import type { ModelMessage, SystemModelMessage } from "ai";
 
 import type { SessionAuthContext, SessionParent } from "#channel/types.js";
 import type { InstrumentationChannel } from "#public/channels/index.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 // Re-export channel metadata types so existing `eve/instrumentation`
 // imports continue to work. The canonical home is `eve/channels`.
