@@ -162,11 +162,17 @@ only genuinely new wake, so v1 has none.
 ## Caller side: the consumer run
 
 ```
-CALLER   POST /eve/v1/callback/:token {status:"notification", event}
-           └─► resumeHook(<sessionId>:events)
-                 └─► [queue] ──wake──► consumer run (no session hydration)
-                       ├─► existing adapter event handler ──► e.g. Slack API
-                       └─► append subagent.event ──► durable stream ──► followers
+ callee              callback route          consumer (sidecar run)
+   │                       │                         │
+   │ POST …/:token:events  │                         │
+   │ {status:notification} │                         │
+   │──────────────────────▶│                         │
+   │                       │ resumeHook(:events)     │
+   │                       │────────────────────────▶│  ◀── queue wake
+   │             202 ◀─────│                         │
+   │                       │                         │──▶ adapter event handler   → Slack API
+   │                       │                         │──▶ append subagent.event   → durable stream → followers
+   │                       │                         │
 ```
 
 The consumer is a **sidecar run**: an auxiliary workflow run deployed 1:1
@@ -227,10 +233,13 @@ the replay-cost firewall between event consumption and session history.
 ## Callee side: deferred direct forwarding
 
 ```
-CALLEE   turn step (compute already awake)
-           emit(authorization.required)
-             ├─► write own durable stream
-             └─► waitUntil(fetch(caller callback URL))   ← fire, don't await
+ callee turn step        own durable stream       caller callback URL
+       │                        │                        │
+       │ emit(authorization.required)                    │
+       │───────────────────────▶│                        │
+       │ waitUntil(fetch(…))     │                        │
+       │────────────────────────┼───────────────────────▶│  ◀── fire, don't await
+       │ (turn step continues)   │                        │
 ```
 
 No consumer run, no new wake. The POST just moves off the emitting step's
