@@ -24,6 +24,10 @@ describe("core boundary structure", () => {
         if (found.startsWith("#core/")) {
           continue;
         }
+        // Relative imports stay inside core when they resolve under it.
+        if (found.startsWith(".") && resolve(dirname(file), found).startsWith(CORE_ROOT + sep)) {
+          continue;
+        }
         violations.push(`${relative(SOURCE_ROOT, file).split(sep).join("/")} -> ${found}`);
       }
     }

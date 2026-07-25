@@ -46,6 +46,7 @@ import type {
 import { createWorkflowLifecycle } from "#harness/workflow-lifecycle.js";
 import { resolveInstalledPackageInfo } from "#internal/application/package.js";
 import { resolveProviderHeaders } from "#internal/gateway.js";
+import { isInlineAuthorizationToolResult } from "#harness/inline-tool-authorization.js";
 import { createLogger, logError } from "#internal/logging.js";
 import type { InstrumentationDefinition } from "#public/instrumentation/index.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
@@ -461,6 +462,7 @@ export function createModelCallRunner(input: ModelCallRunnerInput): ModelCallRun
           trailingInlineToolResultParts,
         } = await emitStreamContent(emit, emissionState, streamResult.fullStream, {
           excludedActionToolNames,
+          isAuthorizationToolResult: isInlineAuthorizationToolResult,
           tools: config.tools,
         });
         throwIfTurnAborted(config.abortSignal);

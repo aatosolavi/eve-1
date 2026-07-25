@@ -5,8 +5,8 @@ import {
   recordPendingSubagentChild,
   resolvePendingRuntimeActions,
   setPendingRuntimeActionBatch,
-} from "#harness/runtime-actions.js";
-import { getSessionTokenUsage, setTurnUsageState } from "#harness/turn-tag-state.js";
+} from "#core/runtime-actions.js";
+import { getSessionTokenUsage, setTurnUsageState } from "#core/turn-tag-state.js";
 import type { HarnessSession } from "#harness/types.js";
 
 function createParkedSession(): HarnessSession {

@@ -4,7 +4,7 @@ import {
   isTurnCancellation,
   throwIfTurnAborted,
   TurnCancelledError,
-} from "#harness/turn-cancellation.js";
+} from "#core/turn-cancellation.js";
 
 describe("TurnCancelledError", () => {
   it("carries the stable name and a default message", () => {

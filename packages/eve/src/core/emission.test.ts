@@ -6,10 +6,10 @@ import {
   getHarnessEmissionState,
   type HarnessEmissionState,
   setHarnessEmissionState,
-} from "#harness/emission.js";
+} from "#core/emission.js";
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import type { HandleEventFn, HarnessSession } from "#harness/types.js";
-import { EMPTY_DELIVERY_SENTINEL } from "#shared/empty-delivery.js";
+import { EMPTY_DELIVERY_SENTINEL } from "#core/shared/empty-delivery.js";
 
 async function* streamOf(parts: TextStreamPart<ToolSet>[]): AsyncIterable<TextStreamPart<ToolSet>> {
   for (const part of parts) {

@@ -1,5 +1,5 @@
-import { walkCauseChain } from "#shared/errors.js";
-import { isObject } from "#shared/guards.js";
+import { walkCauseChain } from "#core/shared/errors.js";
+import { isObject } from "#core/shared/guards.js";
 
 /**
  * The structural facts extracted from one throwable on a cause chain.

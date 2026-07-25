@@ -8,7 +8,7 @@ import {
   getSessionTokenUsage,
   getTurnUsageState,
   setTurnUsageState,
-} from "#harness/turn-tag-state.js";
+} from "#core/turn-tag-state.js";
 import type { HarnessSession } from "#harness/types.js";
 
 const ZERO_SESSION_USAGE = {

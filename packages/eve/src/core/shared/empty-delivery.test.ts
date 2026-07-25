@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_DELIVERY_SENTINEL, hasEmptyDeliverySentinel } from "#shared/empty-delivery.js";
+import { EMPTY_DELIVERY_SENTINEL, hasEmptyDeliverySentinel } from "#core/shared/empty-delivery.js";
 
 describe("hasEmptyDeliverySentinel", () => {
   it("recognizes the exact sentinel", () => {

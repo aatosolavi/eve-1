@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ContextKey, resolveKey } from "#context/key.js";
+import { ContextKey, resolveKey } from "#core/context/key.js";
 
 describe("ContextKey", () => {
   it("registers in the global key registry", () => {

@@ -10,7 +10,7 @@ import type { ConnectionAuthorizationChallenge } from "#public/connections/error
 import type { RuntimeActionRequest, RuntimeActionResult } from "#runtime/actions/types.js";
 import type { InputRequest, InputResponse } from "#runtime/input/types.js";
 import { toChannelLocalContinuationToken } from "#core/shared/continuation-token.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 
 export const EVE_SESSION_ID_HEADER = "x-eve-session-id";
 export const EVE_STREAM_FORMAT_HEADER = "x-eve-stream-format";

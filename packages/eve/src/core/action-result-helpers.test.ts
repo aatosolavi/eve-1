@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createRuntimeToolResultFromToolError,
   createRuntimeToolResultFromValue,
-} from "#harness/action-result-helpers.js";
+} from "#core/action-result-helpers.js";
 
 describe("createRuntimeToolResultFromValue", () => {
   it("rejects non-JSON-serializable successful action results", () => {

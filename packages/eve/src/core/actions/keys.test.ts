@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getRuntimeActionRequestKey, getRuntimeActionResultKey } from "#runtime/actions/keys.js";
+import { getRuntimeActionRequestKey, getRuntimeActionResultKey } from "#core/actions/keys.js";
 
 describe("runtime action keys", () => {
   it("pairs load-skill requests and results", () => {

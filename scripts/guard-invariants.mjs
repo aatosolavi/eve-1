@@ -107,7 +107,7 @@
  * may only shrink (as offenders are removed) — they may never grow.
  */
 import { readFile, readdir, lstat } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 import { checkExtensionCapabilityContracts } from "./extension-capability-contracts.mjs";
@@ -353,8 +353,8 @@ const MODULE_SPECIFIER_RE = /\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"'
  * @param {string[]} lines
  * @param {Violation[]} violations
  */
-function checkRule37(posix, lines, violations) {
-  if (!posix.startsWith(CORE_SOURCE_PREFIX) || posix.includes(".test.")) return;
+function checkRule37(posixPath, lines, violations) {
+  if (!posixPath.startsWith(CORE_SOURCE_PREFIX) || posixPath.includes(".test.")) return;
 
   // Type-only imports are erased at runtime and cannot smuggle engine or
   // SDK behavior into the core; only value imports cross the boundary. The
@@ -371,12 +371,19 @@ function checkRule37(posix, lines, violations) {
     }
     const typeOnly = inTypeImport;
     inTypeImport = false;
-    if (typeOnly || specifier.startsWith("#core/") || specifier.startsWith("./")) {
+    if (typeOnly || specifier.startsWith("#core/")) {
       return;
+    }
+    // Relative imports stay inside core as long as they resolve under it.
+    if (specifier.startsWith(".")) {
+      const resolved = posix.join(posix.dirname(posix.normalize(posixPath)), specifier);
+      if (resolved.startsWith(CORE_SOURCE_PREFIX)) {
+        return;
+      }
     }
     violations.push({
       rule: 37,
-      file: posix,
+      file: posixPath,
       line: idx + 1,
       message: `value-imports "${specifier}" from the loop core. Move the implementation into core, make the import type-only, or inject the value through the flow's ports.`,
     });

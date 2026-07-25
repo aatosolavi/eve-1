@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseJsonObject, parseJsonValue } from "#shared/json.js";
+import { parseJsonObject, parseJsonValue } from "#core/shared/json.js";
 import { jsonObjectSchema, jsonValueSchema } from "#shared/json-schemas.js";
 
 describe("parseJsonValue", () => {

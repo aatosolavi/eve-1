@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createOrderedStreamEmitter } from "#harness/ordered-stream-emitter.js";
+import { createOrderedStreamEmitter } from "#core/ordered-stream-emitter.js";
 import {
   createMessageAppendedEvent,
   createMessageCompletedEvent,
   createReasoningAppendedEvent,
-} from "#protocol/message.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+} from "#core/protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 function deferred(): { readonly promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;

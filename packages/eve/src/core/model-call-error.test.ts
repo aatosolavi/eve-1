@@ -8,8 +8,8 @@ import {
   isNoOutputGeneratedError,
   normalizeModelStreamError,
   extractUpstreamRejectionMessage,
-} from "#harness/model-call-error.js";
-import { TurnCancelledError } from "#harness/turn-cancellation.js";
+} from "#core/model-call-error.js";
+import { TurnCancelledError } from "#core/turn-cancellation.js";
 
 /**
  * Builds the shape `ai@7.0.0-canary.169+` rejects with when a model
