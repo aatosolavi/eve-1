@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseJsonObject, parseJsonValue } from "#core/shared/json.js";
-import { jsonObjectSchema, jsonValueSchema } from "#shared/json-schemas.js";
+import { jsonObjectSchema, jsonValueSchema } from "#core/shared/json-schemas.js";
 
 describe("parseJsonValue", () => {
   it("preserves JSON primitives", () => {

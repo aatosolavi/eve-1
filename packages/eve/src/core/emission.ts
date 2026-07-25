@@ -46,10 +46,7 @@ import {
   createInvalidToolCallInputError,
   isInvalidToolCall,
 } from "#core/tool-call-input-errors.js";
-import type {
-  RuntimeActionRequest,
-  RuntimeToolResultActionResult,
-} from "#runtime/actions/types.js";
+import type { RuntimeActionRequest, RuntimeToolResultActionResult } from "#core/actions/types.js";
 import { createProviderStreamActionBatch } from "#core/stream-actions.js";
 import { normalizeModelStreamError } from "#core/model-call-error.js";
 import { createOrderedStreamEmitter } from "#core/ordered-stream-emitter.js";

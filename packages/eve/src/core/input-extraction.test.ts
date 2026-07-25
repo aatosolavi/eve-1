@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractQuestionInputRequests,
   extractToolApprovalInputRequests,
-} from "#harness/input-extraction.js";
+} from "#core/input-extraction.js";
 
 describe("extractQuestionInputRequests", () => {
   it("extracts a question request from an ask_question tool call", () => {

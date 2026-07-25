@@ -1,7 +1,7 @@
 import type { ModelMessage, TextPart, UserContent } from "ai";
 
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
-import type { InputResponse } from "#runtime/input/types.js";
+import type { InputResponse } from "#core/input/types.js";
 import type { StepInput } from "#harness/types.js";
 
 /**

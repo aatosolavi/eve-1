@@ -24,6 +24,12 @@ describe("core boundary structure", () => {
         if (found.startsWith("#core/")) {
           continue;
         }
+        // The vendored zod copy is a frozen, dependency-free validation
+        // library; domain schemas are engine-neutral vocabulary. No other
+        // #compiled package is admitted.
+        if (found === "#compiled/zod/index.js") {
+          continue;
+        }
         // Relative imports stay inside core when they resolve under it.
         if (found.startsWith(".") && resolve(dirname(file), found).startsWith(CORE_ROOT + sep)) {
           continue;

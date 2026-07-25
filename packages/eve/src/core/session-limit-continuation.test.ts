@@ -4,7 +4,7 @@ import {
   createSessionLimitContinuationRequest,
   isSessionLimitContinuationRequest,
   resolveSessionLimitContinuation,
-} from "#harness/session-limit-continuation.js";
+} from "#core/session-limit-continuation.js";
 
 const VIOLATION = { kind: "input", limit: 40_000_000, usedTokens: 40_120_500 } as const;
 

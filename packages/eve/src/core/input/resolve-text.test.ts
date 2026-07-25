@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { InputRequest } from "#runtime/input/types.js";
-import { resolveTextToResponse, resolveTextToResponses } from "#channel/resolve-text.js";
+import type { InputRequest } from "#core/input/types.js";
+import { resolveTextToResponse, resolveTextToResponses } from "#core/input/resolve-text.js";
 
 const APPROVAL_REQUEST: InputRequest = {
   action: { callId: "call-1", input: { command: "rm -rf" }, kind: "tool-call", toolName: "bash" },

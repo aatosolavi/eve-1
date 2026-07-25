@@ -6,7 +6,8 @@ import type { ResolvedToolDefinition } from "#runtime/types.js";
 /**
  * Stable model-visible name for the framework question tool.
  */
-export const ASK_QUESTION_TOOL_NAME = "ask_question";
+export { ASK_QUESTION_TOOL_NAME } from "#core/input/types.js";
+import { ASK_QUESTION_TOOL_NAME } from "#core/input/types.js";
 
 export const ASK_QUESTION_INPUT_SCHEMA = inputRequestSchema.omit({
   action: true,

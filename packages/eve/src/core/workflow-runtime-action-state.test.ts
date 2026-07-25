@@ -5,7 +5,7 @@ import {
   getRuntimeActionKeysFromWorkflowInterrupt,
   getWorkflowRuntimeActionInterrupts,
   WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND,
-} from "#harness/workflow-runtime-action-state.js";
+} from "#core/workflow-runtime-action-state.js";
 import type { WorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
 
 function concurrentWorkflowInterrupt(): WorkflowSandboxInterrupt {

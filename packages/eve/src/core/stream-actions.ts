@@ -1,5 +1,5 @@
 import { createActionsRequestedEvent } from "#core/protocol/message.js";
-import type { RuntimeToolCallActionRequest } from "#runtime/actions/types.js";
+import type { RuntimeToolCallActionRequest } from "#core/actions/types.js";
 import type { HandleEventFn } from "#harness/types.js";
 
 interface ActionEventCoordinates {

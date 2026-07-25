@@ -2,7 +2,7 @@ import type { ModelMessage, ToolSet, TypedToolCall } from "ai";
 
 import { createActionResultEvent, type HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { getRuntimeActionRequestKey, getRuntimeActionResultKey } from "#core/actions/keys.js";
-import type { RuntimeActionRequest, RuntimeActionResult } from "#runtime/actions/types.js";
+import type { RuntimeActionRequest, RuntimeActionResult } from "#core/actions/types.js";
 import { parseJsonObject, type JsonObject } from "#core/shared/json.js";
 import { clearProxyInputRequestsForChild } from "#core/proxy-input-requests.js";
 import {

@@ -7,8 +7,8 @@ import {
 } from "#core/attachments/url-refs.js";
 import { decodeSandboxRef, isSandboxRefUrl } from "#core/attachments/sandbox-refs.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
-import type { RuntimeActionRequest, RuntimeActionResult } from "#runtime/actions/types.js";
-import type { InputRequest, InputResponse } from "#runtime/input/types.js";
+import type { RuntimeActionRequest, RuntimeActionResult } from "#core/actions/types.js";
+import type { InputRequest, InputResponse } from "#core/input/types.js";
 import { toChannelLocalContinuationToken } from "#core/shared/continuation-token.js";
 import type { JsonObject, JsonValue } from "#core/shared/json.js";
 

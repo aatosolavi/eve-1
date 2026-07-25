@@ -374,6 +374,13 @@ function checkRule37(posixPath, lines, violations) {
     if (typeOnly || specifier.startsWith("#core/")) {
       return;
     }
+    // The vendored zod copy is a frozen, dependency-free validation
+    // library: domain schemas are part of the engine-neutral vocabulary.
+    // No other #compiled package is admitted — the workflow runtime in
+    // particular must never be value-reachable from core.
+    if (specifier === "#compiled/zod/index.js") {
+      return;
+    }
     // Relative imports stay inside core as long as they resolve under it.
     if (specifier.startsWith(".")) {
       const resolved = posix.join(posix.dirname(posix.normalize(posixPath)), specifier);

@@ -25,7 +25,7 @@
 import type { ProviderMetadata } from "ai";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
 import type { HarnessSession, SessionStateMap } from "#harness/types.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 const HARNESS_TURN_USAGE_STATE_KEY = "eve.harness.turnUsage";
 const SESSION_TOKEN_BUDGET_BASELINE_KEY = "eve.harness.sessionTokenBudgetBaseline";

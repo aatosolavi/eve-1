@@ -1,6 +1,6 @@
 import type { ModelMessage, ToolSet, TypedToolError, TypedToolResult } from "ai";
 
-import type { RuntimeToolResultActionResult } from "#runtime/actions/types.js";
+import type { RuntimeToolResultActionResult } from "#core/actions/types.js";
 import { toError } from "#core/shared/errors.js";
 import { parseJsonValue, type JsonValue } from "#core/shared/json.js";
 import {

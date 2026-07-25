@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 
 import type { ModelMessage } from "ai";
 
-import { convertStaleResponsesToUserMessage } from "#harness/stale-input-responses.js";
+import { convertStaleResponsesToUserMessage } from "#core/stale-input-responses.js";
 
 const approvalHistory: ModelMessage[] = [
   {
