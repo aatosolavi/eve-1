@@ -30,7 +30,7 @@ export interface McpServerTool {
   readonly definition: McpToolDefinition;
   call(
     input: unknown,
-    context: { readonly auth: SessionAuthContext; readonly signal: AbortSignal },
+    context: { readonly auth: SessionAuthContext | null; readonly signal: AbortSignal },
   ): Promise<McpCallToolResult>;
 }
 
@@ -38,7 +38,7 @@ export interface McpStreamableHttpServerOptions {
   readonly name: string;
   readonly version: string;
   readonly tools: readonly McpServerTool[];
-  authenticate(request: Request): Promise<SessionAuthContext | Response>;
+  authenticate(request: Request): Promise<SessionAuthContext | null | Response>;
 }
 
 /**
@@ -75,7 +75,7 @@ export function createMcpStreamableHttpServer(
 function createServer(
   options: Pick<McpStreamableHttpServerOptions, "name" | "version">,
   tools: ReadonlyMap<string, McpServerTool>,
-  auth: SessionAuthContext,
+  auth: SessionAuthContext | null,
 ): Server {
   const server = new Server(
     { name: options.name, version: options.version },
@@ -96,7 +96,7 @@ function createServer(
 async function callTool(
   request: CallToolRequest,
   signal: AbortSignal,
-  auth: SessionAuthContext,
+  auth: SessionAuthContext | null,
   tools: ReadonlyMap<string, McpServerTool>,
 ): Promise<McpCallToolResult> {
   const tool = tools.get(request.params.name);

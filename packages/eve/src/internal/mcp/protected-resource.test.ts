@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createMcpAuthChallenge,
+  createMcpAuthErrorResponse,
   createMcpProtectedResourceMetadata,
 } from "#internal/mcp/protected-resource.js";
 
@@ -21,12 +21,15 @@ describe("MCP protected-resource authentication", () => {
   });
 
   it("challenges with the metadata URL", () => {
-    const response = createMcpAuthChallenge(
-      "https://agent.example/.well-known/oauth-protected-resource",
-    );
+    const response = createMcpAuthErrorResponse({
+      code: "invalid_token",
+      message: "No authorization provided.",
+      resourceMetadataUrl: "https://agent.example/.well-known/oauth-protected-resource",
+      status: 401,
+    });
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toBe(
-      'Bearer resource_metadata="https://agent.example/.well-known/oauth-protected-resource"',
+      'Bearer error="invalid_token", error_description="No authorization provided.", resource_metadata="https://agent.example/.well-known/oauth-protected-resource"',
     );
   });
 });

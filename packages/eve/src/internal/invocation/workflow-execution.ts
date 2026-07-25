@@ -8,8 +8,12 @@ import type {
   AgentInvocationMutationResult,
   AgentInvocationStatus,
 } from "#internal/invocation/agent-invocation-service.js";
-import { INVOCATION_TOKEN_ATTRIBUTE } from "#internal/invocation/metadata.js";
+import {
+  INVOCATION_MODE_ATTRIBUTE,
+  INVOCATION_TOKEN_ATTRIBUTE,
+} from "#internal/invocation/metadata.js";
 import { getRun, getWorld } from "#internal/workflow/runtime.js";
+import { isRuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { Agent } from "#public/definitions/channel.js";
 import type { InputRequest, InputResponse } from "#runtime/input/types.js";
@@ -26,27 +30,28 @@ export class WorkflowAgentInvocationExecution implements AgentInvocationExecutio
   }
 
   async create(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly message: string | UserContent;
+    readonly mode: "conversation" | "task";
     readonly outputSchema?: JsonObject;
   }): Promise<AgentInvocation> {
     const continuationToken = `invocation:${crypto.randomUUID()}`;
     const handle = await this.#agent.run({
       adapter: { kind: "http" },
       auth: input.auth,
-      capabilities: { requestInput: true },
+      capabilities: input.mode === "conversation" ? { requestInput: true } : undefined,
       channelName: this.#channelName,
       continuationToken: `${this.#channelName}:${continuationToken}`,
-      externalInvocation: { continuationToken },
+      externalInvocation: { continuationToken, mode: input.mode },
       input: { message: input.message, outputSchema: input.outputSchema },
-      mode: "task",
+      mode: input.mode,
     });
 
     return workingInvocation(handle.sessionId, new Date().toISOString());
   }
 
   async read(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation | undefined> {
     const run = await this.#readInvocationRun(input.invocationId);
@@ -60,7 +65,7 @@ export class WorkflowAgentInvocationExecution implements AgentInvocationExecutio
   }
 
   async update(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
     readonly responses: readonly InputResponse[];
   }): Promise<AgentInvocationMutationResult> {
@@ -80,6 +85,7 @@ export class WorkflowAgentInvocationExecution implements AgentInvocationExecutio
     if (token === undefined) return { type: "not_found" };
     try {
       await this.#agent.deliver({
+        auth: input.auth,
         continuationToken: `${this.#channelName}:${token}`,
         payload: { inputResponses: input.responses },
       });
@@ -92,14 +98,49 @@ export class WorkflowAgentInvocationExecution implements AgentInvocationExecutio
     return invocation === undefined ? { type: "not_found" } : { invocation, type: "success" };
   }
 
+  async send(input: {
+    readonly auth: SessionAuthContext | null;
+    readonly invocationId: string;
+    readonly message: string | UserContent;
+  }): Promise<AgentInvocationMutationResult> {
+    const current = await this.read(input);
+    if (current === undefined) return { type: "not_found" };
+    if (current.status !== "waiting") {
+      return conflict("Conversation invocation is not waiting for the next message.");
+    }
+
+    const run = await this.#readInvocationRun(input.invocationId);
+    if (run?.attributes[INVOCATION_MODE_ATTRIBUTE] !== "conversation") {
+      return conflict("Invocation is not a conversation.");
+    }
+    const token = run.attributes[INVOCATION_TOKEN_ATTRIBUTE];
+    if (token === undefined) return { type: "not_found" };
+    try {
+      await this.#agent.deliver({
+        auth: input.auth,
+        continuationToken: `${this.#channelName}:${token}`,
+        payload: { message: input.message },
+      });
+    } catch (error) {
+      if (RunExpiredError.is(error)) return { type: "not_found" };
+      if (isRuntimeNoActiveSessionError(error)) {
+        return conflict("Conversation invocation is not waiting for the next message.");
+      }
+      throw error;
+    }
+
+    const invocation = await this.read(input);
+    return invocation === undefined ? { type: "not_found" } : { invocation, type: "success" };
+  }
+
   async cancel(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation | undefined> {
     const current = await this.read(input);
     if (current === undefined || isTerminal(current.status)) return current;
     try {
-      await getRun(input.invocationId).cancel({ cancelReason: "Agent invocation cancelled." });
+      await getRun(input.invocationId).cancel();
     } catch (error) {
       if (WorkflowRunNotFoundError.is(error) || RunExpiredError.is(error)) return undefined;
       throw error;
@@ -154,8 +195,9 @@ function projectNonterminal(
   createdAt: string,
   events: readonly HandleMessageStreamEvent[],
 ): AgentInvocation {
-  let status: "working" | "input_required" = "working";
+  let status: "working" | "waiting" | "input_required" = "working";
   let inputRequests: Readonly<Record<string, InputRequest>> | undefined;
+  let result: JsonValue | undefined;
   for (const event of events) {
     if (event.type === "input.requested") {
       status = "input_required";
@@ -165,6 +207,12 @@ function projectNonterminal(
     } else if (event.type === "turn.started") {
       status = "working";
       inputRequests = undefined;
+      result = undefined;
+    } else if (event.type === "message.completed" && event.data.message !== null) {
+      result = safeJson(event.data.message);
+    } else if (event.type === "session.waiting") {
+      status = "waiting";
+      inputRequests = undefined;
     }
   }
   return {
@@ -172,6 +220,7 @@ function projectNonterminal(
     inputRequests,
     invocationId,
     pollAfterMs: status === "working" ? 1_000 : undefined,
+    result,
     status,
   };
 }

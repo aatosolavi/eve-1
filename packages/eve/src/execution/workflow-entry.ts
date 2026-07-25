@@ -53,7 +53,6 @@ export interface WorkflowEntryInput {
 export interface WorkflowEntryResult {
   readonly output: unknown;
 }
-
 /**
  * Long-lived workflow entrypoint. Handles both root sessions and
  * delegated child sessions: root sessions expose only parent
@@ -70,7 +69,6 @@ export interface WorkflowEntryResult {
  */
 export async function workflowEntry(input: WorkflowEntryInput): Promise<WorkflowEntryResult> {
   "use workflow";
-
   const { workflowRunId: sessionId } = getWorkflowMetadata();
   const continuationToken = (input.serializedContext["eve.continuationToken"] as string) || "";
   const mode = input.serializedContext["eve.mode"] as RunMode;

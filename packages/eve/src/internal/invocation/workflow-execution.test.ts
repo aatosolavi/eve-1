@@ -50,6 +50,7 @@ describe("WorkflowAgentInvocationExecution", () => {
     const invocation = await execution().create({
       auth,
       message: "work",
+      mode: "task",
     });
 
     expect(agent.run).toHaveBeenCalledWith(
@@ -137,7 +138,7 @@ describe("WorkflowAgentInvocationExecution", () => {
     await expect(
       execution().cancel({ auth, invocationId: "wrun_invocation" }),
     ).resolves.toMatchObject({ status: "cancelled" });
-    expect(cancel).toHaveBeenCalledWith({ cancelReason: "Agent invocation cancelled." });
+    expect(cancel).toHaveBeenCalledWith();
   });
 });
 

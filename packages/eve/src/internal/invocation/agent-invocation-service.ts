@@ -1,9 +1,11 @@
 import type { SessionAuthContext } from "#channel/types.js";
 import type { InputRequest, InputResponse } from "#runtime/input/types.js";
 import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { RunMode } from "#shared/run-mode.js";
 
 export type AgentInvocationStatus =
   | "working"
+  | "waiting"
   | "input_required"
   | "completed"
   | "failed"
@@ -29,33 +31,40 @@ export type AgentInvocationMutationResult =
 /** Execution layer interface for agent invocations. */
 export interface AgentInvocationExecution {
   create(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly message: string | import("ai").UserContent;
+    readonly mode: RunMode;
     readonly outputSchema?: JsonObject;
   }): Promise<AgentInvocation>;
   read(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation | undefined>;
   update(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
     readonly responses: readonly InputResponse[];
   }): Promise<AgentInvocationMutationResult>;
+  send(input: {
+    readonly auth: SessionAuthContext | null;
+    readonly invocationId: string;
+    readonly message: string | import("ai").UserContent;
+  }): Promise<AgentInvocationMutationResult>;
   cancel(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation | undefined>;
 }
 
 export interface CreateAgentInvocationInput {
-  readonly auth: SessionAuthContext;
+  readonly auth: SessionAuthContext | null;
   readonly message: string | import("ai").UserContent;
+  readonly mode?: RunMode;
   readonly outputSchema?: JsonObject;
 }
 
 export interface UpdateAgentInvocationInput {
-  readonly auth: SessionAuthContext;
+  readonly auth: SessionAuthContext | null;
   readonly invocationId: string;
   readonly responses: readonly InputResponse[];
 }
@@ -83,11 +92,11 @@ export class AgentInvocationService {
   }
 
   async create(input: CreateAgentInvocationInput): Promise<AgentInvocation> {
-    return await this.#execution.create(input);
+    return await this.#execution.create({ ...input, mode: input.mode ?? "task" });
   }
 
   async read(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation> {
     const invocation = await this.#execution.read(input);
@@ -110,8 +119,16 @@ export class AgentInvocationService {
     }
   }
 
+  async send(input: {
+    readonly auth: SessionAuthContext | null;
+    readonly invocationId: string;
+    readonly message: string | import("ai").UserContent;
+  }): Promise<AgentInvocation> {
+    return mutationResult(await this.#execution.send(input));
+  }
+
   async cancel(input: {
-    readonly auth: SessionAuthContext;
+    readonly auth: SessionAuthContext | null;
     readonly invocationId: string;
   }): Promise<AgentInvocation> {
     const result = await this.#execution.cancel(input);
@@ -119,5 +136,16 @@ export class AgentInvocationService {
       throw new AgentInvocationNotFoundError();
     }
     return result;
+  }
+}
+
+function mutationResult(result: AgentInvocationMutationResult): AgentInvocation {
+  switch (result.type) {
+    case "success":
+      return result.invocation;
+    case "conflict":
+      throw new AgentInvocationConflictError(result.message);
+    case "not_found":
+      throw new AgentInvocationNotFoundError();
   }
 }

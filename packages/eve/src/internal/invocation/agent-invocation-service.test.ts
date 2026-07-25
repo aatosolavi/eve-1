@@ -62,6 +62,14 @@ class MemoryExecution implements AgentInvocationExecution {
     return { type: "success", invocation: updated };
   }
 
+  async send(input: { invocationId: string }): Promise<AgentInvocationMutationResult> {
+    const current = this.records.get(input.invocationId);
+    if (!current) return { type: "not_found" };
+    const updated = { ...current, status: "working" as const, result: undefined };
+    this.records.set(input.invocationId, updated);
+    return { type: "success", invocation: updated };
+  }
+
   async cancel(input: {
     invocationId: string;
     auth: SessionAuthContext;

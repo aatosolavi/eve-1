@@ -1,10 +1,6 @@
 import { parseJsonObject, type JsonObject } from "#shared/json.js";
-import type { AuthFn } from "#public/channels/auth.js";
-import { routeAuth } from "#public/channels/auth.js";
 import { defineChannel, DELETE, GET, POST, type Channel } from "#public/definitions/channel.js";
-import { readRouteAgent } from "#internal/nitro/routes/channel-route-context.js";
 import type { RouteHandlerArgs } from "#channel/routes.js";
-import type { SessionAuthContext } from "#channel/types.js";
 import {
   AgentInvocationService,
   type AgentInvocation,
@@ -15,60 +11,47 @@ import {
   type McpCallToolResult,
   type McpServerTool,
 } from "#internal/mcp/streamable-http-server.js";
-import {
-  createMcpAuthChallenge,
-  createMcpProtectedResourceMetadata,
-} from "#internal/mcp/protected-resource.js";
 import { inputResponseSchema } from "#runtime/input/types.js";
+import { readMcpSessionAuth } from "#public/channels/mcp-auth.js";
+import { readRouteAgent } from "#internal/nitro/routes/channel-route-context.js";
+
+export {
+  mcpProtectedResourceMetadataRoute,
+  withMcpAuth,
+  type AuthInfo,
+  type McpAuthOptions,
+  type McpTokenVerifier,
+} from "#public/channels/mcp-auth.js";
+export type { McpProtectedResourceMetadataOptions } from "#internal/mcp/protected-resource.js";
 
 export interface McpChannelInput {
   readonly agent: {
     readonly description: string;
     readonly outputSchema?: JsonObject;
   };
-  readonly auth: AuthFn<Request> | readonly AuthFn<Request>[];
-  readonly oauth: {
-    readonly authorizationServers: readonly string[];
-    readonly resource: string;
-    readonly scopesSupported?: readonly string[];
-  };
+  /** Streamable HTTP endpoint path. Defaults to `/mcp`. */
+  readonly path?: string;
 }
 
 /** Public MCP channel exposing durable agent invocation compatibility tools. */
 export type McpChannel = Channel;
 
 /**
- * Publishes this agent as a protected, stateless Streamable HTTP MCP server.
+ * Publishes this agent as a stateless Streamable HTTP MCP server.
+ *
+ * This channel owns only MCP transport and durable eve invocation. Wrap it in
+ * {@link withMcpAuth} when the endpoint itself verifies bearer tokens, or put
+ * it behind an authenticated gateway that forwards verifiable signed identity.
  * The file containing this channel must be `agent/channels/mcp.ts`.
  */
 export function mcpChannel(input: McpChannelInput): McpChannel {
-  const metadataUrl = protectedResourceMetadataUrl(input.oauth.resource);
-  const authenticate = async (request: Request) => {
-    const result = await routeAuth(request, input.auth);
-    return result instanceof Response && result.status === 401
-      ? createMcpAuthChallenge(metadataUrl)
-      : result;
-  };
+  const path = input.path ?? "/mcp";
 
   return defineChannel({
     routes: [
-      GET("/.well-known/oauth-protected-resource", async () =>
-        Response.json(createMcpProtectedResourceMetadata(input.oauth), {
-          headers: { "cache-control": "no-store" },
-        }),
-      ),
-      GET(
-        "/mcp",
-        async (request, args) => await handleMcpRequest(request, args, authenticate, input.agent),
-      ),
-      POST(
-        "/mcp",
-        async (request, args) => await handleMcpRequest(request, args, authenticate, input.agent),
-      ),
-      DELETE(
-        "/mcp",
-        async (request, args) => await handleMcpRequest(request, args, authenticate, input.agent),
-      ),
+      GET(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
+      POST(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
+      DELETE(path, async (request, args) => await handleMcpRequest(request, args, input.agent)),
     ],
   });
 }
@@ -76,17 +59,12 @@ export function mcpChannel(input: McpChannelInput): McpChannel {
 async function handleMcpRequest(
   request: Request,
   args: RouteHandlerArgs,
-  authenticate: (request: Request) => Promise<SessionAuthContext | Response>,
   config: McpChannelInput["agent"],
 ): Promise<Response> {
-  const auth = await authenticate(request);
-  if (auth instanceof Response) return auth;
+  const auth = readMcpSessionAuth(request);
   const agent = readRouteAgent(args);
   if (agent === undefined) {
-    return Response.json(
-      { error: "MCP requires internal channel dispatch context." },
-      { status: 500 },
-    );
+    return Response.json({ error: "MCP requires agent route context." }, { status: 500 });
   }
   const service = new AgentInvocationService(new WorkflowAgentInvocationExecution(agent, "mcp"));
   return await createMcpStreamableHttpServer({
@@ -109,6 +87,7 @@ function createInvocationTools(
           additionalProperties: false,
           properties: {
             message: { type: "string" },
+            mode: { enum: ["task", "conversation"], type: "string" },
             outputSchema: { type: "object" },
           },
           required: ["message"],
@@ -123,9 +102,36 @@ function createInvocationTools(
         const invocation = await service.create({
           auth: context.auth,
           message: body.message,
+          mode: body.mode === "conversation" ? "conversation" : "task",
           outputSchema: asJsonObject(body.outputSchema) ?? config.outputSchema,
         });
         return invocationResult(invocation);
+      },
+    },
+    {
+      definition: {
+        description:
+          "Sends the next user message to a conversation invocation that is waiting between turns.",
+        inputSchema: {
+          additionalProperties: false,
+          properties: {
+            invocationId: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["invocationId", "message"],
+          type: "object",
+        },
+        name: "agent_send",
+      },
+      async call(value, context) {
+        const body = record(value);
+        return invocationResult(
+          await service.send({
+            auth: context.auth,
+            invocationId: requiredString(body.invocationId, "invocationId"),
+            message: requiredString(body.message, "message"),
+          }),
+        );
       },
     },
     {
@@ -211,9 +217,6 @@ function invocationResult(invocation: AgentInvocation): McpCallToolResult {
   };
 }
 
-function protectedResourceMetadataUrl(resource: string): string {
-  return new URL("/.well-known/oauth-protected-resource", resource).toString();
-}
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error("Expected an object.");

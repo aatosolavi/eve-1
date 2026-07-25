@@ -10,25 +10,45 @@ The MCP channel lets external harnesses such as Claude Code delegate durable wor
 Create `agent/channels/mcp.ts`:
 
 ```ts
-import { oidc } from "eve/channels/auth";
-import { mcpChannel } from "eve/channels/mcp";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { mcpChannel, withMcpAuth } from "eve/channels/mcp";
 
-export default mcpChannel({
+const channel = mcpChannel({
   agent: {
     description: "Investigates software tasks and returns a concise report.",
   },
-  auth: oidc({
-    issuer: process.env.MCP_OIDC_ISSUER!,
-    audiences: [process.env.MCP_OIDC_AUDIENCE!],
-  }),
-  oauth: {
+});
+
+async function verifyToken(request: Request, bearerToken?: string): Promise<AuthInfo | undefined> {
+  // Verify with your identity provider, gateway, or resource server.
+  if (!bearerToken) return undefined;
+  return myTokenVerifier(request, bearerToken);
+}
+
+export default withMcpAuth(channel, verifyToken, {
+  required: true,
+  requiredScopes: ["agent:invoke"],
+  protectedResourceMetadata: {
     authorizationServers: [process.env.MCP_OIDC_ISSUER!],
     resource: process.env.MCP_RESOURCE_URL!,
+    scopesSupported: ["agent:invoke"],
   },
 });
 ```
 
-The authorization server must accept Claude's OAuth client flow, using dynamic client registration or a configured client ID. eve is an OAuth protected resource and does not issue tokens.
+The verifier uses the standard MCP SDK `AuthInfo` contract and is portable with
+`mcp-handler`'s `withMcpAuth`. eve extracts bearer credentials, enforces token
+expiration and required scopes, returns MCP-compatible `401`/`403` challenges,
+and projects the verified identity into `ctx.session.auth`. It does not
+introspect Vercel tokens, run Better Auth, register OAuth clients, or issue
+tokens.
+
+Use `toSessionAuth` when provider claims need a custom principal mapping. The
+default mapping never persists the bearer token. A gateway can instead verify
+the user and forward a signed identity token to a private eve origin; the
+`verifyToken` implementation verifies that signature and returns `AuthInfo`.
+Set `resourceUrl` to the gateway's public origin so challenges point clients at
+the public metadata URL.
 
 The resource URL should be the canonical deployed MCP URL, for example `https://agent.example/mcp`. Unauthenticated MCP requests receive an RFC 9728 protected-resource challenge.
 
@@ -46,10 +66,21 @@ The compatibility tools are:
 
 - `agent_start({ message, outputSchema? })`
 - `agent_get({ invocationId })`
+- `agent_send({ invocationId, message })`
 - `agent_update({ invocationId, responses })`
 - `agent_cancel({ invocationId })`
 
+`agent_start` defaults to task mode. Pass `mode: "conversation"` to create a
+multi-turn session; wait for `agent_get` to report `waiting`, then use
+`agent_send` for the next user message.
+
 Every operation reauthenticates against the channel's configured policy. The unguessable invocation ID is a capability handle: any caller authorized to use the endpoint who has the ID may inspect, update, or cancel that invocation. `agent_get` reconstructs invocation state from the existing durable session event stream and does not start work or run a model. While an invocation is working, clients should honor its `pollAfterMs` hint before reading it again.
+
+Route authorization is distinct from the agent's runtime capability ceiling.
+This slice does not add per-token tool, connection, cost, or delegated-resource
+limits; configure the agent's existing capabilities and approval policies
+independently. Fine-grained authorization can only narrow that ceiling in a
+follow-up.
 
 ## Manual acceptance
 

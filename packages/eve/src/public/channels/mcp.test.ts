@@ -1,85 +1,83 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionAuthContext } from "#channel/types.js";
-import { ForbiddenError } from "#public/channels/auth.js";
-import { mcpChannel } from "#public/channels/mcp.js";
-
-const auth: SessionAuthContext = {
-  attributes: {},
-  authenticator: "test",
-  principalId: "alice",
-  principalType: "user",
-};
+import { mcpChannel, withMcpAuth } from "#public/channels/mcp.js";
 
 describe("mcpChannel", () => {
-  const channel = mcpChannel({
-    agent: { description: "Investigates tasks." },
-    auth: async (request) => (request.headers.has("authorization") ? auth : null),
-    oauth: {
-      authorizationServers: ["https://issuer.example"],
-      resource: "https://agent.example/mcp",
-    },
+  it("keeps transport separate from auth and metadata", () => {
+    const channel = mcpChannel({ agent: { description: "Investigates tasks." } });
+    expect(channel.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+      "GET /mcp",
+      "POST /mcp",
+      "DELETE /mcp",
+    ]);
   });
 
-  it("registers the endpoint and protected-resource metadata", async () => {
+  it("adds optional metadata and a standards-compliant 401 challenge", async () => {
+    const channel = withMcpAuth(
+      mcpChannel({ agent: { description: "Investigates tasks." } }),
+      async (_request, token) =>
+        token === "valid" ? { clientId: "client", scopes: ["agent:invoke"], token } : undefined,
+      {
+        protectedResourceMetadata: {
+          authorizationServers: ["https://issuer.example"],
+          resource: "https://agent.example/mcp",
+          scopesSupported: ["agent:invoke"],
+        },
+        required: true,
+        requiredScopes: ["agent:invoke"],
+        resourceUrl: "https://agent.example",
+      },
+    );
+
     expect(channel.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /.well-known/oauth-protected-resource",
       "GET /mcp",
       "POST /mcp",
       "DELETE /mcp",
     ]);
-    const route = channel.routes[0]!;
-    if (route.transport === "websocket") throw new Error("expected HTTP route");
-    const response = await route.handler(
+
+    const metadataRoute = channel.routes[0]!;
+    if (metadataRoute.transport === "websocket") throw new Error("expected HTTP route");
+    const metadata = await metadataRoute.handler(
       new Request("https://agent.example/.well-known/oauth-protected-resource"),
       {} as never,
     );
-    expect(await response.json()).toEqual({
+    await expect(metadata.json()).resolves.toEqual({
       authorization_servers: ["https://issuer.example"],
       resource: "https://agent.example/mcp",
+      scopes_supported: ["agent:invoke"],
     });
+
+    const postRoute = channel.routes[2]!;
+    if (postRoute.transport === "websocket") throw new Error("expected HTTP route");
+    const response = await postRoute.handler(
+      new Request("https://private-origin.example/mcp", { method: "POST" }),
+      {} as never,
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain(
+      'resource_metadata="https://agent.example/.well-known/oauth-protected-resource"',
+    );
   });
 
-  it("preserves explicit authorization failures", async () => {
-    const forbidden = mcpChannel({
-      agent: { description: "Investigates tasks." },
-      auth: async () => {
-        throw new ForbiddenError({ message: "Insufficient scope." });
-      },
-      oauth: {
-        authorizationServers: ["https://issuer.example"],
-        resource: "https://agent.example/mcp",
-      },
-    });
-    const route = forbidden.routes[2]!;
+  it("returns 403 when a valid token lacks required scopes", async () => {
+    const channel = withMcpAuth(
+      mcpChannel({ agent: { description: "Investigates tasks." } }),
+      async (_request, token) =>
+        token ? { clientId: "client", scopes: ["profile"], token } : undefined,
+      { required: true, requiredScopes: ["agent:invoke"] },
+    );
+    const route = channel.routes[1]!;
     if (route.transport === "websocket") throw new Error("expected HTTP route");
     const response = await route.handler(
       new Request("https://agent.example/mcp", {
-        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "initialize" }),
+        headers: { authorization: "Bearer signed-identity" },
         method: "POST",
       }),
       {} as never,
     );
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "forbidden",
-      error: "Insufficient scope.",
-    });
-  });
-
-  it("returns an MCP OAuth discovery challenge before runtime lookup", async () => {
-    const route = channel.routes[2]!;
-    if (route.transport === "websocket") throw new Error("expected HTTP route");
-    const response = await route.handler(
-      new Request("https://agent.example/mcp", {
-        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "initialize" }),
-        method: "POST",
-      }),
-      {} as never,
-    );
-    expect(response.status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toBe(
-      'Bearer resource_metadata="https://agent.example/.well-known/oauth-protected-resource"',
-    );
+    expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    expect(response.headers.get("www-authenticate")).toContain('scope="agent:invoke"');
   });
 });
