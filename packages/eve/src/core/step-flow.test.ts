@@ -1,674 +1,683 @@
+import { trace } from "#compiled/@opentelemetry/api/index.js";
+import type { LanguageModel, ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
-import type {
-  CallDependencies,
-  CompactionDependencies,
-  EventStream,
-  FailureDependencies,
-  ModelDependencies,
-  PromptDependencies,
-  SettleDependencies,
-  StepFacets,
-  StepFlowTypes,
-  StepPorts,
-  TraceDependencies,
-  UsageDependencies,
-  WaitDependencies,
-} from "#core/step-ports.js";
+import { ContextContainer } from "#context/container.js";
+import { setPendingRuntimeActionBatch } from "#core/runtime-actions.js";
+import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#core/shared/empty-delivery.js";
+import { setPendingInputBatch } from "#core/input-requests.js";
+import { createSessionLimitContinuationRequest } from "#core/session-limit-continuation.js";
+import { EmptyModelResponseError } from "#core/model-call-error.js";
+import type { RecoveryStage, StepServices } from "#core/step-services.js";
+import { setTurnUsageState } from "#core/turn-tag-state.js";
 import { assemblePrompt, generateStep, resolveTurnInput } from "#core/index.js";
-
-/**
- * Minimal concrete binding: history entries are `"role:body"` strings,
- * every other payload is a tagged string or record.
- */
-interface TestFlow extends StepFlowTypes {
-  readonly ambientContext: string;
-  readonly approvalResult: string;
-  readonly callAttempt: string;
-  readonly callResult: string;
-  readonly callRunner: { readonly prompt: TestFlow["prompt"] };
-  readonly cacheMarker: string;
-  readonly cachePath: string;
-  readonly compactionModel: string;
-  readonly emissionState: string;
-  readonly failureContent: string;
-  readonly historyEntry: string;
-  readonly limitGrant: string;
-  readonly logFields: Record<string, unknown>;
-  readonly model: string;
-  readonly modelHeaders: string;
-  readonly prompt: {
-    readonly emptyDeliveryEnabled: boolean;
-    readonly history: readonly string[];
-    readonly modelEntries: readonly string[];
-    readonly systemEntries: readonly string[];
-  };
-  readonly rejectedApprovals: readonly string[];
-  readonly retryOptions: string;
-  readonly state: string;
-  readonly stepInput: { readonly message?: string };
-  readonly turnTrace: string;
-  readonly usage: unknown;
-  readonly usageSnapshot: string;
-  readonly userContent: string;
-}
+import type { HarnessStepResult } from "#harness/step-hooks.js";
+import type { ModelCallRunner } from "#harness/model-call.js";
+import type { GenerateConfig, HarnessSession, StepInput } from "#harness/types.js";
 
 interface Overrides {
-  readonly call?: Partial<CallDependencies<TestFlow>>;
-  readonly compaction?: Partial<CompactionDependencies<TestFlow>>;
-  /** `null` disables the event stream entirely. */
-  readonly events?: Partial<EventStream<TestFlow>> | null;
-  readonly facets?: Partial<StepFacets<TestFlow>>;
-  readonly failure?: Partial<FailureDependencies<TestFlow>>;
-  readonly mode?: "conversation" | "task";
-  readonly model?: Partial<ModelDependencies<TestFlow>>;
-  readonly prompt?: Partial<PromptDependencies<TestFlow>>;
-  readonly settle?: Partial<SettleDependencies<TestFlow>>;
-  readonly trace?: Partial<TraceDependencies<TestFlow>>;
-  readonly usage?: Partial<UsageDependencies<TestFlow>>;
-  readonly waits?: Partial<WaitDependencies<TestFlow>>;
+  readonly ambient?: Partial<StepServices["ambient"]>;
+  readonly attachments?: Partial<StepServices["attachments"]>;
+  readonly config?: Partial<GenerateConfig>;
+  readonly events?: boolean;
+  readonly failure?: Partial<StepServices["failure"]>;
+  readonly modelCall?: Partial<StepServices["modelCall"]>;
+  readonly settle?: Partial<StepServices["settle"]>;
+  readonly trace?: Partial<StepServices["trace"]>;
+  readonly usage?: Partial<StepServices["usage"]>;
 }
 
-function createPorts(over: Overrides = {}): {
+function createSession(overrides: Partial<HarnessSession> = {}): HarnessSession {
+  return {
+    agent: {
+      modelReference: { id: "test-model" },
+      system: "system",
+      tools: [],
+    },
+    compaction: { recentWindowSize: 10, threshold: 100_000 },
+    continuationToken: "continuation",
+    history: [],
+    sessionId: "session",
+    ...overrides,
+  };
+}
+
+function successfulResult(text = "result"): HarnessStepResult {
+  return {
+    content: [],
+    finishReason: "stop",
+    providerMetadata: undefined,
+    response: {
+      id: "response",
+      messages: [],
+      modelId: "test-model",
+      timestamp: new Date(0),
+    },
+    text,
+    toolCalls: [],
+    toolResults: [],
+    usage: {
+      inputTokenDetails: {
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        noCacheTokens: 2,
+      },
+      inputTokens: 2,
+      outputTokenDetails: { reasoningTokens: 0, textTokens: 1 },
+      outputTokens: 1,
+      totalTokens: 3,
+    },
+  };
+}
+
+function createRunner(session: HarnessSession, result: HarnessStepResult): ModelCallRunner {
+  return {
+    currentSession: () => session,
+    prepareModelCallInput: () => ({
+      instructions: undefined,
+      telemetryRuntimeContext: undefined,
+    }),
+    runOneModelCall: async () => result,
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createFixture(overrides: Overrides = {}): {
   readonly calls: string[];
-  readonly ports: StepPorts<TestFlow>;
+  readonly config: GenerateConfig;
+  readonly services: StepServices;
 } {
   const calls: string[] = [];
-  const note = (name: string) => calls.push(name);
+  const note = (value: string): void => {
+    calls.push(value);
+  };
+  let currentSession = createSession();
+  const result = successfulResult();
+  const model = "test-model" satisfies LanguageModel;
 
-  const events: EventStream<TestFlow> = {
-    compactionCompleted: async () => {
-      note("events.compactionCompleted");
-    },
-    compactionRequested: async () => {
-      note("events.compactionRequested");
-    },
-    failedStep: async ({ content }) => {
-      note(`events.failedStep(${content})`);
-    },
-    recoverableFailedTurn: async ({ content, emissionState }) => {
-      note(`events.recoverableFailedTurn(${content})`);
-      return `${emissionState}+failed`;
-    },
-    rejectedApproval: async ({ result }) => {
-      note(`events.rejectedApproval(${result})`);
-    },
-    stepStarted: async () => {
-      note("events.stepStarted");
-    },
-    turnEpilogue: async ({ emissionState }) => {
-      note("events.turnEpilogue");
-      return `${emissionState}+epi`;
-    },
-    turnPreamble: async ({ emissionState }) => {
-      note("events.turnPreamble");
-      return `${emissionState}+pre`;
-    },
-    ...over.events,
+  const config: GenerateConfig = {
+    handleEvent:
+      overrides.events === false
+        ? undefined
+        : async (event) => {
+            note(`event.${event.type}`);
+          },
+    mode: "conversation",
+    resolveModel: async () => model,
+    tools: new Map(),
+    ...overrides.config,
   };
 
-  const ports: StepPorts<TestFlow> = {
-    mode: over.mode ?? "conversation",
-    events: over.events === null ? undefined : events,
-    identity: { environment: "test", eveVersion: "0.0.0", functionId: "fn" },
+  const services: StepServices = {
+    ambient: {
+      current: () => undefined,
+      dynamicInstructionEntries: () => [],
+      hasParentSession: () => false,
+      isScheduleAuth: () => false,
+      skillAnnouncementEntry: () => undefined,
+      ...overrides.ambient,
+    },
+    attachments: {
+      hydrate: async (history) => history,
+      stage: async (content) => {
+        note("attachments.stage");
+        return content;
+      },
+      ...overrides.attachments,
+    },
+    failure: {
+      describe: ({ error }) => ({
+        content: { code: "MODEL_CALL_FAILED", details: {}, message: errorMessage(error) },
+        logFields: {},
+        taskOutput: `task(${errorMessage(error)})`,
+        upstreamMessage: undefined,
+      }),
+      describeStreamWrite: ({ error }) => ({
+        content: { code: "STREAM_WRITE_FAILED", details: {}, message: errorMessage(error) },
+        logFields: {},
+      }),
+      ...overrides.failure,
+    },
     log: {
       error: (message) => note(`log.error(${message})`),
       warn: (message) => note(`log.warn(${message})`),
     },
-    facets: {
-      approvalResultsOf: (batch) => batch,
-      contextEntriesOf: () => undefined,
-      deliveryContentOf: (input) => input?.message,
-      hasDelivery: (input) => input !== undefined,
-      hasOutputSchema: () => false,
-      readEmission: (state) => `em(${state})`,
-      sessionIdOf: () => "sid",
-      turnIdOf: (emissionState) => `turn(${emissionState})`,
-      writeEmission: (state, emissionState) => `${state}|${emissionState}`,
-      ...over.facets,
-    },
-    waits: {
-      applyLimitContinuation: async ({ state }) => ({ outcome: null, state }),
-      consumeDeferredInput: ({ input, state }) => ({ input, state }),
-      convertStaleResponses: ({ input }) => ({ displayInput: input, effectiveInput: input }),
-      resolvePendingInput: ({ history, state }) => ({
-        history,
-        limitGrant: undefined,
-        outcome: "resolved",
-        rejectedApprovals: undefined,
-        state,
-      }),
-      resolveRuntimeActions: async ({ state }) => ({
-        history: ["user:h1"],
-        outcome: "resolved",
-        state,
-      }),
-      ...over.waits,
-    },
-    prompt: {
-      conditionalDeliveryEntry: () => "system:conditional",
-      dynamicInstructionEntries: () => [],
-      finalize: ({ emptyDeliveryEnabled, history, modelEntries, systemEntries }) => ({
-        emptyDeliveryEnabled,
-        history,
-        modelEntries,
-        systemEntries,
-      }),
-      hydrate: async (history) => history,
-      isSystemEntry: (entry) => entry.startsWith("system:"),
-      skillAnnouncementEntry: () => undefined,
-      stageAttachments: async (content) => `staged(${content})`,
-      userEntry: (content) => `user:${content}`,
-      ...over.prompt,
-    },
-    model: {
-      ambient: () => undefined,
-      anthropicCacheMarker: () => "anthropic-marker",
-      attributionHeaders: () => "headers",
-      cachePlan: (model) => ({ kind: "gateway", path: `cache(${model})` }),
-      hasParentSession: () => false,
-      isScheduleAuth: () => false,
-      resolve: async ({ state }) => ({ model: "m", state }),
-      ...over.model,
-    },
-    compaction: {
-      postCompactionEntries: () => [],
-      resolveModel: async () => "compaction-model",
-      run: async ({ history }) => history,
-      shouldCompact: () => false,
-      ...over.compaction,
-    },
-    call: {
-      assertNotCancelled: () => note("call.assertNotCancelled"),
+    modelCall: {
+      attributionHeaders: () => undefined,
+      compact: async ({ history }) => history,
+      compactionInputTokens: () => 0,
       continueWorkflowInterrupt: async () => {
-        note("call.continueWorkflowInterrupt");
+        note("modelCall.continueWorkflowInterrupt");
         return null;
       },
       create: ({ prompt }) => {
-        note("call.create");
-        return { prompt };
+        note("modelCall.create");
+        currentSession = prompt.session;
+        return createRunner(currentSession, result);
       },
-      currentState: () => "call-state",
-      enforceTokenLimit: async () => {
-        note("call.enforceTokenLimit");
-        return null;
-      },
-      prepareAttempt: () => {
-        note("call.prepareAttempt");
-        return "attempt";
+      currentState: (runner) => runner.currentSession(),
+      formatModelId: () => "test-model",
+      prepareAttempt: (runner) => {
+        note("modelCall.prepareAttempt");
+        return runner.prepareModelCallInput();
       },
       recoveryStages: [],
-      run: async () => {
-        note("call.run");
-        return "result";
+      resolveActive: async ({ state }) => ({ model, state }),
+      resolveCompaction: async () => ({ model, providerOptions: undefined }),
+      run: async ({ runner }) => {
+        note("modelCall.run");
+        return runner.runOneModelCall({});
       },
-      ...over.call,
-    },
-    failure: {
-      classification: () => "terminal",
-      describe: ({ error }) => ({
-        content: "failure-content",
-        logFields: {},
-        taskOutput: `task(${(error as Error).message})`,
-        upstreamMessage: undefined,
-      }),
-      describeStreamWrite: () => ({ content: "stream-write-content", logFields: {} }),
-      isRetryBudgetConsumed: () => false,
-      isStreamWriteFailure: () => false,
-      ...over.failure,
-    },
-    usage: {
-      accumulate: ({ result }) => ({ snapshot: `snap(${result})`, state: `accounted(${result})` }),
-      publish: async ({ snapshot }) => {
-        note(`usage.publish(${snapshot})`);
-      },
-      ...over.usage,
+      shouldCompact: () => false,
+      ...overrides.modelCall,
     },
     settle: {
-      parked: ({ emissionState, state }) => ({
-        action: "park",
-        hasPendingAuthorization: false,
-        hasPendingInputBatch: false,
-        state: emissionState === undefined ? state : `${state}+stamped(${emissionState})`,
-      }),
-      step: async ({ result, state }) => ({
-        action: "done",
-        output: `settled(${result})`,
-        state,
-      }),
-      ...over.settle,
+      step: async ({ result: stepResult, state }) => {
+        note("settle.step");
+        return { action: "done", output: stepResult.text, state };
+      },
+      ...overrides.settle,
     },
     trace: {
-      bind: ({ state }) => `${state}+traced`,
-      end: (trace) => note(`trace.end(${trace})`),
+      bind: ({ state }) => state,
+      end: () => note("trace.end"),
+      identity: { environment: "test", eveVersion: "0.0.0", functionId: "fn" },
       inContext: (_input, run) => run(),
-      recordError: (trace) => note(`trace.recordError(${trace})`),
-      setAttribute: (trace, key, value) => note(`trace.setAttribute(${trace},${key},${value})`),
+      recordError: () => note("trace.recordError"),
+      setAttribute: (_span, key, value) => note(`trace.setAttribute(${key},${value})`),
       start: () => undefined,
-      ...over.trace,
+      ...overrides.trace,
+    },
+    usage: {
+      publish: async () => note("usage.publish"),
+      ...overrides.usage,
     },
   };
-  return { calls, ports };
+
+  return { calls, config, services };
 }
 
-const delivery = { message: "hi" };
+function approvalSession(): HarnessSession {
+  return setPendingInputBatch({
+    event: { sequence: 3, stepIndex: 2, turnId: "approval-turn" },
+    requests: [
+      {
+        action: {
+          callId: "call-1",
+          input: { command: "pwd" },
+          kind: "tool-call",
+          toolName: "bash",
+        },
+        display: "confirmation",
+        options: [
+          { id: "approve", label: "Approve" },
+          { id: "deny", label: "Deny" },
+        ],
+        prompt: "Run bash?",
+        requestId: "approval-1",
+      },
+    ],
+    responseMessages: [],
+    session: createSession(),
+  });
+}
+
+function resolvedInput(overrides: Partial<StepInput> = {}) {
+  return {
+    effectiveInput: { message: "hi", ...overrides },
+    emissionState: { sequence: 0, sessionStarted: false, stepIndex: 0, turnId: "turn_0" },
+    history: [{ content: "prior", role: "user" }] satisfies ModelMessage[],
+    state: createSession(),
+  };
+}
 
 describe("resolveTurnInput", () => {
-  const input = { input: delivery, state: "s", trace: undefined };
-
-  it("parks without opening a turn when runtime actions are unresolved", async () => {
-    const { calls, ports } = createPorts({
-      waits: { resolveRuntimeActions: async ({ state }) => ({ outcome: "unresolved", state }) },
+  it("parks before the model call when runtime actions are unresolved", async () => {
+    const session = setPendingRuntimeActionBatch({
+      actions: [{ callId: "call-1", input: {}, kind: "tool-call", toolName: "remote" }],
+      event: { sequence: 0, stepIndex: 0, turnId: "turn_0" },
+      responseMessages: [],
+      session: createSession(),
     });
-
-    const resolution = await resolveTurnInput(ports, input);
-
-    expect(resolution).toEqual({
-      kind: "settled",
-      outcome: {
-        action: "park",
-        hasPendingAuthorization: false,
-        hasPendingInputBatch: false,
-        state: "s",
-      },
-    });
-    expect(calls).not.toContain("events.turnPreamble");
-  });
-
-  it("opens and closes the turn before parking on a deferred delivery message", async () => {
-    const { calls, ports } = createPorts({
-      waits: {
-        resolvePendingInput: ({ state }) => ({
-          deferredMessage: true,
-          outcome: "unresolved",
-          state,
-        }),
-      },
-    });
-
-    const resolution = await resolveTurnInput(ports, input);
-
-    // The parked outcome carries the emission coordinates of the turn it
-    // opened and closed.
-    expect(resolution).toMatchObject({
-      kind: "settled",
-      outcome: { action: "park", state: "s+stamped(em(s)+pre+epi)" },
-    });
-    expect(calls).toEqual(["events.turnPreamble", "events.turnEpilogue"]);
-  });
-
-  it("parks silently on unresolved input without a fresh delivery", async () => {
-    const { calls, ports } = createPorts({
-      waits: {
-        resolvePendingInput: ({ state }) => ({
-          deferredMessage: true,
-          outcome: "unresolved",
-          state,
-        }),
-      },
-    });
-
-    const resolution = await resolveTurnInput(ports, {
-      input: undefined,
-      state: "s",
+    const { config, services } = createFixture();
+    const resolution = await resolveTurnInput({
+      config,
+      input: { message: "hi" },
+      services,
+      state: session,
       trace: undefined,
     });
-
-    expect(resolution).toMatchObject({ kind: "settled", outcome: { action: "park", state: "s" } });
-    expect(calls).toEqual([]);
-  });
-
-  it("settles with the limit-continuation outcome when the grant is denied", async () => {
-    const { ports } = createPorts({
-      waits: {
-        applyLimitContinuation: async ({ state }) => ({
-          outcome: { action: "done", output: `limit(${state})`, state },
-          state,
-        }),
-      },
-    });
-
-    const resolution = await resolveTurnInput(ports, input);
-
     expect(resolution).toMatchObject({
       kind: "settled",
-      outcome: { action: "done", output: "limit(s)" },
+      outcome: { action: "park", pendingRuntimeActionKeys: ["tool-call:remote:call-1"] },
     });
   });
 
-  it("surfaces rejected approvals before opening the turn and tags the trace", async () => {
-    const { calls, ports } = createPorts({
-      waits: {
-        resolvePendingInput: ({ history, state }) => ({
-          consumedMessage: true,
-          history: [...history, "user:folded"],
-          limitGrant: "grant",
-          outcome: "resolved",
-          rejectedApprovals: ["r1", "r2"],
-          state: `${state}+pending`,
-        }),
-      },
+  it("emits a preamble and epilogue before parking a deferred delivery", async () => {
+    const { calls, config, services } = createFixture();
+    const resolution = await resolveTurnInput({
+      config,
+      input: { message: "follow up" },
+      services,
+      state: approvalSession(),
+      trace: undefined,
     });
-
-    const resolution = await resolveTurnInput(ports, { input: delivery, state: "s", trace: "T" });
-
-    expect(resolution).toMatchObject({
-      consumedMessage: true,
-      history: ["user:h1", "user:folded"],
-      kind: "resolved",
-      state: "s+pending",
-    });
+    expect(resolution).toMatchObject({ kind: "settled", outcome: { action: "park" } });
     expect(calls).toEqual([
-      "events.rejectedApproval(r1)",
-      "events.rejectedApproval(r2)",
-      "events.turnPreamble",
-      "trace.setAttribute(T,eve.turn.id,turn(em(s)+pre))",
+      "event.session.started",
+      "event.turn.started",
+      "event.message.received",
+      "event.turn.completed",
+      "event.session.waiting",
     ]);
   });
 
-  it("never emits lifecycle events when the step has no event stream", async () => {
-    const { calls, ports } = createPorts({ events: null });
+  it("parks silently on unresolved input without a fresh delivery", async () => {
+    const { calls, config, services } = createFixture();
+    const resolution = await resolveTurnInput({
+      config,
+      input: undefined,
+      services,
+      state: approvalSession(),
+      trace: undefined,
+    });
+    expect(resolution).toMatchObject({ kind: "settled", outcome: { action: "park" } });
+    expect(calls).toEqual([]);
+  });
 
-    const resolution = await resolveTurnInput(ports, input);
+  it("settles when a session-limit continuation is denied", async () => {
+    const limited = setTurnUsageState(createSession({ limits: { maxInputTokensPerSession: 5 } }), {
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: 0,
+      inputTokens: 5,
+      outputTokens: 0,
+      sawCost: false,
+      session: {
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+        inputTokens: 5,
+        outputTokens: 0,
+        sawCost: false,
+      },
+      turnId: "turn_0",
+    });
+    const request = createSessionLimitContinuationRequest({
+      sessionId: limited.sessionId,
+      totalUsedTokens: 5,
+      violation: { kind: "input", limit: 5, usedTokens: 5 },
+    });
+    const session = setPendingInputBatch({
+      requests: [request],
+      responseMessages: [],
+      session: limited,
+    });
+    const { config, services } = createFixture();
+    const resolution = await resolveTurnInput({
+      config,
+      input: { inputResponses: [{ optionId: "stop", requestId: request.requestId }] },
+      services,
+      state: session,
+      trace: undefined,
+    });
+    expect(resolution).toMatchObject({
+      kind: "settled",
+      outcome: { action: "done", output: "" },
+    });
+  });
 
+  it("emits rejected approvals before the turn preamble and tags the trace", async () => {
+    const span = trace.getTracer("test").startSpan("turn");
+    const { calls, config, services } = createFixture();
+    const resolution = await resolveTurnInput({
+      config,
+      input: {
+        inputResponses: [{ optionId: "deny", requestId: "approval-1" }],
+        message: "follow up",
+      },
+      services,
+      state: approvalSession(),
+      trace: span,
+    });
+    expect(resolution).toMatchObject({ deferredMessage: true, kind: "resolved" });
+    expect(calls).toEqual([
+      "event.action.result",
+      "event.session.started",
+      "event.turn.started",
+      "event.message.received",
+      "trace.setAttribute(eve.turn.id,turn_0)",
+    ]);
+    span.end();
+  });
+
+  it("skips lifecycle emission when no event sink is configured", async () => {
+    const { calls, config, services } = createFixture({ events: false });
+    const resolution = await resolveTurnInput({
+      config,
+      input: { message: "hi" },
+      services,
+      state: createSession(),
+      trace: undefined,
+    });
     expect(resolution.kind).toBe("resolved");
     expect(calls).toEqual([]);
   });
 });
 
 describe("assemblePrompt", () => {
-  function resolved(overrides: Partial<Parameters<typeof assemblePrompt<TestFlow>>[1]> = {}) {
-    return {
-      effectiveInput: delivery,
-      emissionState: "em",
-      history: ["user:h1"],
-      state: "s",
-      ...overrides,
-    };
-  }
-
-  it("appends context entries and the staged delivery message in order", async () => {
-    const { ports } = createPorts({ facets: { contextEntriesOf: () => ["c1", "c2"] } });
-
-    const prompt = await assemblePrompt(ports, resolved());
-
-    expect(prompt.history).toEqual(["user:h1", "user:c1", "user:c2", "user:staged(hi)"]);
+  it("appends context and the staged delivery in order", async () => {
+    const { config, services } = createFixture({
+      attachments: { stage: async (content) => `staged:${String(content)}` },
+    });
+    const prompt = await assemblePrompt({
+      config,
+      resolved: resolvedInput({ context: ["c1", "c2"] }),
+      services,
+    });
+    expect(prompt.messages).toEqual([
+      { content: "prior", role: "user" },
+      { content: "c1", role: "user" },
+      { content: "c2", role: "user" },
+      { content: "staged:hi", role: "user" },
+    ]);
   });
 
-  it("skips the delivery message when it was deferred or already consumed", async () => {
+  it("skips a deferred or already-consumed delivery", async () => {
     for (const flags of [{ consumedMessage: true }, { deferredMessage: true }]) {
-      const { ports } = createPorts();
-
-      const prompt = await assemblePrompt(ports, resolved(flags));
-
-      expect(prompt.history).toEqual(["user:h1"]);
+      const { config, services } = createFixture();
+      const prompt = await assemblePrompt({
+        config,
+        resolved: { ...resolvedInput(), ...flags },
+        services,
+      });
+      expect(prompt.messages).toEqual([{ content: "prior", role: "user" }]);
     }
   });
 
-  it("runs the compaction choreography when over the threshold", async () => {
-    const { calls, ports } = createPorts({
-      compaction: {
-        postCompactionEntries: () => ["user:reinjected"],
-        run: async () => ["user:summary"],
+  it("runs compaction request, replacement, reinjection, and completion in order", async () => {
+    const { calls, config, services } = createFixture({
+      config: { onCompaction: () => [{ content: "reinjected", role: "user" }] },
+      modelCall: {
+        compact: async () => [{ content: "summary", role: "user" }],
         shouldCompact: () => true,
       },
     });
+    const prompt = await assemblePrompt({ config, resolved: resolvedInput(), services });
 
-    const prompt = await assemblePrompt(ports, resolved());
-
-    expect(prompt.history).toEqual(["user:summary", "user:reinjected"]);
-    expect(calls).toEqual(["events.compactionRequested", "events.compactionCompleted"]);
+    expect(prompt.messages).toEqual([
+      { content: "summary", role: "user" },
+      { content: "reinjected", role: "user" },
+    ]);
+    expect(calls).toEqual([
+      "attachments.stage",
+      "event.compaction.requested",
+      "event.compaction.completed",
+    ]);
   });
 
-  it("routes system entries and the conditional-delivery instruction to the system channel", async () => {
-    const { ports } = createPorts({
-      model: { ambient: () => "ctx", isScheduleAuth: () => true },
-      prompt: {
-        dynamicInstructionEntries: () => ["system:dynamic"],
-        skillAnnouncementEntry: () => "system:skill",
-      },
-      waits: {
-        resolveRuntimeActions: async ({ state }) => ({
-          history: ["system:base", "user:h1"],
-          outcome: "resolved",
-          state,
-        }),
+  it("routes system sources and conditional delivery away from model messages", async () => {
+    const ctx = new ContextContainer();
+    const { config, services } = createFixture({
+      ambient: {
+        current: () => ctx,
+        dynamicInstructionEntries: () => [{ content: "dynamic", role: "system" }],
+        isScheduleAuth: () => true,
+        skillAnnouncementEntry: () => ({ content: "skill", role: "system" }),
       },
     });
-
-    const prompt = await assemblePrompt(ports, resolved({ history: ["system:base", "user:h1"] }));
+    const prompt = await assemblePrompt({
+      config,
+      resolved: {
+        ...resolvedInput(),
+        history: [
+          { content: "base", role: "system" },
+          { content: "prior", role: "user" },
+        ],
+      },
+      services,
+    });
 
     expect(prompt.emptyDeliveryEnabled).toBe(true);
-    expect(prompt.modelEntries).toEqual(["user:h1", "user:staged(hi)"]);
-    expect(prompt.systemEntries).toEqual([
-      "system:base",
-      "system:dynamic",
-      "system:skill",
-      "system:conditional",
+    expect(prompt.modelMessages).toEqual([
+      { content: "prior", role: "user" },
+      { content: "hi", role: "user" },
+    ]);
+    expect(prompt.systemMessages.map((entry) => entry.content)).toEqual([
+      "base",
+      "dynamic",
+      "skill",
+      CONDITIONAL_DELIVERY_INSTRUCTION,
     ]);
   });
 });
 
 describe("generateStep", () => {
-  const input = { input: delivery, state: "s" };
+  const input = { input: { message: "hi" }, state: createSession() };
 
-  it("runs the phases in order and settles the successful call", async () => {
-    const { calls, ports } = createPorts();
+  it("runs preflight, call, accounting, publishing, and settlement in order", async () => {
+    const { calls, config, services } = createFixture();
+    const outcome = await generateStep({ config, services, ...input });
 
-    const outcome = await generateStep(ports, input);
-
-    expect(outcome).toEqual({
-      action: "done",
-      output: "settled(result)",
-      state: "accounted(result)",
-    });
+    expect(outcome).toMatchObject({ action: "done", output: "result" });
     expect(calls).toEqual([
-      "events.turnPreamble",
-      "call.create",
-      "call.prepareAttempt",
-      "events.stepStarted",
-      "call.continueWorkflowInterrupt",
-      "call.enforceTokenLimit",
-      "call.run",
-      "usage.publish(snap(result))",
+      "event.session.started",
+      "event.turn.started",
+      "event.message.received",
+      "attachments.stage",
+      "modelCall.create",
+      "modelCall.prepareAttempt",
+      "event.step.started",
+      "modelCall.continueWorkflowInterrupt",
+      "modelCall.run",
+      "usage.publish",
+      "settle.step",
     ]);
   });
 
-  it("settles on a pending workflow interrupt without a model call", async () => {
-    const { calls, ports } = createPorts({
-      call: {
-        continueWorkflowInterrupt: async () => ({ action: "continue", state: "interrupted" }),
-      },
-    });
-
-    await expect(generateStep(ports, input)).resolves.toEqual({
-      action: "continue",
-      state: "interrupted",
-    });
-    expect(calls).not.toContain("call.run");
-  });
-
-  it("settles on the token limit without a model call", async () => {
-    const { calls, ports } = createPorts({
-      call: { enforceTokenLimit: async () => ({ action: "done", output: "limit", state: "s" }) },
-    });
-
-    await expect(generateStep(ports, input)).resolves.toMatchObject({ output: "limit" });
-    expect(calls).not.toContain("call.run");
-  });
-
-  it("threads error and retry options through the recovery stages in order", async () => {
-    const seen: string[] = [];
-    const { ports } = createPorts({
-      call: {
-        recoveryStages: [
-          async ({ error }) => {
-            seen.push(`stage1(${(error as Error).message})`);
-            return { error: new Error("rewritten"), outcome: "failed", retryOptions: "opts" };
-          },
-          async ({ error, retryOptions }) => {
-            seen.push(`stage2(${(error as Error).message},${String(retryOptions)})`);
-            return { outcome: "recovered", result: "reissued" };
-          },
-        ],
-        run: () => Promise.reject(new Error("boom")),
-      },
-    });
-
-    await expect(generateStep(ports, input)).resolves.toMatchObject({
-      output: "settled(reissued)",
-    });
-    expect(seen).toEqual(["stage1(boom)", "stage2(rewritten,opts)"]);
-  });
-
-  it("records the failure on the trace and rethrows raw without an event stream", async () => {
-    const boom = new Error("boom");
-    const { calls, ports } = createPorts({
-      call: { run: () => Promise.reject(boom) },
-      events: null,
-      trace: { start: () => "T" },
-    });
-
-    await expect(generateStep(ports, input)).rejects.toBe(boom);
-    expect(calls).toContain("trace.recordError(T)");
-  });
-
-  it("parks a stream-write failure even in task mode", async () => {
-    const { calls, ports } = createPorts({
-      call: { run: () => Promise.reject(new Error("boom")) },
-      failure: { isStreamWriteFailure: () => true },
-      mode: "task",
-    });
-
-    const outcome = await generateStep(ports, input);
-
-    expect(outcome).toMatchObject({
-      action: "park",
-      state: "call-state+stamped(em(s)+pre+failed)",
-    });
-    expect(calls).toContain("events.recoverableFailedTurn(stream-write-content)");
-    expect(calls).toContain(
-      "log.error(workflow stream write failed — parking session for retry by the user)",
-    );
-  });
-
-  it("completes a terminal failure as the task's error result in task mode", async () => {
-    const { calls, ports } = createPorts({
-      call: { run: () => Promise.reject(new Error("boom")) },
-      mode: "task",
-    });
-
-    await expect(generateStep(ports, input)).resolves.toEqual({
-      action: "done",
-      isError: true,
-      output: "task(boom)",
-      state: "call-state",
-    });
-    expect(calls).toContain("events.failedStep(failure-content)");
-  });
-
-  it("completes a terminal failure with empty output in conversation mode", async () => {
-    const { ports } = createPorts({ call: { run: () => Promise.reject(new Error("boom")) } });
-
-    await expect(generateStep(ports, input)).resolves.toEqual({
-      action: "done",
-      output: "",
-      state: "call-state",
-    });
-  });
-
-  it("prefers the recognized-terminal log line when one exists", async () => {
-    const { calls, ports } = createPorts({
-      call: { run: () => Promise.reject(new Error("boom")) },
-      failure: {
-        describe: () => ({
-          content: "failure-content",
-          logFields: {},
-          recognizedTerminal: { fields: {}, message: "KnownError: fix your config" },
-          taskOutput: "out",
-          upstreamMessage: "upstream says no",
+  it("settles a pending workflow interrupt without a model call", async () => {
+    const { calls, config, services } = createFixture({
+      modelCall: {
+        continueWorkflowInterrupt: async ({ prompt }) => ({
+          action: "continue",
+          state: prompt.session,
         }),
       },
     });
-
-    await generateStep(ports, input);
-
-    expect(calls).toContain("log.error(KnownError: fix your config)");
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      action: "continue",
+    });
+    expect(calls).not.toContain("modelCall.run");
   });
 
-  it("rethrows a task-retriable failure for the durable step retry", async () => {
+  it("settles on the token limit without a model call", async () => {
+    const session = setTurnUsageState(createSession({ limits: { maxInputTokensPerSession: 1 } }), {
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: 0,
+      inputTokens: 1,
+      outputTokens: 0,
+      sawCost: false,
+      session: {
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+        inputTokens: 1,
+        outputTokens: 0,
+        sawCost: false,
+      },
+      turnId: "turn_0",
+    });
+    const { calls, config, services } = createFixture();
+    await expect(
+      generateStep({ config, input: { message: "hi" }, services, state: session }),
+    ).resolves.toMatchObject({ action: "park", hasPendingInputBatch: true });
+    expect(calls).not.toContain("modelCall.run");
+  });
+
+  it("threads rewritten errors and retry options through recovery stages", async () => {
+    const seen: string[] = [];
+    const stages: readonly RecoveryStage[] = [
+      async ({ error }) => {
+        seen.push(`first:${errorMessage(error)}`);
+        return {
+          error: new Error("rewritten"),
+          outcome: "failed",
+          retryOptions: { extraSystemNote: "retry" },
+        };
+      },
+      async ({ error, retryOptions }) => {
+        seen.push(`second:${errorMessage(error)}:${retryOptions?.extraSystemNote}`);
+        return { outcome: "recovered", result: successfulResult("recovered") };
+      },
+    ];
+    const { config, services } = createFixture({
+      modelCall: { recoveryStages: stages, run: async () => Promise.reject(new Error("boom")) },
+    });
+
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      output: "recovered",
+    });
+    expect(seen).toEqual(["first:boom", "second:rewritten:retry"]);
+  });
+
+  it("records the trace failure and rethrows without an event sink", async () => {
+    const span = trace.getTracer("test").startSpan("turn");
     const boom = new Error("boom");
-    const { calls, ports } = createPorts({
-      call: { run: () => Promise.reject(boom) },
-      failure: { classification: () => "recoverable" },
-      mode: "task",
+    const { calls, config, services } = createFixture({
+      events: false,
+      modelCall: { run: async () => Promise.reject(boom) },
+      trace: { start: () => span },
     });
 
-    await expect(generateStep(ports, input)).rejects.toBe(boom);
-    expect(calls.some((call) => call.startsWith("log.warn(model call failed recoverably"))).toBe(
-      true,
-    );
+    await expect(generateStep({ config, services, ...input })).rejects.toBe(boom);
+    expect(calls).toContain("trace.recordError");
   });
 
-  it("fails the task when a recoverable error exhausted its retry budget", async () => {
-    const { ports } = createPorts({
-      call: { run: () => Promise.reject(new Error("boom")) },
-      failure: { classification: () => "recoverable", isRetryBudgetConsumed: () => true },
-      mode: "task",
+  it("parks a stream-write failure in task mode", async () => {
+    const error = new Error("Stream write failed: HTTP 504 (PUT https://stream)");
+    const { config, services } = createFixture({
+      config: { mode: "task" },
+      modelCall: { run: async () => Promise.reject(error) },
     });
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      action: "park",
+    });
+  });
 
-    await expect(generateStep(ports, input)).resolves.toMatchObject({
+  it("completes terminal task failures as error results", async () => {
+    const error = Object.assign(new Error("bad request"), { statusCode: 400 });
+    const { config, services } = createFixture({
+      config: { mode: "task" },
+      modelCall: { run: async () => Promise.reject(error) },
+    });
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      action: "done",
+      isError: true,
+      output: "task(bad request)",
+    });
+  });
+
+  it("completes terminal conversation failures with empty output", async () => {
+    const error = Object.assign(new Error("bad request"), { statusCode: 400 });
+    const { config, services } = createFixture({
+      modelCall: { run: async () => Promise.reject(error) },
+    });
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      action: "done",
+      output: "",
+    });
+  });
+
+  it("prefers the recognized terminal log line", async () => {
+    const error = Object.assign(new Error("bad request"), { statusCode: 400 });
+    const { calls, config, services } = createFixture({
+      failure: {
+        describe: () => ({
+          content: { code: "KNOWN", details: {}, message: "known" },
+          logFields: {},
+          recognizedTerminal: { fields: {}, message: "KnownError: fix config" },
+          taskOutput: "known",
+          upstreamMessage: undefined,
+        }),
+      },
+      modelCall: { run: async () => Promise.reject(error) },
+    });
+    await generateStep({ config, services, ...input });
+    expect(calls).toContain("log.error(KnownError: fix config)");
+  });
+
+  it("rethrows a recoverable task failure for durable retry", async () => {
+    const error = new Error("recoverable");
+    const { config, services } = createFixture({
+      config: { mode: "task" },
+      modelCall: { run: async () => Promise.reject(error) },
+    });
+    await expect(generateStep({ config, services, ...input })).rejects.toBe(error);
+  });
+
+  it("fails a task after empty-response recovery is exhausted", async () => {
+    const { config, services } = createFixture({
+      config: { mode: "task" },
+      modelCall: {
+        run: async () => Promise.reject(new EmptyModelResponseError()),
+      },
+    });
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
       action: "done",
       isError: true,
     });
   });
 
-  it("parks a conversation on any non-terminal failure", async () => {
-    const { ports } = createPorts({
-      call: { run: () => Promise.reject(new Error("boom")) },
-      failure: { classification: () => "retry" },
+  it("parks a conversation on a non-terminal failure", async () => {
+    const error = Object.assign(new Error("overloaded"), { statusCode: 503 });
+    const { config, services } = createFixture({
+      modelCall: { run: async () => Promise.reject(error) },
     });
-
-    await expect(generateStep(ports, input)).resolves.toMatchObject({ action: "park" });
+    await expect(generateStep({ config, services, ...input })).resolves.toMatchObject({
+      action: "park",
+    });
   });
 
-  it("opens the turn trace on a delivery step, runs inside it, and ends it", async () => {
-    const events: string[] = [];
-    const { ports } = createPorts({
+  it("opens, binds, enters, and ends the turn trace around a delivery", async () => {
+    const span = trace.getTracer("test").startSpan("turn");
+    const seen: string[] = [];
+    const { config, services } = createFixture({
       trace: {
-        start: (name, attributes) => {
-          events.push(
-            `start(${name},${attributes["eve.session.id"]},${attributes["ai.telemetry.functionId"]})`,
-          );
-          return "T";
+        bind: ({ state }) => {
+          seen.push("bind");
+          return state;
         },
-        inContext: ({ state, trace }, run) => {
-          events.push(`context(${state},${String(trace)})`);
+        end: () => seen.push("end"),
+        inContext: (_context, run) => {
+          seen.push("context");
           return run();
         },
-        end: (trace) => {
-          events.push(`end(${trace})`);
+        start: (name, attributes) => {
+          seen.push(
+            `${name}:${attributes["eve.session.id"]}:${attributes["ai.telemetry.functionId"]}`,
+          );
+          return span;
         },
       },
     });
-
-    await generateStep(ports, input);
-
-    // The flow observes the trace-bound state; the trace closes after it.
-    expect(events).toEqual(["start(ai.eve.turn,sid,fn)", "context(s+traced,T)", "end(T)"]);
+    await generateStep({ config, services, ...input });
+    expect(seen).toEqual(["ai.eve.turn:session:fn", "bind", "context", "end"]);
   });
 
   it("does not open a trace for a continuation step", async () => {
-    const { ports } = createPorts({
+    const { config, services } = createFixture({
       trace: {
         start: () => {
-          throw new Error("continuation steps never open a turn trace");
+          throw new Error("continuations do not open turn traces");
         },
       },
     });
-
-    await expect(generateStep(ports, { input: undefined, state: "s" })).resolves.toMatchObject({
-      action: "done",
-    });
+    await expect(
+      generateStep({ config, input: undefined, services, state: createSession() }),
+    ).resolves.toMatchObject({ action: "done" });
   });
 });

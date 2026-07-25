@@ -1,90 +1,93 @@
-import type { StepFlowTypes, StepOutcome, StepPorts } from "#core/step-ports.js";
+import type { Span } from "#compiled/@opentelemetry/api/index.js";
+import type { HarnessStepResult } from "#harness/step-hooks.js";
+
+import {
+  emitFailedStep,
+  emitRecoverableFailedTurn,
+  emitStepStarted,
+  setHarnessEmissionState,
+  type HarnessEmissionState,
+} from "#core/emission.js";
+import { classifyModelCallError, EmptyModelResponseError } from "#core/model-call-error.js";
+import { hasStepInput } from "#core/input-requests.js";
+import { enforceSessionTokenLimit } from "#core/session-limit-enforcement.js";
+import type { RecoveryStage, StepCallRunner, StepServices } from "#core/step-services.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
+import {
+  accumulateTurnUsage,
+  extractGatewayCostUsd,
+  extractTokenUsageDelta,
+  getTurnUsageState,
+  setTurnUsageState,
+} from "#core/turn-tag-state.js";
+import { throwIfTurnAborted } from "#core/turn-cancellation.js";
+import { extractWorkflowStreamWriteErrorDetails } from "#core/workflow-stream-error.js";
 import { assemblePrompt, resolveTurnInput } from "#core/turn-before-call.js";
+import type { GenerateConfig, GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
 
-/**
- * The call and after-call phases of one intra-turn step, and
- * {@link generateStep}, the complete step flow. Written against the
- * dependency ports in `step-ports.ts`: preflight order, the recovery
- * loop, the failure decision tree, usage-accounting order, and the trace
- * envelope are all core-owned.
- */
-
-/**
- * One complete generate step inside its observability envelope: the first
- * step of a turn opens the turn trace and stamps it onto the state so
- * continuation steps restore the parent; every step runs the flow inside
- * the trace context. This is the core shape of the `generate` port
- * implementations.
- */
-export async function generateStep<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  input: { readonly input: S["stepInput"] | undefined; readonly state: S["state"] },
-): Promise<StepOutcome<S>> {
-  const trace = ports.facets.hasDelivery(input.input)
-    ? ports.trace.start("ai.eve.turn", turnAttributes(ports, input.state))
+/** Runs one concrete generate step inside its turn trace. */
+export async function generateStep(input: {
+  readonly config: GenerateConfig;
+  readonly input: StepInput | undefined;
+  readonly services: StepServices;
+  readonly state: HarnessSession;
+}): Promise<GenerateOutcome> {
+  const { services } = input;
+  const turnTrace = hasStepInput(input.input)
+    ? services.trace.start("ai.eve.turn", turnAttributes(services, input.state))
     : undefined;
   try {
     const state =
-      trace === undefined ? input.state : ports.trace.bind({ state: input.state, trace });
-    return await ports.trace.inContext({ state, trace }, () =>
-      runStepFlow(ports, { input: input.input, state, trace }),
+      turnTrace === undefined
+        ? input.state
+        : services.trace.bind({ state: input.state, trace: turnTrace });
+    return await services.trace.inContext({ state, trace: turnTrace }, () =>
+      runStepFlow({ ...input, state, trace: turnTrace }),
     );
   } finally {
-    if (trace !== undefined) {
-      ports.trace.end(trace);
+    if (turnTrace !== undefined) {
+      services.trace.end(turnTrace);
     }
   }
 }
 
-function turnAttributes<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  state: S["state"],
-): Record<string, string> {
+function turnAttributes(services: StepServices, state: HarnessSession): Record<string, string> {
   const attributes: Record<string, string> = {
-    "eve.version": ports.identity.eveVersion,
-    "eve.environment": ports.identity.environment,
-    "eve.session.id": ports.facets.sessionIdOf(state),
+    "eve.environment": services.trace.identity.environment,
+    "eve.session.id": state.sessionId,
+    "eve.version": services.trace.identity.eveVersion,
   };
-  if (ports.identity.functionId !== undefined && ports.identity.functionId !== "") {
-    attributes["ai.telemetry.functionId"] = ports.identity.functionId;
+  const functionId = services.trace.identity.functionId;
+  if (functionId !== undefined && functionId !== "") {
+    attributes["ai.telemetry.functionId"] = functionId;
   }
   return attributes;
 }
 
-async function runStepFlow<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  input: {
-    readonly input: S["stepInput"] | undefined;
-    readonly state: S["state"];
-    readonly trace: S["turnTrace"] | undefined;
-  },
-): Promise<StepOutcome<S>> {
-  // --- Pre-call stage 1: turn-input resolution (may settle) ----------------
-
-  const resolution = await resolveTurnInput(ports, input);
+async function runStepFlow(input: {
+  readonly config: GenerateConfig;
+  readonly input: StepInput | undefined;
+  readonly services: StepServices;
+  readonly state: HarnessSession;
+  readonly trace: Span | undefined;
+}): Promise<GenerateOutcome> {
+  const { config, services } = input;
+  const resolution = await resolveTurnInput(input);
   if (resolution.kind === "settled") {
     return resolution.outcome;
   }
   const { emissionState } = resolution;
 
-  // --- Pre-call stage 2: prompt assembly (straight-line) -------------------
+  const prompt = await assemblePrompt({ config, resolved: resolution, services });
+  const modelCall = services.modelCall.create({ emissionState, prompt });
+  const runner: StepCallRunner = { emissionState, modelCall, prompt };
+  const attempt = services.modelCall.prepareAttempt(modelCall);
 
-  const prompt = await assemblePrompt(ports, resolution);
-
-  // --- Call preflight (may settle) ------------------------------------------
-
-  // The first attempt's input resolves before step.started so dynamic tool
-  // resolvers subscribed to step.started observe the resolved toolset.
-  const runner = ports.call.create({ emissionState, prompt });
-  const attempt = ports.call.prepareAttempt(runner);
-
-  if (ports.events !== undefined) {
-    await ports.events.stepStarted({ emissionState, prompt });
+  if (config.handleEvent !== undefined) {
+    await emitStepStarted(config.handleEvent, emissionState, prompt.messages);
   }
 
-  // Workflow continuations replay the sandbox after step.started so nested
-  // action lifecycle events keep the active turn's emission coordinates.
-  const interrupted = await ports.call.continueWorkflowInterrupt({
+  const interrupted = await services.modelCall.continueWorkflowInterrupt({
     emissionState,
     input: resolution.effectiveInput,
     prompt,
@@ -93,53 +96,69 @@ async function runStepFlow<S extends StepFlowTypes>(
     return interrupted;
   }
 
-  const limited = await ports.call.enforceTokenLimit({ emissionState, prompt });
+  const limited = await enforceSessionTokenLimit({
+    config,
+    emit: config.handleEvent,
+    emissionState,
+    messages: prompt.messages,
+    session: prompt.session,
+  });
   if (limited !== null) {
     return limited;
   }
 
-  // --- Model call + in-process recovery -------------------------------------
-
-  let result: S["callResult"];
+  let result;
   try {
-    result = await ports.call.run({ attempt, runner });
+    result = await services.modelCall.run({ attempt, runner: modelCall });
   } catch (error) {
-    ports.call.assertNotCancelled();
-    const recovery = await recoverModelCall(ports, { error, runner });
-    ports.call.assertNotCancelled();
+    throwIfTurnAborted(config.abortSignal);
+    const recovery = await recoverModelCall(services.modelCall.recoveryStages, {
+      error,
+      runner,
+    });
+    throwIfTurnAborted(config.abortSignal);
     if (recovery.outcome === "failed") {
-      return await settleCallFailure(ports, {
+      return await settleCallFailure({
+        config,
         emissionState,
         error: recovery.error,
         runner,
+        services,
         trace: input.trace,
       });
     }
     result = recovery.result;
   }
 
-  // --- After call ------------------------------------------------------------
-
-  const accounted = ports.usage.accumulate({ result, runner });
-  await ports.usage.publish({ runner, snapshot: accounted.snapshot });
-  return await ports.settle.step({ emissionState, prompt, result, state: accounted.state });
+  const state = services.modelCall.currentState(modelCall);
+  const snapshot = accumulateTurnUsage({
+    previous: getTurnUsageState(state.state),
+    turnId: emissionState.turnId,
+    usage: extractTokenUsageDelta({
+      costUsd: extractGatewayCostUsd(result.providerMetadata),
+      usage: result.usage,
+    }),
+  });
+  const accountedState = setTurnUsageState(state, snapshot);
+  await services.usage.publish({ runner, snapshot });
+  return await services.settle.step({
+    emissionState,
+    prompt,
+    result,
+    state: accountedState,
+  });
 }
 
-/**
- * The staged in-process recovery loop: stages run in port order, a
- * recovered result short-circuits, and a failed stage may replace the
- * error and hand call-shape options to the next stage.
- */
-async function recoverModelCall<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  input: { readonly error: unknown; readonly runner: S["callRunner"] },
+async function recoverModelCall(
+  stages: readonly RecoveryStage[],
+  input: { readonly error: unknown; readonly runner: StepCallRunner },
 ): Promise<
-  | { readonly outcome: "recovered"; readonly result: S["callResult"] }
+  | { readonly outcome: "recovered"; readonly result: HarnessStepResult }
   | { readonly outcome: "failed"; readonly error: unknown }
 > {
   let error = input.error;
-  let retryOptions: S["retryOptions"] | undefined;
-  for (const stage of ports.call.recoveryStages) {
+  let retryOptions;
+  for (const stage of stages) {
     const outcome = await stage({ error, retryOptions, runner: input.runner });
     if (outcome.outcome === "recovered") {
       return outcome;
@@ -152,82 +171,66 @@ async function recoverModelCall<S extends StepFlowTypes>(
   return { error, outcome: "failed" };
 }
 
-/**
- * The failure decision tree for an unrecovered model call:
- *
- * - no event stream → raw rethrow (internal callers handle it);
- * - stream-write failure → park, regardless of mode;
- * - terminal → complete as failure (the task's error result in task mode,
- *   so a parent driver resumes with a failed subagent result instead of a
- *   successful empty output);
- * - task mode → rethrow when the durable step may retry, else fail the run
- *   (a task cannot park for user-driven recovery);
- * - conversation → park for a user retry.
- */
-async function settleCallFailure<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  input: {
-    readonly emissionState: S["emissionState"];
-    readonly error: unknown;
-    readonly runner: S["callRunner"];
-    readonly trace: S["turnTrace"] | undefined;
-  },
-): Promise<StepOutcome<S>> {
-  const { emissionState, error, runner, trace } = input;
-
+async function settleCallFailure(input: {
+  readonly config: GenerateConfig;
+  readonly emissionState: HarnessEmissionState;
+  readonly error: unknown;
+  readonly runner: StepCallRunner;
+  readonly services: StepServices;
+  readonly trace: Span | undefined;
+}): Promise<GenerateOutcome> {
+  const { config, emissionState, error, runner, services, trace } = input;
   if (trace !== undefined) {
-    ports.trace.recordError(trace, error);
+    services.trace.recordError(trace, error);
   }
 
-  if (ports.events === undefined) {
+  const emit = config.handleEvent;
+  if (emit === undefined) {
     throw error;
   }
-  const events = ports.events;
-  const state = ports.call.currentState(runner);
+  const state = services.modelCall.currentState(runner.modelCall);
 
-  // A durable event-stream write failure reaches the call's catch only
-  // because stream writes run inside the model-call try/catch — the model
-  // call itself may have succeeded. Never attribute it to the provider.
-  if (ports.failure.isStreamWriteFailure(error)) {
-    const described = ports.failure.describeStreamWrite({ error, runner });
-    ports.log.error(
+  if (extractWorkflowStreamWriteErrorDetails(error) !== null) {
+    const described = services.failure.describeStreamWrite({ error, runner });
+    services.log.error(
       "workflow stream write failed — parking session for retry by the user",
       described.logFields,
     );
-    const advanced = await events.recoverableFailedTurn({
-      content: described.content,
-      emissionState,
-      state,
+    const advanced = await emitRecoverableFailedTurn(emit, emissionState, {
+      code: described.content.code,
+      continuationToken: state.continuationToken,
+      details: described.content.details,
+      message: described.content.message,
     });
-    return ports.settle.parked({ emissionState: advanced, state });
+    return classifyParkedSession(setHarnessEmissionState(state, advanced));
   }
 
-  const described = ports.failure.describe({ error, runner });
-  const classification = ports.failure.classification(error);
+  const described = services.failure.describe({ error, runner });
+  const classification = classifyModelCallError(error);
 
   if (classification === "terminal") {
     if (described.recognizedTerminal !== undefined) {
-      // Recognized configuration failure: log the concise actionable line
-      // instead of the structured dump.
-      ports.log.error(described.recognizedTerminal.message, described.recognizedTerminal.fields);
+      services.log.error(described.recognizedTerminal.message, described.recognizedTerminal.fields);
     } else {
-      ports.log.error(
+      services.log.error(
         described.upstreamMessage ?? "model call failed terminally",
         described.logFields,
       );
     }
-    await events.failedStep({ content: described.content, emissionState, state });
-    return ports.mode === "task"
+    await emitFailedStep(emit, emissionState, {
+      code: described.content.code,
+      details: described.content.details,
+      message: described.content.message,
+      sessionId: state.sessionId,
+    });
+    return config.mode === "task"
       ? { action: "done", isError: true, output: described.taskOutput, state }
       : { action: "done", output: "", state };
   }
 
-  if (ports.mode === "task") {
-    if (classification === "recoverable" && !ports.failure.isRetryBudgetConsumed(error)) {
-      // A task cannot park for user-driven recovery. Let the durable step
-      // retry from committed state — but only for errors whose in-process
-      // budget is untouched.
-      ports.log.warn(
+  if (config.mode === "task") {
+    if (classification === "recoverable" && !(error instanceof EmptyModelResponseError)) {
+      services.log.warn(
         described.upstreamMessage ??
           "model call failed recoverably in task mode — rethrowing for durable step retry",
         described.logFields,
@@ -235,22 +238,28 @@ async function settleCallFailure<S extends StepFlowTypes>(
       throw error;
     }
 
-    ports.log.error(
+    services.log.error(
       described.upstreamMessage ?? "model call failed; failing the task run",
       described.logFields,
     );
-    await events.failedStep({ content: described.content, emissionState, state });
+    await emitFailedStep(emit, emissionState, {
+      code: described.content.code,
+      details: described.content.details,
+      message: described.content.message,
+      sessionId: state.sessionId,
+    });
     return { action: "done", isError: true, output: described.taskOutput, state };
   }
 
-  ports.log.error(
+  services.log.error(
     described.upstreamMessage ?? "model call failed — parking session for retry by the user",
     described.logFields,
   );
-  const advanced = await events.recoverableFailedTurn({
-    content: described.content,
-    emissionState,
-    state,
+  const advanced = await emitRecoverableFailedTurn(emit, emissionState, {
+    code: described.content.code,
+    continuationToken: state.continuationToken,
+    details: described.content.details,
+    message: described.content.message,
   });
-  return ports.settle.parked({ emissionState: advanced, state });
+  return classifyParkedSession(setHarnessEmissionState(state, advanced));
 }

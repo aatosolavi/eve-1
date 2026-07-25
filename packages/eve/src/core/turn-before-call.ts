@@ -1,249 +1,276 @@
-import type { StepFlowTypes, StepOutcome, StepPorts } from "#core/step-ports.js";
+import type { ModelMessage, SystemModelMessage } from "ai";
 
-/**
- * The two pre-call stages of one intra-turn step, written against the
- * dependency ports in `step-ports.ts`: every branch, loop, and ordering
- * here is core-owned; the ports supply primitives and facets only.
- *
- * 1. {@link resolveTurnInput} — folds the delivery, deferred input, child
- *    results, and HITL responses into the state. The only pre-call stage
- *    that can settle the step without a model call.
- * 2. {@link assemblePrompt} — the context-engineering pipeline. Performs
- *    effects (staging, model resolution, compaction) but never settles;
- *    its failures are throws handled by the caller.
- */
+import {
+  createActionResultEvent,
+  createCompactionCompletedEvent,
+  createCompactionRequestedEvent,
+} from "#core/protocol/message.js";
+import {
+  emitTurnEpilogue,
+  emitTurnPreamble,
+  getHarnessEmissionState,
+  setHarnessEmissionState,
+  type HarnessEmissionState,
+} from "#core/emission.js";
+import {
+  consumeDeferredStepInput,
+  getApprovedTools,
+  getPendingInputRequestIds,
+  hasStepInput,
+  resolvePendingInput,
+} from "#core/input-requests.js";
+import { normalizeUserContent } from "#core/messages.js";
+import { detectPromptCachePath, getAnthropicCacheMarker } from "#core/prompt-cache.js";
+import { resolvePendingRuntimeActions } from "#core/runtime-actions.js";
+import { applySessionLimitContinuation } from "#core/session-limit-enforcement.js";
+import { convertStaleResponsesToUserMessage } from "#core/stale-input-responses.js";
+import type { PreparedModelCall, StepServices } from "#core/step-services.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
+import { resolveApprovalKeyFromTools } from "#core/tool-approval.js";
+import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#core/shared/empty-delivery.js";
+import type { GenerateConfig, GenerateOutcome, HarnessSession, StepInput } from "#harness/types.js";
+import type { Span } from "#compiled/@opentelemetry/api/index.js";
 
-/** The outcome of {@link resolveTurnInput}: settle the step, or proceed. */
-export type TurnInputResolution<S extends StepFlowTypes> =
-  | { readonly kind: "settled"; readonly outcome: StepOutcome<S> }
-  | ({ readonly kind: "resolved" } & ResolvedTurnInput<S>);
+export type TurnInputResolution =
+  | { readonly kind: "settled"; readonly outcome: GenerateOutcome }
+  | ({ readonly kind: "resolved" } & ResolvedTurnInput);
 
-/** Everything prompt assembly needs once input resolution has succeeded. */
-export interface ResolvedTurnInput<S extends StepFlowTypes> {
-  /** The delivery message already rode an input response; do not append it again. */
+export interface ResolvedTurnInput {
   readonly consumedMessage?: boolean;
-  /** Context entries were deferred to a later step; do not append them now. */
   readonly deferredContext?: boolean;
-  /** The delivery message was deferred to a later step; do not append it now. */
   readonly deferredMessage?: boolean;
-  /** Step input after deferred-input replay and stale-response conversion. */
-  readonly effectiveInput: S["stepInput"] | undefined;
-  readonly emissionState: S["emissionState"];
-  /** History with pending input folded in — the base prompt. */
-  readonly history: readonly S["historyEntry"][];
-  readonly state: S["state"];
+  readonly effectiveInput: StepInput | undefined;
+  readonly emissionState: HarnessEmissionState;
+  readonly history: readonly ModelMessage[];
+  readonly state: HarnessSession;
 }
 
 /**
- * Pre-call stage 1: resolves everything the turn is waiting on before a
- * prompt can exist. Reads top to bottom: deferred input replay; pending
- * runtime actions; stale-response conversion; pending HITL input; the
- * turn preamble; the session-limit continuation. Each wait that has no
- * resume payload yet settles the step as parked.
+ * Resolves deferred input, runtime actions, stale responses, pending input,
+ * and session-limit continuation before prompt assembly.
  */
-export async function resolveTurnInput<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  input: {
-    readonly input: S["stepInput"] | undefined;
-    readonly state: S["state"];
-    /** The open turn trace, tagged with the turn id once the preamble emits. */
-    readonly trace: S["turnTrace"] | undefined;
-  },
-): Promise<TurnInputResolution<S>> {
+export async function resolveTurnInput(input: {
+  readonly config: GenerateConfig;
+  readonly input: StepInput | undefined;
+  readonly services: StepServices;
+  readonly state: HarnessSession;
+  readonly trace: Span | undefined;
+}): Promise<TurnInputResolution> {
+  const { config, services } = input;
+  const emit = config.handleEvent;
   let state = input.state;
-  let emissionState = ports.facets.readEmission(state);
+  let emissionState = getHarnessEmissionState(state.state);
 
-  const deferred = ports.waits.consumeDeferredInput({ input: input.input, state });
-  state = deferred.state;
+  const deferred = consumeDeferredStepInput({ input: input.input, session: state });
+  state = deferred.session;
 
-  const actions = await ports.waits.resolveRuntimeActions({ input: deferred.input, state });
-  if (actions.outcome === "unresolved") {
-    return settled(ports.settle.parked({ state: actions.state }));
-  }
-  state = actions.state;
-
-  const stale = ports.waits.convertStaleResponses({
-    history: actions.history,
-    input: deferred.input,
-    state,
+  const actions = await resolvePendingRuntimeActions({
+    emit,
+    session: state,
+    stepInput: deferred.input,
   });
+  if (actions.outcome === "unresolved") {
+    return settled(classifyParkedSession(actions.session));
+  }
+  state = actions.session;
 
-  const pending = ports.waits.resolvePendingInput({
-    history: actions.history,
-    input: stale.effectiveInput,
-    state,
+  const conversion = convertStaleResponsesToUserMessage({
+    history: actions.messages,
+    pendingRequestIds: getPendingInputRequestIds(state.state),
+    stepInput: deferred.input,
+  });
+  const effectiveInput = conversion.stepInput;
+  const displayInput =
+    conversion.kind === "converted"
+      ? { ...effectiveInput, message: conversion.displayMessage }
+      : effectiveInput;
+
+  const pending = resolvePendingInput({
+    history: actions.messages,
+    resolveApprovalKey: resolveApprovalKeyFromTools(config.tools),
+    session: state,
+    stepInput: effectiveInput,
   });
   if (pending.outcome === "unresolved") {
-    // A parked delivery that carried a deferred message still opens and
-    // closes its turn so the delivery is visible on the event stream.
-    if (
-      ports.events !== undefined &&
-      pending.deferredMessage === true &&
-      ports.facets.hasDelivery(input.input)
-    ) {
-      emissionState = await ports.events.turnPreamble({ emissionState, input: stale.displayInput });
-      emissionState = await ports.events.turnEpilogue({ emissionState, state: pending.state });
-      return settled(ports.settle.parked({ emissionState, state: pending.state }));
+    if (emit !== undefined && pending.deferredMessage === true && hasStepInput(input.input)) {
+      emissionState = await emitTurnPreamble(
+        emit,
+        displayInput ?? {},
+        emissionState,
+        config.runtimeIdentity,
+      );
+      emissionState = await emitTurnEpilogue(
+        emit,
+        emissionState,
+        config.mode,
+        pending.session.continuationToken,
+      );
+      return settled(
+        classifyParkedSession(setHarnessEmissionState(pending.session, emissionState)),
+      );
     }
 
-    return settled(ports.settle.parked({ state: pending.state }));
+    return settled(classifyParkedSession(pending.session));
   }
 
-  // Surface denied tool-call approvals as rejected action results. The
-  // denial otherwise lives only in model history, so consumers (e.g.
-  // observability) never see the tool call resolve.
-  if (ports.events !== undefined && pending.rejectedApprovals !== undefined) {
-    for (const result of ports.facets.approvalResultsOf(pending.rejectedApprovals)) {
-      await ports.events.rejectedApproval({ batch: pending.rejectedApprovals, result });
+  if (emit !== undefined && pending.rejectedActions !== undefined) {
+    for (const result of pending.rejectedActions.results) {
+      await emit(
+        createActionResultEvent({
+          rejected: true,
+          result,
+          sequence: pending.rejectedActions.event.sequence,
+          stepIndex: pending.rejectedActions.event.stepIndex,
+          turnId: pending.rejectedActions.event.turnId,
+        }),
+      );
     }
   }
 
-  if (ports.events !== undefined && ports.facets.hasDelivery(input.input)) {
-    emissionState = await ports.events.turnPreamble({ emissionState, input: stale.displayInput });
-
+  if (emit !== undefined && hasStepInput(input.input)) {
+    emissionState = await emitTurnPreamble(
+      emit,
+      displayInput ?? {},
+      emissionState,
+      config.runtimeIdentity,
+    );
     if (input.trace !== undefined) {
-      ports.trace.setAttribute(input.trace, "eve.turn.id", ports.facets.turnIdOf(emissionState));
+      services.trace.setAttribute(input.trace, "eve.turn.id", emissionState.turnId);
     }
   }
 
-  state = pending.state;
-
-  // A resolved session-limit continuation prompt grants a fresh token
-  // budget or ends the session.
-  const continuation = await ports.waits.applyLimitContinuation({
+  const continuation = await applySessionLimitContinuation({
+    config,
+    emit,
     emissionState,
-    limitGrant: pending.limitGrant,
-    state,
+    limitContinuation: pending.limitContinuation,
+    session: pending.session,
   });
-  if (continuation.outcome !== null) {
-    return settled(continuation.outcome);
+  if (continuation.result !== null) {
+    return settled(continuation.result);
   }
 
   return {
     consumedMessage: pending.consumedMessage,
     deferredContext: pending.deferredContext,
     deferredMessage: pending.deferredMessage,
-    effectiveInput: stale.effectiveInput,
+    effectiveInput,
     emissionState,
-    history: pending.history,
+    history: pending.messages,
     kind: "resolved",
-    state: continuation.state,
+    state: continuation.session,
   };
 }
 
-function settled<S extends StepFlowTypes>(outcome: StepOutcome<S>): TurnInputResolution<S> {
+function settled(outcome: GenerateOutcome): TurnInputResolution {
   return { kind: "settled", outcome };
 }
 
 /**
- * Pre-call stage 2: the context-engineering pipeline. Assembles, in
- * order: the delivery's context entries; the staged delivery message; the
- * active model (dynamic-model dispatch, cache plan, attribution);
- * compaction; attachment hydration; the system channel (durable history
- * systems, dynamic instructions, skill announcements, the conditional
- * delivery instruction).
- *
- * Straight-line by contract: this stage never settles the step. Its
- * dependencies perform effects (staging, model resolution, compaction),
- * so failures throw to the caller's recovery path.
+ * Builds the durable prompt and its transient model-facing projection.
  */
-export async function assemblePrompt<S extends StepFlowTypes>(
-  ports: StepPorts<S>,
-  resolved: ResolvedTurnInput<S>,
-): Promise<S["prompt"]> {
+export async function assemblePrompt(input: {
+  readonly config: GenerateConfig;
+  readonly resolved: ResolvedTurnInput;
+  readonly services: StepServices;
+}): Promise<PreparedModelCall> {
+  const { config, resolved, services } = input;
+  const emit = config.handleEvent;
   let state = resolved.state;
   const { emissionState } = resolved;
   let history = [...resolved.history];
 
-  const contextEntries = ports.facets.contextEntriesOf(resolved.effectiveInput);
-  if (contextEntries !== undefined && resolved.deferredContext !== true) {
-    for (const entry of contextEntries) {
-      history.push(ports.prompt.userEntry(entry));
+  if (resolved.effectiveInput?.context !== undefined && resolved.deferredContext !== true) {
+    for (const entry of resolved.effectiveInput.context) {
+      history.push({ content: entry, role: "user" });
     }
   }
 
-  const deliveryContent = ports.facets.deliveryContentOf(resolved.effectiveInput);
+  const deliveryContent = normalizeUserContent(resolved.effectiveInput?.message);
   if (
     deliveryContent !== undefined &&
     resolved.deferredMessage !== true &&
     resolved.consumedMessage !== true
   ) {
-    // Staging writes attachment bytes into the sandbox and returns
-    // ref-only content, so the history never carries raw bytes across
-    // step boundaries.
-    history.push(ports.prompt.userEntry(await ports.prompt.stageAttachments(deliveryContent)));
+    history.push({ content: await services.attachments.stage(deliveryContent), role: "user" });
   }
 
-  // --- Active model ---------------------------------------------------------
-
-  const ctx = ports.model.ambient();
-  if (ctx !== undefined && ports.model.dispatchDynamicModel !== undefined) {
-    await ports.model.dispatchDynamicModel({ ctx, emissionState, history, state });
+  const ctx = services.ambient.current();
+  if (ctx !== undefined && services.modelCall.dispatchDynamicModel !== undefined) {
+    await services.modelCall.dispatchDynamicModel({ ctx, emissionState, history, state });
   }
-  const resolvedModel = await ports.model.resolve({ ctx, state });
+  const resolvedModel = await services.modelCall.resolveActive({ ctx, state });
   state = resolvedModel.state;
   const model = resolvedModel.model;
-  const cachePlan = ports.model.cachePlan(model);
-  const cacheMarker =
-    cachePlan.kind === "anthropic-direct" ? ports.model.anthropicCacheMarker() : undefined;
-  const attributionHeaders = ports.model.attributionHeaders(model);
+  const cachePath = detectPromptCachePath(model);
+  const marker = cachePath.kind === "anthropic-direct" ? getAnthropicCacheMarker() : undefined;
+  const attributionHeaders = services.modelCall.attributionHeaders(model);
 
-  // --- Compaction -----------------------------------------------------------
-  //
-  // Runs before the call so the compacted entries flow through the same
-  // history that rebuilds the durable state after the step.
-  if (ports.compaction.shouldCompact(history, state)) {
-    const compactionModel = await ports.compaction.resolveModel({ model, state });
-    if (ports.events !== undefined) {
-      await ports.events.compactionRequested({ compactionModel, emissionState, history, state });
+  if (services.modelCall.shouldCompact(history, state)) {
+    const compactionModel = await services.modelCall.resolveCompaction({ model, state });
+    if (emit !== undefined) {
+      await emit(
+        createCompactionRequestedEvent({
+          modelId: services.modelCall.formatModelId(compactionModel.model),
+          sequence: emissionState.sequence,
+          sessionId: state.sessionId,
+          turnId: emissionState.turnId,
+          usageInputTokens: services.modelCall.compactionInputTokens(history, state),
+        }),
+      );
     }
-    history = [...(await ports.compaction.run({ compactionModel, history, state }))];
-    history.push(...ports.compaction.postCompactionEntries());
-    if (ports.events !== undefined) {
-      await ports.events.compactionCompleted({ compactionModel, emissionState, state });
+    history = [...(await services.modelCall.compact({ compactionModel, history, state }))];
+    history.push(...(config.onCompaction?.() ?? []));
+    if (emit !== undefined) {
+      await emit(
+        createCompactionCompletedEvent({
+          modelId: services.modelCall.formatModelId(compactionModel.model),
+          sequence: emissionState.sequence,
+          sessionId: state.sessionId,
+          turnId: emissionState.turnId,
+        }),
+      );
     }
   }
-
-  // --- Model-facing projection ------------------------------------------------
 
   const emptyDeliveryEnabled =
-    !ports.facets.hasOutputSchema(state) &&
+    state.outputSchema === undefined &&
     ctx !== undefined &&
-    ports.model.isScheduleAuth(ctx) &&
-    !ports.model.hasParentSession(ctx);
+    services.ambient.isScheduleAuth(ctx) &&
+    !services.ambient.hasParentSession(ctx);
 
-  // Hydration is transient: `history` itself stays ref-only so it can flow
-  // into the durable state without bloating every future step boundary.
-  const hydrated = await ports.prompt.hydrate(history);
-
-  // Providers reject system entries in the message list — route them (and
-  // every dynamic system source) onto the dedicated system channel.
-  const systemEntries: S["historyEntry"][] = [];
-  const modelEntries: S["historyEntry"][] = [];
+  const hydrated = await services.attachments.hydrate(history);
+  const systemMessages: SystemModelMessage[] = [];
+  const modelMessages: ModelMessage[] = [];
   for (const entry of hydrated) {
-    (ports.prompt.isSystemEntry(entry) ? systemEntries : modelEntries).push(entry);
+    if (entry.role === "system") {
+      systemMessages.push(entry);
+    } else {
+      modelMessages.push(entry);
+    }
   }
   if (ctx !== undefined) {
-    systemEntries.push(...ports.prompt.dynamicInstructionEntries(ctx));
-    const skillAnnouncement = ports.prompt.skillAnnouncementEntry(ctx);
+    systemMessages.push(...services.ambient.dynamicInstructionEntries(ctx));
+    const skillAnnouncement = services.ambient.skillAnnouncementEntry(ctx);
     if (skillAnnouncement !== undefined) {
-      systemEntries.push(skillAnnouncement);
+      systemMessages.push(skillAnnouncement);
     }
   }
   if (emptyDeliveryEnabled) {
-    systemEntries.push(ports.prompt.conditionalDeliveryEntry());
+    systemMessages.push({ content: CONDITIONAL_DELIVERY_INSTRUCTION, role: "system" });
   }
 
-  return ports.prompt.finalize({
+  return {
+    approvedTools: getApprovedTools(state),
     attributionHeaders,
-    cacheMarker,
-    cachePath: cachePlan.path,
+    cachePath,
     ctx,
     emptyDeliveryEnabled,
-    history,
+    marker,
+    messages: history,
     model,
-    modelEntries,
-    state,
-    systemEntries,
-  });
+    modelMessages,
+    session: state,
+    systemMessages,
+  };
 }
