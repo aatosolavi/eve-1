@@ -3,7 +3,7 @@ import { createSessionStep } from "#execution/create-session-step.js";
 import { readDurableSession } from "#execution/durable-session-store.js";
 import { type DurableSessionState } from "#core/durable-session-store.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
-import { createEntryPorts } from "#execution/step-entry-ports.js";
+import { createEntryServices } from "#execution/entry-services.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
 import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -51,7 +51,7 @@ export function createTemporalLoopActivities(input: {
           },
         });
         return await runStepEntrypoint(
-          createEntryPorts({
+          createEntryServices({
             createRuntime: unsupportedChildRuntime,
             parentWritable,
             writeEveAttributes: undefined,

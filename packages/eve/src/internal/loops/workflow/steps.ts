@@ -8,7 +8,7 @@ import {
 } from "#core/durable-session-migrations/turn-workflow.js";
 import { routeDeliverPayload } from "#core/subagent-hitl-proxy.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
-import { createEntryPorts } from "#execution/step-entry-ports.js";
+import { createEntryServices } from "#execution/entry-services.js";
 import type { TurnStepResult } from "#internal/loops/types.js";
 import { buildTurnAttributes, readRootSessionId } from "#core/eve-workflow-attributes.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
@@ -52,7 +52,7 @@ export async function turnStep(rawInput: TurnStepInput): Promise<TurnStepResult>
   }
 
   return await runStepEntrypoint(
-    createEntryPorts({
+    createEntryServices({
       abortSignal: rawInput.abortSignal,
       createRuntime: createWorkflowRuntime,
       parentWritable: rawInput.parentWritable,

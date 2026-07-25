@@ -1,308 +1,379 @@
 import { describe, expect, it } from "vitest";
 
-import type { EntryFlowTypes, EntryPorts } from "#core/entrypoint.js";
+import { ContextContainer } from "#context/container.js";
+import {
+  CallbackBaseUrlKey,
+  PendingAuthorizationResultKey,
+  setPendingAuthorization,
+} from "#core/authorization.js";
+import { ContinuationTokenKey, ModeKey } from "#core/context/keys.js";
+import { createDurableSessionState, type DurableSession } from "#core/durable-session-store.js";
+import type { EntryServices, StepEntryInput } from "#core/entrypoint.js";
 import { runStepEntrypoint } from "#core/index.js";
+import { createStepStartedEvent, createTurnStartedEvent } from "#core/protocol/message.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
+import type { JsonObject } from "#core/shared/json.js";
+import { setTurnUsageState } from "#core/turn-tag-state.js";
+import { TurnCancelledError } from "#core/turn-cancellation.js";
+import type { LoopMode } from "#core/types.js";
+import type { HarnessSession } from "#harness/types.js";
 
-/**
- * Minimal concrete binding: every payload is a tagged string; the turn
- * input mirrors the deliver / child-results union structurally.
- */
-interface TestEntry extends EntryFlowTypes {
-  readonly authCallback: string;
-  readonly authCompletion: string;
-  readonly context: string;
-  readonly deliveryPayload: string;
-  readonly durableSession: string;
-  readonly durableState: string;
-  readonly emissionState: string;
-  readonly event: string;
-  readonly messages: readonly string[];
-  readonly outputSchema: string;
-  readonly pendingAuthorization: string;
-  readonly serializedContext: string;
-  readonly session: string;
-  readonly stepInput: string;
-  readonly turnInput:
-    | { readonly kind: "deliver"; readonly payloads: readonly string[] }
-    | { readonly kind: "runtime-action-result"; readonly results: readonly string[] };
-  readonly usage: string;
-  readonly writer: string;
-}
-
-type Group<K extends keyof EntryPorts<TestEntry>> = Partial<EntryPorts<TestEntry>[K]>;
+type Group<K extends keyof EntryServices> = Partial<EntryServices[K]>;
 
 interface Overrides {
-  readonly auth?: Group<"auth">;
+  readonly agentOutputSchema?: JsonObject;
+  readonly cancellation?: Group<"cancellation">;
   readonly channel?: Group<"channel">;
-  readonly contexts?: Group<"contexts">;
-  readonly generate?: EntryPorts<TestEntry>["generate"];
+  readonly generate?: EntryServices["generate"];
   readonly hooks?: Group<"hooks">;
-  readonly schema?: Group<"schema">;
+  readonly mode?: LoopMode;
+  readonly scope?: Group<"scope">;
   readonly sessions?: Group<"sessions">;
-  readonly usage?: Group<"usage">;
+  readonly stream?: Group<"stream">;
 }
 
-function createPorts(over: Overrides = {}): {
+function createServices(overrides: Overrides = {}): {
   readonly calls: string[];
-  readonly ports: EntryPorts<TestEntry>;
+  readonly services: EntryServices;
 } {
   const calls: string[] = [];
-  const note = (name: string) => calls.push(name);
+  const note = (value: string) => calls.push(value);
+  const writer = new WritableStream<Uint8Array>().getWriter();
 
-  const ports: EntryPorts<TestEntry> = {
-    auth: {
-      callbackOf: (payload) => (payload.startsWith("cb:") ? payload.slice(3) : undefined),
-      clearPending: (durable, names) => `${durable}-cleared(${names.join(",")})`,
-      completedEvent: ({ completion, emissionState }) =>
-        `auth-completed(${completion},${emissionState})`,
-      match: (pending, callback) =>
-        callback === "known"
-          ? { completion: `comp(${pending})`, name: "known", result: `res(${callback})` }
-          : undefined,
-      pendingOf: () => undefined,
-      stash: (_ctx, results) => note(`auth.stash(${results.join(",")})`),
-      ...over.auth,
-    },
+  const base: EntryServices = {
     cancellation: {
-      assertNotAborted: () => {},
-      isCancellation: (error) => error instanceof Error && error.message === "cancelled",
+      abortSignal: undefined,
     },
     channel: {
-      coalesce: (first, second) => `${first}+${second}`,
-      deliver: async (_ctx, payload) => `in(${payload})`,
+      async deliver(_ctx, payload) {
+        note(`channel.deliver(${String(payload.message)})`);
+        return payload.message === undefined
+          ? undefined
+          : { message: payload.message, outputSchema: payload.outputSchema };
+      },
       pinAdapterState: () => note("channel.pinAdapterState"),
-      transformEvent: async (_ctx, event) => `adapted(${event})`,
-      ...over.channel,
+      async transformEvent(_ctx, event) {
+        note(`channel.transform(${event.type})`);
+        return event;
+      },
     },
     codec: {
-      restore: async (serialized) => `ctx(${serialized})`,
-      serialize: () => "serialized-out",
+      async restore() {
+        const ctx = new ContextContainer();
+        ctx.set(ModeKey, overrides.mode ?? "conversation");
+        return {
+          agentOutputSchema: overrides.agentOutputSchema,
+          ctx,
+        };
+      },
+      serialize: () => ({ serialized: "out" }),
     },
-    contexts: {
-      applyDeliveryAuth: () => note("contexts.applyDeliveryAuth"),
-      modeOf: () => "conversation",
-      seedCallbackBaseUrl: (_ctx, url) => note(`contexts.seedCallbackBaseUrl(${url})`),
-      ...over.contexts,
-    },
-    generate:
-      over.generate ??
-      (async ({ input, session }) => ({
+    async generate({ input, session }) {
+      return {
         action: "done",
-        output: `out(${String(input)})`,
-        state: `${session}+gen`,
-      })),
-    hooks: {
-      dispatchDynamicInstructions: async (_ctx, event) => {
-        note(`hooks.instructions(${event})`);
-      },
-      dispatchDynamicModel: async (_ctx, event) => {
-        note(`hooks.model(${event})`);
-      },
-      dispatchDynamicSkills: async (_ctx, event) => {
-        note(`hooks.skills(${event})`);
-      },
-      dispatchDynamicTools: async (_ctx, event) => {
-        note(`hooks.tools(${event})`);
-      },
-      dispatchStreamHooks: async (_ctx, event) => {
-        note(`hooks.stream(${event})`);
-      },
-      isStepStarted: (event) => event.includes("step.started"),
-      ...over.hooks,
+        output: input?.message,
+        state: withSystemSuffix(session, "generated"),
+      };
     },
-    schema: {
-      agentSchemaOf: () => undefined,
-      hasSchema: (session) => session.includes("+schema"),
-      runScopedOf: () => undefined,
-      withSchema: (session, schema) => `${session}+schema(${schema})`,
-      ...over.schema,
+    hooks: {
+      async dispatchDynamicInstructions(_ctx, event) {
+        note(`hooks.instructions(${event.type})`);
+      },
+      async dispatchDynamicModel(_ctx, event) {
+        note(`hooks.model(${event.type})`);
+      },
+      async dispatchDynamicSkills(_ctx, event) {
+        note(`hooks.skills(${event.type})`);
+      },
+      async dispatchDynamicTools(_ctx, event) {
+        note(`hooks.tools(${event.type})`);
+      },
+      async dispatchStreamHooks(_ctx, event) {
+        note(`hooks.stream(${event.type})`);
+      },
+      recordChildUsageSpans: () => note("hooks.recordChildUsageSpans"),
     },
     scope: {
       run: (_ctx, session, fn) => fn(session),
     },
     sessions: {
-      classifyParked: (session) => ({
-        action: "park",
-        hasPendingAuthorization: false,
-        hasPendingInputBatch: false,
-        state: session,
-      }),
-      hydrate: (_ctx, durable) => `sess(${durable})`,
-      readEmission: (session) => `em(${session})`,
-      reconcileToken: (_ctx, session) => session,
-      refresh: (_ctx, session) => `${session}+refreshed`,
-      snapshot: (session) => `snap(${session})`,
-      ...over.sessions,
+      hydrate: (_ctx, durable) =>
+        makeSession({
+          continuationToken: durable.continuationToken,
+          state: durable.state,
+          system: durable.agent.system,
+        }),
+      refresh: (_ctx, session) => withSystemSuffix(session, "refreshed"),
     },
     stream: {
-      close: async (writer) => {
-        note(`stream.close(${writer})`);
+      async close() {
+        note("stream.close");
       },
-      open: () => {
+      open() {
         note("stream.open");
-        return "W";
+        return writer;
       },
-      release: (writer) => {
-        note(`stream.release(${writer})`);
+      release: () => note("stream.release"),
+      async write(_writer, event) {
+        const name = event.type === "authorization.completed" ? `:${event.data.name}` : "";
+        note(`stream.write(${event.type}${name})`);
       },
-      write: async (writer, event) => {
-        note(`stream.write(${writer},${event})`);
-      },
-    },
-    turnInputs: {
-      asChildResultInput: (turnInput) =>
-        turnInput.kind === "runtime-action-result"
-          ? `children(${turnInput.results.join(",")})`
-          : "",
-      isChildResults: (turnInput) => turnInput?.kind === "runtime-action-result",
-      isDelivery: (turnInput) => turnInput?.kind === "deliver",
-      payloadsOf: (turnInput) => (turnInput.kind === "deliver" ? turnInput.payloads : []),
-      withPayloads: (turnInput, payloads) =>
-        turnInput.kind === "deliver" ? { kind: "deliver", payloads } : turnInput,
-    },
-    usage: {
-      recordChildSpans: () => note("usage.recordChildSpans"),
-      sessionTotalsOf: (session) => `totals(${session})`,
-      ...over.usage,
     },
   };
-  return { calls, ports };
+
+  return {
+    calls,
+    services: {
+      ...base,
+      cancellation: { ...base.cancellation, ...overrides.cancellation },
+      channel: { ...base.channel, ...overrides.channel },
+      generate: overrides.generate ?? base.generate,
+      hooks: { ...base.hooks, ...overrides.hooks },
+      scope: { ...base.scope, ...overrides.scope },
+      sessions: { ...base.sessions, ...overrides.sessions },
+      stream: { ...base.stream, ...overrides.stream },
+    },
+  };
+}
+
+function makeSession(
+  input: {
+    readonly continuationToken?: string;
+    readonly state?: HarnessSession["state"];
+    readonly system?: string;
+  } = {},
+): HarnessSession {
+  return {
+    agent: {
+      modelReference: { id: "test-model" },
+      system: input.system ?? "hydrated",
+      tools: [],
+    },
+    compaction: { recentWindowSize: 4, threshold: 1_000_000 },
+    continuationToken: input.continuationToken ?? "token",
+    history: [],
+    sessionId: "session",
+    state: input.state,
+  };
+}
+
+function withSystemSuffix(session: HarnessSession, suffix: string): HarnessSession {
+  return {
+    ...session,
+    agent: {
+      ...session.agent,
+      system: `${session.agent.system}+${suffix}`,
+    },
+  };
+}
+
+function makeDurable(state?: DurableSession["state"]): DurableSession {
+  return {
+    agent: { system: "hydrated" },
+    continuationToken: "token",
+    history: [],
+    sessionId: "session",
+    state,
+  };
 }
 
 function entryInput(
-  turnInput: TestEntry["turnInput"] | undefined,
-  callbackBaseUrl?: string,
-): Parameters<typeof runStepEntrypoint<TestEntry>>[1] {
+  turnInput: StepEntryInput["turnInput"],
+  durableSession = makeDurable(),
+): StepEntryInput {
   return {
-    callbackBaseUrl,
-    durableSession: "durable",
-    durableSnapshot: "rawsnap",
-    serializedContext: "serialized-in",
+    callbackBaseUrl: undefined,
+    durableSession,
+    durableSnapshot: createDurableSessionState({ session: makeSession() }),
+    serializedContext: { serialized: "in" },
     turnInput,
   };
 }
 
-const deliver = (payloads: readonly string[]): TestEntry["turnInput"] => ({
+const deliver = (...messages: readonly string[]): StepEntryInput["turnInput"] => ({
   kind: "deliver",
-  payloads,
+  payloads: messages.map((message) => ({ message })),
 });
 
 describe("runStepEntrypoint", () => {
-  it("resolves the delivery, runs the step, and projects the done outcome", async () => {
-    const { calls, ports } = createPorts();
-
-    const outcome = await runStepEntrypoint(ports, entryInput(deliver(["p1", "p2"]), "http://cb"));
-
-    // Coalesced payloads flow into generate over the refreshed session; the
-    // done arm carries session totals, the closed stream, and the snapshot
-    // of the token-reconciled session.
-    expect(outcome).toEqual({
-      action: "done",
-      isError: undefined,
-      output: "out(in(p1)+in(p2))",
-      state: { durable: "snap(sess(durable)+refreshed+gen)", serializedContext: "serialized-out" },
-      usage: "totals(sess(durable)+refreshed+gen)",
+  it("folds each delivery payload, closes done streams, and reports session totals", async () => {
+    const { calls, services } = createServices({
+      generate: async ({ ctx, input, session }) => {
+        expect(ctx.get(CallbackBaseUrlKey)).toBe("https://example.test");
+        expect(input?.message).toBe("first\n\nsecond");
+        const usage = {
+          cacheReadTokens: 3,
+          cacheWriteTokens: 4,
+          costUsd: 0,
+          inputTokens: 10,
+          outputTokens: 5,
+          sawCost: false,
+        };
+        return {
+          action: "done",
+          output: "complete",
+          state: setTurnUsageState(session, {
+            ...usage,
+            session: usage,
+            turnId: "turn_0",
+          }),
+        };
+      },
     });
+    const input = {
+      ...entryInput(deliver("first", "second")),
+      callbackBaseUrl: "https://example.test",
+    };
+
+    const outcome = await runStepEntrypoint(services, input);
+
+    expect(outcome).toMatchObject({
+      action: "done",
+      output: "complete",
+      usage: {
+        cacheReadTokens: 3,
+        cacheWriteTokens: 4,
+        inputTokens: 10,
+        outputTokens: 5,
+      },
+    });
+    expect(outcome.state.durable.snapshot?.session.agent.system).toBe("hydrated+refreshed");
     expect(calls).toEqual([
-      "contexts.seedCallbackBaseUrl(http://cb)",
-      "contexts.applyDeliveryAuth",
+      "channel.deliver(first)",
+      "channel.deliver(second)",
       "channel.pinAdapterState",
       "stream.open",
-      "stream.close(W)",
+      "stream.close",
     ]);
   });
 
-  it("completes matched authorization callbacks and strips their payloads", async () => {
-    const events: string[] = [];
-    const { calls, ports } = createPorts({
-      auth: { pendingOf: (durable) => `PENDING(${durable})` },
-      generate: async ({ input, session }) => {
-        events.push(`generate(${String(input)},${session})`);
+  it("strips matched and unmatched authorization callbacks before generation", async () => {
+    const pendingState = setPendingAuthorization(undefined, {
+      challenges: [
+        {
+          challenge: { displayName: "Known" },
+          hookUrl: "https://example.test/auth",
+          name: "known",
+          resume: { verifier: "secret" },
+        },
+      ],
+    });
+    const durable = makeDurable(pendingState);
+    const seenInputs: unknown[] = [];
+    const { calls, services } = createServices({
+      generate: async ({ ctx, input, session }) => {
+        seenInputs.push(input);
+        expect(ctx.get(PendingAuthorizationResultKey)).toEqual([
+          {
+            callback: { method: "GET", params: { code: "abc" } },
+            hookUrl: "https://example.test/auth",
+            name: "known",
+            resume: { verifier: "secret" },
+          },
+        ]);
         return { action: "done", output: "", state: session };
       },
     });
-
-    await runStepEntrypoint(ports, entryInput(deliver(["cb:known", "cb:unknown", "plain"])));
-
-    // Matched callback: stashed, cleared from the durable session, its
-    // completion emitted through the composed handler before generate.
-    // Unmatched callback: consumed without completing anything. Only the
-    // plain payload reaches the adapter.
-    expect(calls).toContain("auth.stash(res(known))");
-    expect(calls).toContain(
-      "stream.write(W,adapted(auth-completed(comp(PENDING(durable)),em(sess(durable-cleared(known))))))",
+    const input = entryInput(
+      {
+        kind: "deliver",
+        payloads: [
+          authorizationPayload("known"),
+          authorizationPayload("unknown"),
+          { message: "plain" },
+        ],
+      },
+      durable,
     );
-    expect(events).toEqual(["generate(in(plain),sess(durable-cleared(known))+refreshed)"]);
+
+    await runStepEntrypoint(services, input);
+
+    expect(seenInputs).toEqual([{ message: "plain" }]);
+    expect(calls).toContain("channel.deliver(plain)");
+    expect(calls).not.toContain("channel.deliver(undefined)");
+    expect(calls.indexOf("stream.write(authorization.completed:known)")).toBeLessThan(
+      calls.indexOf("stream.close"),
+    );
   });
 
-  it("re-parks without a model turn when the adapter handled the delivery inline", async () => {
-    const { calls, ports } = createPorts({ channel: { deliver: async () => null } });
-
-    const outcome = await runStepEntrypoint(ports, entryInput(deliver(["p1"])));
-
-    // Session unchanged: the raw input snapshot is reused, no writer opens.
-    expect(outcome).toEqual({
-      action: "park",
-      authorizationNames: undefined,
-      hasPendingAuthorization: false,
-      hasPendingInputBatch: false,
-      pendingRuntimeActionKeys: undefined,
-      state: { durable: "rawsnap", serializedContext: "serialized-out" },
+  it("reuses the durable snapshot when an inline-handled delivery leaves the session unchanged", async () => {
+    const { calls, services } = createServices({
+      channel: { deliver: async () => undefined },
     });
+    const input = entryInput(deliver("inline"));
+
+    const outcome = await runStepEntrypoint(services, input);
+
+    expect(outcome.action).toBe("park");
+    expect(outcome.state.durable).toBe(input.durableSnapshot);
     expect(calls).not.toContain("stream.open");
   });
 
-  it("snapshots the inline-handled session when a handler rekeyed it", async () => {
-    const { ports } = createPorts({
-      channel: { deliver: async () => null },
-      sessions: { reconcileToken: (_ctx, session) => `${session}+rekeyed` },
+  it("snapshots an inline-handled delivery when the channel rekeys the session", async () => {
+    const { services } = createServices({
+      channel: {
+        async deliver(ctx) {
+          ctx.set(ContinuationTokenKey, "rekeyed");
+          return undefined;
+        },
+      },
     });
+    const input = entryInput(deliver("inline"));
 
-    const outcome = await runStepEntrypoint(ports, entryInput(deliver(["p1"])));
+    const outcome = await runStepEntrypoint(services, input);
 
-    expect(outcome).toMatchObject({
-      state: { durable: "snap(sess(durable)+rekeyed)" },
-    });
+    expect(outcome.state.durable).not.toBe(input.durableSnapshot);
+    expect(outcome.state.durable.continuationToken).toBe("rekeyed");
   });
 
-  it("folds child results back in and records their usage spans", async () => {
-    const events: string[] = [];
-    const { calls, ports } = createPorts({
+  it("folds child results into step input and records their usage spans", async () => {
+    const result: RuntimeActionResult = {
+      callId: "call",
+      kind: "tool-result",
+      output: "child",
+      toolName: "tool",
+    };
+    const seen: unknown[] = [];
+    const { calls, services } = createServices({
       generate: async ({ input, session }) => {
-        events.push(String(input));
+        seen.push(input);
         return { action: "continue", state: session };
       },
     });
 
     const outcome = await runStepEntrypoint(
-      ports,
-      entryInput({ kind: "runtime-action-result", results: ["r1", "r2"] }),
+      services,
+      entryInput({ kind: "runtime-action-result", results: [result] }),
     );
 
-    expect(calls).toContain("usage.recordChildSpans");
-    expect(events).toEqual(["children(r1,r2)"]);
-    expect(outcome).toMatchObject({ action: "continue" });
+    expect(seen).toEqual([{ runtimeActionResults: [result] }]);
+    expect(calls).toContain("hooks.recordChildUsageSpans");
+    expect(outcome.action).toBe("continue");
   });
 
-  it("settles a cancellation over the unchanged input cursors", async () => {
-    const { calls, ports } = createPorts({
+  it("settles cancellation over the unchanged input cursors", async () => {
+    const { calls, services } = createServices({
       generate: async () => {
-        throw new Error("cancelled");
+        throw new TurnCancelledError();
       },
     });
+    const input = entryInput(deliver("cancel"));
 
-    const outcome = await runStepEntrypoint(ports, entryInput(deliver(["p1"])));
+    const outcome = await runStepEntrypoint(services, input);
 
     expect(outcome).toEqual({
       action: "cancelled",
-      state: { durable: "rawsnap", serializedContext: "serialized-in" },
+      state: {
+        durable: input.durableSnapshot,
+        serializedContext: input.serializedContext,
+      },
     });
-    expect(calls).toContain("stream.release(W)");
-    expect(calls).not.toContain("stream.close(W)");
+    expect(calls).toContain("stream.release");
+    expect(calls).not.toContain("stream.close");
   });
 
-  it("releases the writer and re-states a parked outcome", async () => {
-    const { calls, ports } = createPorts({
+  it("releases non-done streams and projects the classified state", async () => {
+    const { calls, services } = createServices({
       generate: async ({ session }) => ({
         action: "park",
         hasPendingAuthorization: true,
@@ -311,80 +382,115 @@ describe("runStepEntrypoint", () => {
       }),
     });
 
-    const outcome = await runStepEntrypoint(ports, entryInput(deliver(["p1"])));
+    const outcome = await runStepEntrypoint(services, entryInput(deliver("park")));
 
     expect(outcome).toMatchObject({
       action: "park",
       hasPendingAuthorization: true,
-      state: {
-        durable: "snap(sess(durable)+refreshed)",
-        serializedContext: "serialized-out",
-      },
+      state: { serializedContext: { serialized: "out" } },
     });
-    expect(calls).toContain("stream.release(W)");
+    expect(outcome.state.durable.snapshot?.session.agent.system).toBe("hydrated+refreshed");
+    expect(calls).toContain("stream.release");
   });
 
-  it("dispatches each emitted event in order, skipping dynamic model for step.started", async () => {
-    const { calls, ports } = createPorts({
+  it("composes event transformation, writing, and hook dispatch in order", async () => {
+    const { calls, services } = createServices({
       generate: async ({ handleEvent, session }) => {
-        await handleEvent("step.started", ["m"]);
-        await handleEvent("text", ["m"]);
+        await handleEvent(createStepStartedEvent({ sequence: 0, stepIndex: 0, turnId: "turn_0" }));
+        await handleEvent(createTurnStartedEvent({ sequence: 0, turnId: "turn_0" }));
         return { action: "done", output: "", state: session };
       },
     });
 
-    await runStepEntrypoint(ports, entryInput(deliver(["p1"])));
+    await runStepEntrypoint(services, entryInput(deliver("events")));
 
-    const dispatches = calls.filter(
-      (call) => call.startsWith("stream.write") || call.startsWith("hooks."),
-    );
-    expect(dispatches).toEqual([
-      "stream.write(W,adapted(step.started))",
-      "hooks.stream(adapted(step.started))",
-      "hooks.tools(adapted(step.started))",
-      "hooks.skills(adapted(step.started))",
-      "hooks.instructions(adapted(step.started))",
-      "stream.write(W,adapted(text))",
-      "hooks.stream(adapted(text))",
-      "hooks.model(adapted(text))",
-      "hooks.tools(adapted(text))",
-      "hooks.skills(adapted(text))",
-      "hooks.instructions(adapted(text))",
+    expect(calls.filter(isEventCall)).toEqual([
+      "channel.transform(step.started)",
+      "stream.write(step.started)",
+      "hooks.stream(step.started)",
+      "hooks.tools(step.started)",
+      "hooks.skills(step.started)",
+      "hooks.instructions(step.started)",
+      "channel.transform(turn.started)",
+      "stream.write(turn.started)",
+      "hooks.stream(turn.started)",
+      "hooks.model(turn.started)",
+      "hooks.tools(turn.started)",
+      "hooks.skills(turn.started)",
+      "hooks.instructions(turn.started)",
     ]);
   });
 
   describe("output-schema precedence", () => {
-    const sessionSeen = (over: Overrides): Promise<string> => {
-      const seen: string[] = [];
-      const { ports } = createPorts({
-        ...over,
-        generate: async ({ session }) => {
-          seen.push(session);
-          return { action: "done", output: "", state: session };
-        },
-      });
-      return runStepEntrypoint(ports, entryInput(deliver(["p1"]))).then(() => seen[0] ?? "");
-    };
-
     it("a run-scoped schema always wins", async () => {
-      const session = await sessionSeen({
-        contexts: { modeOf: () => "task" },
-        schema: { agentSchemaOf: () => "agent", runScopedOf: () => "run" },
+      const schema = await generatedSchema({
+        agentOutputSchema: { source: "agent" },
+        mode: "task",
+        runScopedSchema: { source: "run" },
       });
-      expect(session).toBe("sess(durable)+schema(run)+refreshed");
+
+      expect(schema).toEqual({ source: "run" });
     });
 
-    it("a task run adopts the agent schema when none is run-scoped", async () => {
-      const session = await sessionSeen({
-        contexts: { modeOf: () => "task" },
-        schema: { agentSchemaOf: () => "agent" },
+    it("a task adopts the agent schema when no schema is already active", async () => {
+      const schema = await generatedSchema({
+        agentOutputSchema: { source: "agent" },
+        mode: "task",
       });
-      expect(session).toBe("sess(durable)+schema(agent)+refreshed");
+
+      expect(schema).toEqual({ source: "agent" });
     });
 
-    it("a conversation with no run-scoped schema enforces nothing", async () => {
-      const session = await sessionSeen({ schema: { agentSchemaOf: () => "agent" } });
-      expect(session).toBe("sess(durable)+refreshed");
+    it("a conversation without a run-scoped schema enforces nothing", async () => {
+      const schema = await generatedSchema({
+        agentOutputSchema: { source: "agent" },
+        mode: "conversation",
+      });
+
+      expect(schema).toBeUndefined();
     });
   });
 });
+
+function authorizationPayload(connectionName: string) {
+  return {
+    authorizationCallback: {
+      callback: {
+        method: "GET",
+        params: { code: "abc" },
+      },
+      connectionName,
+    },
+  };
+}
+
+function isEventCall(call: string): boolean {
+  return (
+    call.startsWith("channel.transform") ||
+    call.startsWith("stream.write") ||
+    call.startsWith("hooks.")
+  );
+}
+
+async function generatedSchema(input: {
+  readonly agentOutputSchema: JsonObject;
+  readonly mode: LoopMode;
+  readonly runScopedSchema?: JsonObject;
+}): Promise<JsonObject | undefined> {
+  let seen: JsonObject | undefined;
+  const { services } = createServices({
+    agentOutputSchema: input.agentOutputSchema,
+    generate: async ({ session }) => {
+      seen = session.outputSchema;
+      return { action: "done", output: "", state: session };
+    },
+    mode: input.mode,
+  });
+  const turnInput: StepEntryInput["turnInput"] = {
+    kind: "deliver",
+    payloads: [{ message: "schema", outputSchema: input.runScopedSchema }],
+  };
+
+  await runStepEntrypoint(services, entryInput(turnInput));
+  return seen;
+}

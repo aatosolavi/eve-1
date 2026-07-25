@@ -31,7 +31,7 @@ import { readDurableSession } from "#execution/durable-session-store.js";
 import { RuntimeNoActiveSessionError } from "#core/runtime-errors.js";
 import { buildRunContext } from "#execution/runtime-context.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
-import { createEntryPorts } from "#execution/step-entry-ports.js";
+import { createEntryServices } from "#execution/entry-services.js";
 import { InMemoryLoopEventLog } from "#internal/loops/event-log.js";
 import type { TimedHandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
@@ -279,7 +279,7 @@ class InlineTurnBackend implements TurnBackend {
   async generate(input: GenerateInput) {
     const durableSession = await readDurableSession(input.state.durable);
     const generated = await runStepEntrypoint(
-      createEntryPorts({
+      createEntryServices({
         abortSignal: this.#abortSignal,
         createRuntime: createInlineLoopRuntime,
         parentWritable: this.#parentWritable,
