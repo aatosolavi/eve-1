@@ -1,10 +1,11 @@
 import { resumeHook } from "#internal/workflow/runtime.js";
 import { EVE_CALLBACK_ROUTE_PATTERN } from "#protocol/routes.js";
+import { sessionCallbackNotificationEventSchema } from "#channel/session-callback.js";
 import type {
   SessionCallbackPayload,
   SessionCallbackTerminationEvent,
 } from "#channel/session-callback.js";
-import type { HookPayload } from "#channel/types.js";
+import type { HookPayload, SubagentAuthorizationEvent } from "#channel/types.js";
 import type { ChannelMethod, RouteContext } from "#public/definitions/channel.js";
 import type { ResolvedChannelDefinition } from "#runtime/types.js";
 import type { RuntimeSubagentResultActionResult } from "#runtime/actions/types.js";
@@ -94,8 +95,34 @@ function projectSessionCallbackHookPayload(value: unknown): HookPayload | Respon
     });
   }
 
-  // "notification" (and the reserved "working"/"input_required") are the
-  // relay lane, delivered separately from this durable terminal path.
+  // A remote callee's authorization events are low-frequency control
+  // events, so they ride the same durable resumeHook path as a local
+  // subagent's: projected into a `subagent-authorization-event` and
+  // resumed onto the parent turn inbox, where the turn workflow proxies
+  // them onto the parent stream (workflow-entry, exactly as local). The
+  // separate high-frequency progress lane is future work.
+  if (event.status === "notification") {
+    const parsed = sessionCallbackNotificationEventSchema.safeParse(event);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid notification callback event.", ok: false },
+        { status: 400 },
+      );
+    }
+    const authorizationEvent: SubagentAuthorizationEvent =
+      parsed.data.type === "authorization.required"
+        ? { data: parsed.data.data, type: "authorization.required" }
+        : { data: parsed.data.data, type: "authorization.completed" };
+    return {
+      callId: payload.callId,
+      childSessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
+      event: authorizationEvent,
+      kind: "subagent-authorization-event",
+      subagentName: payload.subagentName,
+    };
+  }
+
+  // "working"/"input_required" remain reserved on the wire.
   return Response.json({ error: "Unsupported callback event status.", ok: false }, { status: 400 });
 }
 

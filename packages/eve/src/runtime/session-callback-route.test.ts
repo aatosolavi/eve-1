@@ -105,8 +105,157 @@ describe("session callback route", () => {
     });
   });
 
-  it.each(["notification", "working", "input_required", "unknown-status"])(
-    "rejects the non-terminal callback event status %s on the durable lane",
+  it("resumes a notification callback as a subagent authorization event", async () => {
+    resumeHookMock.mockResolvedValue(undefined);
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: {
+              authorization: { url: "https://idp.example.com/authorize" },
+              description: "Linear workspace access",
+              name: "linear",
+              sequence: 3,
+              stepIndex: 1,
+              turnId: "turn-1",
+            },
+            status: "notification",
+            type: "authorization.required",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(resumeHookMock).toHaveBeenCalledWith("tok123", {
+      callId: "call-1",
+      childSessionId: "remote-session",
+      event: {
+        data: {
+          authorization: { url: "https://idp.example.com/authorize" },
+          description: "Linear workspace access",
+          name: "linear",
+          sequence: 3,
+          stepIndex: 1,
+          turnId: "turn-1",
+        },
+        type: "authorization.required",
+      },
+      kind: "subagent-authorization-event",
+      subagentName: "research",
+    });
+  });
+
+  it("resumes an authorization.completed notification callback", async () => {
+    resumeHookMock.mockResolvedValue(undefined);
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: {
+              name: "linear",
+              outcome: "authorized",
+              sequence: 4,
+              stepIndex: 1,
+              turnId: "turn-1",
+            },
+            status: "notification",
+            type: "authorization.completed",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(resumeHookMock).toHaveBeenCalledWith("tok123", {
+      callId: "call-1",
+      childSessionId: "remote-session",
+      event: {
+        data: {
+          name: "linear",
+          outcome: "authorized",
+          sequence: 4,
+          stepIndex: 1,
+          turnId: "turn-1",
+        },
+        type: "authorization.completed",
+      },
+      kind: "subagent-authorization-event",
+      subagentName: "research",
+    });
+  });
+
+  it("strips unknown keys from a notification event before resuming", async () => {
+    resumeHookMock.mockResolvedValue(undefined);
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: {
+              description: "Linear workspace access",
+              futureField: true,
+              name: "linear",
+              sequence: 3,
+              stepIndex: 1,
+              turnId: "turn-1",
+            },
+            status: "notification",
+            type: "authorization.required",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(202);
+    const payload = resumeHookMock.mock.calls[0]?.[1] as {
+      event: { data: Record<string, unknown> };
+    };
+    expect(payload.event.data.futureField).toBeUndefined();
+    expect(payload.event.data.name).toBe("linear");
+  });
+
+  it("rejects a malformed notification event", async () => {
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: { name: "linear" },
+            status: "notification",
+            type: "authorization.required",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(resumeHookMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["working", "input_required", "unknown-status"])(
+    "rejects the not-yet-supported callback event status %s",
     async (status) => {
       const response = await handleSessionCallbackRequest(
         new Request("https://app.example.com/eve/v1/callback/tok123", {
@@ -125,6 +274,35 @@ describe("session callback route", () => {
       expect(resumeHookMock).not.toHaveBeenCalled();
     },
   );
+
+  it("returns 404 when a notification arrives for a hook that is not pending", async () => {
+    resumeHookMock.mockRejectedValue(new Error("no pending hook"));
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/tok123", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: {
+              description: "Linear workspace access",
+              name: "linear",
+              sequence: 3,
+              stepIndex: 1,
+              turnId: "turn-1",
+            },
+            status: "notification",
+            type: "authorization.required",
+          },
+          sessionId: "remote-session",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "tok123" }),
+    );
+
+    expect(response.status).toBe(404);
+  });
 
   it("projects reported usage onto the resumed result", async () => {
     resumeHookMock.mockResolvedValue(undefined);
