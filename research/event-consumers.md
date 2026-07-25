@@ -8,20 +8,31 @@ last_updated: "2026-07-24"
 
 ## What this proposes
 
-Normalize event consumption. Today the flow an event takes depends on who
-consumes it. Followers (TUI, web clients, evals) derive from the durable
-session stream: producers append, consumers read independently, at their
-own pace. Channels and the remote-callback forwarder instead run inline in
-the producer's emit path, so they only run while the producer's compute is
-awake.
+Keep high-frequency subagent progress updates out of the main workflow
+run's replay journal.
 
-The proposal inverts that split. The harness funnels every event a single
-way, and every consumer — channels included — consumes from a durable
-delivery step. Once a delivery is accepted, it survives crashes and
-redelivers until consumed (queue retry, journaled side effects) instead of
-existing only for the duration of the producer's call stack. The price is
-one extra hop per event; the [wake accounting](#wake-accounting) below
-scopes v1 so that hop replaces a wake the caller already pays.
+Every `resumeHook` into a session's main run wakes it and replays its
+journal — bounded by the engine's per-invocation replay budget, and
+growing with the session. Low-frequency events can afford that. Terminal
+(`session.completed`/`session.failed`) and control (`authorization.*`,
+`input.required`) events fire a handful of times per session, gated by
+real work, so they ride the main run's durable resume path and are handled
+in `workflowEntry` exactly as a local subagent's are today. Progress
+updates are the opposite: high-frequency, rendering-only telemetry.
+Routing them through the main run would inflate its replay cost without
+bound, so they take a separate lane that never touches the main run.
+
+The split is by **replay cost**, not by delivery guarantee:
+
+| events                                                                                 | frequency | lane     | mechanism                                                                                  |
+| -------------------------------------------------------------------------------------- | --------- | -------- | ------------------------------------------------------------------------------------------ |
+| terminal + control (`session.completed`/`failed`, `authorization.*`, `input.required`) | low       | main run | `resumeHook(continuationToken)`, durable, handled in `workflowEntry` like a local subagent |
+| progress (non-terminal, rendering-only telemetry)                                      | high      | separate | proxied as `subagent.event`, off the main run's journal                                    |
+
+Everything else in this document — the stream as source of truth, the
+consumer that renders and forwards — is in service of the separate lane
+for progress. The low-frequency events do not need it; they belong on the
+main run.
 
 ## Why
 
