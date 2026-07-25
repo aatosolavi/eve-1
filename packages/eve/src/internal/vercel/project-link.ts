@@ -64,7 +64,11 @@ export function resolveRepoLinkProject(
         relativePath === project.directory ||
         relativePath.startsWith(`${project.directory}/`),
     )
-    .sort((a, b) => b.directory.split("/").length - a.directory.split("/").length);
+    .sort(
+      (a, b) =>
+        (b.directory === "." ? 0 : b.directory.split("/").length) -
+        (a.directory === "." ? 0 : a.directory.split("/").length),
+    );
   const deepest = matches[0];
   if (deepest === undefined) return undefined;
   if (matches.some((match) => match !== deepest && match.directory === deepest.directory)) {

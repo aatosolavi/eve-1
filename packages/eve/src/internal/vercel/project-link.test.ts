@@ -32,6 +32,19 @@ describe("resolveRepoLinkProject", () => {
     });
   });
 
+  it("prefers a top-level directory over the repo root", () => {
+    const link = repoLink({
+      projects: [
+        { id: "prj_root", directory: "." },
+        { id: "prj_web", directory: "web" },
+      ],
+    });
+    expect(resolveRepoLinkProject(link, "web")).toEqual({
+      projectId: "prj_web",
+      orgId: "team_top",
+    });
+  });
+
   it("matches a directory prefix only on whole path segments", () => {
     const link = repoLink({
       projects: [{ id: "prj_agent", directory: "apps/agent" }],
