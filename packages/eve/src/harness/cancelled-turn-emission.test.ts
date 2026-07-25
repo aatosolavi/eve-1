@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { emitCancelledTurn } from "#harness/cancelled-turn-emission.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 describe("emitCancelledTurn", () => {
   it("emits turn.cancelled → session.waiting and no failure events", async () => {

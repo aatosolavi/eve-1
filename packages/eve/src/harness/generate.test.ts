@@ -24,32 +24,32 @@ import {
   SessionDynamicModelReferenceKey,
 } from "#core/context/keys.js";
 import { SCHEDULE_APP_AUTH } from "#channel/schedule-auth.js";
-import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
+import { decodeSandboxRef, isSandboxRefUrl } from "#core/attachments/sandbox-refs.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { InstrumentationStepStartedEventInput } from "#public/instrumentation/index.js";
 import type { RunMode } from "#shared/run-mode.js";
 import { compactMessages, shouldCompact } from "#harness/compaction.js";
-import { getHarnessEmissionState, isHarnessBetweenTurns } from "#harness/emission.js";
+import { getHarnessEmissionState, isHarnessBetweenTurns } from "#core/emission.js";
 import {
   getPendingAuthorization,
   modelFacingAuthorizationOutput,
   requestAuthorization,
-} from "#harness/authorization.js";
+} from "#core/authorization.js";
 import {
   hasDeferredStepInput,
   hasPendingInputBatch,
   setPendingInputBatch,
-} from "#harness/input-requests.js";
-import { getPendingRuntimeActionBatch } from "#harness/runtime-actions.js";
+} from "#core/input-requests.js";
+import { getPendingRuntimeActionBatch } from "#core/runtime-actions.js";
 import { stashToolInterrupt } from "#harness/tool-interrupts.js";
 import { createGenerate } from "#harness/generate.js";
-import { TurnCancelledError } from "#harness/turn-cancellation.js";
+import { TurnCancelledError } from "#core/turn-cancellation.js";
 import {
   getSessionTokenLimitViolation,
   getSessionTokenUsage,
   setTurnUsageState,
-} from "#harness/turn-tag-state.js";
+} from "#core/turn-tag-state.js";
 import type {
   GenerateOutcome,
   HandleEventFn,
@@ -59,7 +59,7 @@ import type {
 import {
   CONDITIONAL_DELIVERY_INSTRUCTION,
   EMPTY_DELIVERY_SENTINEL,
-} from "#shared/empty-delivery.js";
+} from "#core/shared/empty-delivery.js";
 
 vi.mock("ai", () => ({
   ToolLoopAgent: vi.fn(),

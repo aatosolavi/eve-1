@@ -1,4 +1,4 @@
-import type { HandleMessageStreamEvent } from "../../protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { SessionContext } from "./callback-context.js";
 import type { ExactDefinition } from "./exact.js";
 

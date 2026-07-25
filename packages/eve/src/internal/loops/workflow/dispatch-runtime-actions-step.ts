@@ -29,11 +29,11 @@ import type {
   RuntimeSubagentCallActionRequest,
   RuntimeSubagentResultActionResult,
 } from "#core/actions/types.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import {
   resolveRemoteAgentForAction,
   startRemoteAgentSession,

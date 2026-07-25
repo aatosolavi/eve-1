@@ -11,7 +11,7 @@
  * destructure-and-rebuild a `NextDriverAction` — full destructuring
  * strips unknown fields.
  */
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import type { TokenUsage } from "#core/shared/token-usage.js";
 
 /** Discriminated union the driver workflow body dispatches on. */

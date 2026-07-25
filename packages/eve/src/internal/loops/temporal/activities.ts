@@ -1,6 +1,7 @@
 import type { Runtime } from "#channel/types.js";
 import { createSessionStep } from "#execution/create-session-step.js";
-import { readDurableSession, type DurableSessionState } from "#execution/durable-session-store.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
+import { type DurableSessionState } from "#core/durable-session-store.js";
 import { runStepEntrypoint } from "#core/entrypoint.js";
 import { createEntryPorts } from "#execution/step-entry-ports.js";
 import type { TurnStepResult } from "#internal/loops/types.js";

@@ -1,8 +1,8 @@
-import { createSessionWaitingEvent, createTurnCancelledEvent } from "#protocol/message.js";
+import { createSessionWaitingEvent, createTurnCancelledEvent } from "#core/protocol/message.js";
 import type { HandleEventFn } from "#harness/types.js";
 
 import { activeTurnId } from "#harness/active-turn-id.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
+import type { HarnessEmissionState } from "#core/emission.js";
 
 /**
  * Emits the cancelled-turn epilogue: `turn.cancelled` → `session.waiting`

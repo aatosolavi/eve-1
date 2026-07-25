@@ -1,5 +1,6 @@
 import type { DeliverPayload, SessionAuthContext } from "#channel/types.js";
-import { type DurableSessionState, readDurableSession } from "#execution/durable-session-store.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
+import { type DurableSessionState } from "#core/durable-session-store.js";
 import {
   createTurnWorkflowInput,
   type TurnStepInput,

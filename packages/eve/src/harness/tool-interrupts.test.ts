@@ -11,8 +11,8 @@ import {
   modelFacingAuthorizationOutput,
   redactSignalResume,
   requestAuthorization,
-} from "#harness/authorization.js";
-import { createRuntimeToolResultFromValue } from "#harness/action-result-helpers.js";
+} from "#core/authorization.js";
+import { createRuntimeToolResultFromValue } from "#core/action-result-helpers.js";
 import { readToolInterrupt, stashToolInterrupt } from "#harness/tool-interrupts.js";
 import { wrapToolExecute } from "#harness/tools.js";
 

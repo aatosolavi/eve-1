@@ -2,7 +2,7 @@ import { jsonSchema, type LanguageModel, type ModelMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
-import { setPendingInputBatch } from "#harness/input-requests.js";
+import { setPendingInputBatch } from "#core/input-requests.js";
 import { createGenerate } from "#harness/generate.js";
 import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 

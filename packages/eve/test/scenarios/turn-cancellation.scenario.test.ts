@@ -4,7 +4,7 @@ import { Client } from "../../src/client/client.js";
 import {
   type HandleMessageStreamEvent,
   isCurrentTurnBoundaryEvent,
-} from "../../src/protocol/message.js";
+} from "#core/protocol/message.js";
 import { createEveCancelTurnRoutePath } from "../../src/protocol/routes.js";
 import {
   type ScenarioAppDescriptor,

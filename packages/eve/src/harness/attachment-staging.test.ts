@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelAdapterContext } from "#channel/adapter.js";
 import { ContextContainer } from "#context/container.js";
-import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
+import { decodeSandboxRef, isSandboxRefUrl } from "#core/attachments/sandbox-refs.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import { ATTACHMENTS_ROOT, stageAttachmentsForAdapter } from "#harness/attachment-staging.js";
 

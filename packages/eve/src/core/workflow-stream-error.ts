@@ -1,5 +1,5 @@
 import { isObject } from "#core/shared/guards.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 
 /**
  * Anchored on the workflow stream transport's own failure message. The

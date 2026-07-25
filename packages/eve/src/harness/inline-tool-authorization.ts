@@ -1,6 +1,6 @@
 import type { ToolSet, TypedToolResult } from "ai";
 import { contextStorage } from "#context/container.js";
-import { isAuthorizationSignal, isPendingAuthorizationToolOutput } from "#harness/authorization.js";
+import { isAuthorizationSignal, isPendingAuthorizationToolOutput } from "#core/authorization.js";
 import { readToolInterrupt } from "#harness/tool-interrupts.js";
 
 /** Returns whether an inline tool result represents a pending authorization interrupt. */

@@ -13,7 +13,6 @@ import {
  * that read the active runtime context. The signal, state, and predicate
  * half lives in `core/authorization.ts` and is re-exported here.
  */
-export * from "#core/authorization.js";
 
 /**
  * Reads the authorization callback on resume. Returns `undefined` if

@@ -1,10 +1,10 @@
 import { deserializeContext } from "#context/serialize.js";
 import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { getPendingWorkflowInterrupt } from "#core/workflow-interrupt-state.js";
 import { setPendingRuntimeActionBatch } from "#core/runtime-actions.js";

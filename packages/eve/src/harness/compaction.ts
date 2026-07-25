@@ -8,7 +8,7 @@ import {
   TODO_COMPACTION_PRESERVATION_LABEL,
   TRANSCRIPT_PAYLOAD_LIMIT,
 } from "#harness/compaction-prompt.js";
-import { estimateTokens } from "#harness/token-estimate.js";
+import { estimateTokens } from "#core/token-estimate.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
 import type { CompactionConfig, GenerateConfig } from "#harness/types.js";

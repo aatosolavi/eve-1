@@ -10,8 +10,8 @@ import type { SessionCapabilities } from "#channel/types.js";
 import type { RuntimeModelReference } from "#runtime/agent/bootstrap.js";
 import { ASK_QUESTION_TOOL_NAME } from "#runtime/framework-tools/ask-question.js";
 import { WEB_SEARCH_TOOL_DEFINITION } from "#runtime/framework-tools/web-search.js";
-import { isObject } from "#shared/guards.js";
-import { parseJsonValue, type JsonValue } from "#shared/json.js";
+import { isObject } from "#core/shared/guards.js";
+import { parseJsonValue, type JsonValue } from "#core/shared/json.js";
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import type { ApprovalStatus } from "#public/definitions/approval.js";
 import { resolveWebSearchBackend, resolveWebSearchProviderTool } from "#harness/provider-tools.js";
@@ -23,9 +23,9 @@ import {
   isAuthorizationPendingModelOutput,
   isAuthorizationSignal,
   modelFacingAuthorizationOutput,
-} from "#harness/authorization.js";
+} from "#core/authorization.js";
 import { stashToolInterrupt } from "#harness/tool-interrupts.js";
-import { withToolOutputSerializationError } from "#harness/tool-output-serialization.js";
+import { withToolOutputSerializationError } from "#core/tool-output-serialization.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";
 
 type ToolModelOutputValue =

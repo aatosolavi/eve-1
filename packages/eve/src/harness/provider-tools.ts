@@ -8,7 +8,7 @@ import {
   WEB_SEARCH_PARALLEL_OUTPUT_SCHEMA,
   WEB_SEARCH_TOOL_DEFINITION,
 } from "#runtime/framework-tools/web-search.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 /**
  * The provider backend resolved for one web search tool invocation.

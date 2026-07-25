@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND } from "#harness/workflow-runtime-action-state.js";
+import { WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND } from "#core/workflow-runtime-action-state.js";
 import {
   countResolvedWorkflowSubagentCalls,
   DEFAULT_WORKFLOW_MAX_SUBAGENTS,
   planWorkflowSubagentDispatch,
 } from "#harness/workflow-subagent-limit.js";
-import type { RuntimeActionRequest } from "#runtime/actions/types.js";
+import type { RuntimeActionRequest } from "#core/actions/types.js";
 import type { WorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
 
 type LedgerEntry = WorkflowSandboxInterrupt["continuation"]["ledger"][number];

@@ -13,7 +13,6 @@ import { getRun } from "#internal/workflow/runtime.js";
  * through the Workflow runtime — for states persisted before
  * snapshot-carrying step results.
  */
-export * from "#core/durable-session-store.js";
 
 /** Reads the durable session with the Workflow legacy-tail fallback. */
 export async function readDurableSession(state: DurableSessionState): Promise<DurableSession> {

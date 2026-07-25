@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { VERBOSE_BUNDLING_DESCRIPTOR } from "../../src/internal/testing/scenario-apps/verbose-bundling.js";
-import type { HandleMessageStreamEvent } from "../../src/protocol/message.js";
-import type { RuntimeToolResultActionResult } from "../../src/runtime/actions/types.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import type { RuntimeToolResultActionResult } from "#core/actions/types.js";
 import { sendDevelopmentMessage } from "../dev-client-harness/send-message.js";
 import { createDevelopmentSessionState } from "../dev-client-harness/session.js";
 import {

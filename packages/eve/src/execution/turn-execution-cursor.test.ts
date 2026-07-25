@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sendTurnControlStep } from "#execution/turn-control-protocol.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import { TurnExecutionCursor } from "#execution/turn-execution-cursor.js";
 
 vi.mock("./turn-control-protocol.js", () => ({

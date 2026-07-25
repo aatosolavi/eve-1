@@ -11,35 +11,35 @@ import { AuthKey, CapabilitiesKey, ModeKey } from "#core/context/keys.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { runStep } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
-import { getHarnessEmissionState } from "#harness/emission.js";
-import { isTurnCancellation, throwIfTurnAborted } from "#harness/turn-cancellation.js";
+import { getHarnessEmissionState } from "#core/emission.js";
+import { isTurnCancellation, throwIfTurnAborted } from "#core/turn-cancellation.js";
 import { setChannelContext } from "#execution/channel-context.js";
-import { coalesceTurnInputs } from "#harness/messages.js";
-import { classifyParkedSession } from "#harness/step-result.js";
+import { coalesceTurnInputs } from "#core/messages.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
 import type { HarnessSession, StepInput } from "#harness/types.js";
-import { getTurnUsageState, toUsage } from "#harness/turn-tag-state.js";
-import type { JsonObject } from "#shared/json.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import { getTurnUsageState, toUsage } from "#core/turn-tag-state.js";
+import type { JsonObject } from "#core/shared/json.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 import {
   createAuthorizationCompletedEvent,
   encodeMessageStreamEvent,
   type HandleMessageStreamEvent,
   timestampHandleMessageStreamEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import {
   CallbackBaseUrlKey,
   clearPendingAuthorization,
   getPendingAuthorization,
   PendingAuthorizationResultKey,
   type AuthorizationResult,
-} from "#harness/authorization.js";
+} from "#core/authorization.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
 import type { AuthorizationCallback } from "#runtime/connections/types.js";
 import {
   createDurableSessionState,
   type DurableSession,
   type DurableSessionState,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { createNodeGenerate, type CreateRuntime } from "#execution/node-generate.js";
 import { recordSubagentUsageSpans } from "#execution/subagent-usage-span.js";
 import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";

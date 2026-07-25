@@ -695,5 +695,3 @@ function resolveToolCallInputObject(
     );
   }
 }
-
-export { resolveApprovalKeyFromTools } from "#core/tool-approval.js";

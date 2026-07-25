@@ -12,15 +12,15 @@ import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 import { fileDataToBytes } from "#internal/attachments/data.js";
 import { EveAttachmentError } from "#internal/attachments/errors.js";
 import { createLogger } from "#internal/logging.js";
-import { deserializeUrlFilePart, isSerializedUrlFilePart } from "#internal/attachments/url-refs.js";
+import { deserializeUrlFilePart, isSerializedUrlFilePart } from "#core/attachments/url-refs.js";
 import {
   decodeSandboxRef,
   encodeSandboxRef,
   isSandboxRefUrl,
   type SandboxRef,
-} from "#internal/attachments/sandbox-refs.js";
+} from "#core/attachments/sandbox-refs.js";
 import type { SandboxSession } from "#public/definitions/sandbox.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 /**
  * Sandbox directory where inbound file attachments are staged before the

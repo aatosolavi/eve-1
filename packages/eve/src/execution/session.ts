@@ -1,4 +1,4 @@
-import type { DurableSession } from "#execution/durable-session-store.js";
+import type { DurableSession } from "#core/durable-session-store.js";
 import { formatAvailableSkillsSection } from "#execution/skills/instructions.js";
 
 export { projectToDurableSession } from "#core/durable-session-store.js";

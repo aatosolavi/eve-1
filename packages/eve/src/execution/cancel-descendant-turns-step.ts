@@ -1,7 +1,8 @@
 import type { CancelTurnResult } from "#channel/types.js";
 import { deserializeContext } from "#context/serialize.js";
 import { BundleKey } from "#runtime/sessions/runtime-context-keys.js";
-import { readDurableSession, type DurableSessionState } from "#execution/durable-session-store.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
+import { type DurableSessionState } from "#core/durable-session-store.js";
 import {
   cancelRemoteAgentTurn,
   isRetryableRemoteAgentCancelError,

@@ -1,9 +1,9 @@
 import type { CompiledHookDefinition } from "../compiler/manifest.js";
 import type { CompiledModuleMap } from "../compiler/module-map.js";
 import { expectFunction, expectObjectRecord } from "../internal/authored-module.js";
-import type { HandleMessageStreamEvent } from "../protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { StreamEventHook } from "../public/definitions/hook.js";
-import { toErrorMessage } from "../shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import { loadResolvedModuleExport, ResolveAgentError } from "./resolve-helpers.js";
 import type { ResolvedHookDefinition } from "./types.js";
 

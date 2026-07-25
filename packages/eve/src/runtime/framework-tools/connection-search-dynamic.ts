@@ -2,13 +2,12 @@ import { z } from "#compiled/zod/index.js";
 
 import { loadContext } from "#context/container.js";
 import { ContextKey } from "#core/context/key.js";
+import { getAuthorizationResult, getHookUrl } from "#harness/authorization.js";
 import {
   type AuthorizationChallenge,
   type AuthorizationSignal,
-  getAuthorizationResult,
-  getHookUrl,
   requestAuthorization,
-} from "#harness/authorization.js";
+} from "#core/authorization.js";
 import {
   ConnectionAuthorizationFailedError,
   isConnectionAuthorizationFailedError,

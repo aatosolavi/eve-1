@@ -2,7 +2,7 @@ import type { LanguageModel, ModelMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 
-import { getPendingInputRequestIds } from "#harness/input-requests.js";
+import { getPendingInputRequestIds } from "#core/input-requests.js";
 import { createGenerate } from "#harness/generate.js";
 import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 import {

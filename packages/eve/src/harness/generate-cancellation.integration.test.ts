@@ -2,10 +2,10 @@ import { jsonSchema, type LanguageModel } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { withOutcomeState } from "#harness/step-result.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
+import { withOutcomeState } from "#core/step-outcome.js";
 import { createGenerate } from "#harness/generate.js";
-import { TurnCancelledError } from "#harness/turn-cancellation.js";
+import { TurnCancelledError } from "#core/turn-cancellation.js";
 import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
 import type { ToolExecuteOptions } from "#shared/tool-definition.js";
 

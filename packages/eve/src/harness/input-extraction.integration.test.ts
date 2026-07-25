@@ -2,7 +2,7 @@ import { generateText, jsonSchema, tool, type ToolApprovalStatus, type ToolSet }
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
-import { extractToolApprovalInputRequests } from "#harness/input-extraction.js";
+import { extractToolApprovalInputRequests } from "#core/input-extraction.js";
 
 const usage = {
   inputTokens: {

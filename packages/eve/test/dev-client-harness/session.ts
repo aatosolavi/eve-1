@@ -1,4 +1,4 @@
-import type { HandleMessageRequestBody, HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageRequestBody, HandleMessageStreamEvent } from "#core/protocol/message.js";
 import { countCurrentTurnBoundaryEvents, extractCurrentTurnBoundaryEvent } from "./stream.js";
 
 /**

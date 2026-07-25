@@ -15,7 +15,7 @@ import type {
   TurnProgramInput as CoreTurnProgramInput,
   TurnStepResult as CoreTurnStepResult,
 } from "#core/types.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import type { RuntimeActionResult } from "#core/actions/types.js";
 import type { TokenUsage } from "#core/shared/token-usage.js";
 

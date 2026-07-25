@@ -7,11 +7,11 @@ import type { ModelMessage } from "ai";
 
 import { getStepMetadata, getWorkflowMetadata } from "#compiled/@workflow/core/index.js";
 
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import type { HarnessSession } from "#harness/types.js";
 
 /** Synthetic minimal session for storage-layer round-trips. */

@@ -6,7 +6,7 @@ import type { HookPayload } from "#channel/types.js";
 import { ChannelRequestIdKey, SubagentDepthKey } from "#core/context/keys.js";
 import { createSessionStep } from "#execution/create-session-step.js";
 import { notifyDelegatedParentStep } from "#execution/delegated-parent-notification.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import { fireSessionCallbackStep } from "#execution/session-callback-step.js";
 import type { TurnControlPayload } from "#execution/turn-control-protocol.js";
 import { workflowEntry } from "#internal/loops/workflow/session-workflow.js";

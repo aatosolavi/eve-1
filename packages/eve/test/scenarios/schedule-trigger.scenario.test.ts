@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelAdapter } from "#channel/adapter.js";
 import { expectScheduleRun, SCHEDULE_ADAPTER_KIND, ScheduleDispatcher } from "#channel/schedule.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RunHandle, Runtime } from "#channel/types.js";
 import { compileAgent } from "#compiler/compile-agent.js";
 import { ContextContainer } from "#context/container.js";

@@ -7,7 +7,7 @@ import type {
   SessionCapabilities,
 } from "#channel/types.js";
 import type { TurnOutcome, TurnProgramInput, TurnStepResult } from "#internal/loops/types.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import type { RunMode } from "#shared/run-mode.js";
 
 export const TEMPORAL_SESSION_WORKFLOW = "temporalSessionWorkflow";

@@ -10,7 +10,7 @@ import type {
   PromptDependencies,
   WaitDependencies,
 } from "#core/step-ports.js";
-import { createStepStartedEvent } from "#protocol/message.js";
+import { createStepStartedEvent } from "#core/protocol/message.js";
 import {
   hydrateSandboxAttachments,
   stageAttachmentsToSandbox,
@@ -21,16 +21,16 @@ import {
   getApprovedTools,
   getPendingInputRequestIds,
   resolvePendingInput,
-} from "#harness/input-requests.js";
+} from "#core/input-requests.js";
 import { buildGatewayAttributionHeaders, resolveActiveRuntimeModel } from "#harness/model-call.js";
-import { detectPromptCachePath, getAnthropicCacheMarker } from "#harness/prompt-cache.js";
-import { resolvePendingRuntimeActions } from "#harness/runtime-actions.js";
-import { applySessionLimitContinuation } from "#harness/session-limit-enforcement.js";
-import { convertStaleResponsesToUserMessage } from "#harness/stale-input-responses.js";
+import { detectPromptCachePath, getAnthropicCacheMarker } from "#core/prompt-cache.js";
+import { resolvePendingRuntimeActions } from "#core/runtime-actions.js";
+import { applySessionLimitContinuation } from "#core/session-limit-enforcement.js";
+import { convertStaleResponsesToUserMessage } from "#core/stale-input-responses.js";
 import type { HarnessStepFlow } from "#harness/step-flow.js";
-import { resolveApprovalKeyFromTools } from "#harness/step-result.js";
+import { resolveApprovalKeyFromTools } from "#core/tool-approval.js";
 import type { GenerateConfig } from "#harness/types.js";
-import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#shared/empty-delivery.js";
+import { CONDITIONAL_DELIVERY_INSTRUCTION } from "#core/shared/empty-delivery.js";
 
 /**
  * The pre-call dependencies of the core step flow: the wait subsystems of

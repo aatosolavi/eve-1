@@ -9,12 +9,12 @@ import { ModeKey } from "#core/context/keys.js";
 import { withContextScope } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { setChannelContext } from "#execution/channel-context.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSession,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { emitProxiedInputRequest } from "#core/subagent-hitl-proxy.js";

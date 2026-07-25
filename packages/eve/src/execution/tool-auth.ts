@@ -20,7 +20,7 @@ import {
   isConnectionAuthorizationRequiredError,
 } from "#public/connections/errors.js";
 import type { ToolAuthOptions, ToolAuthProvider, ToolContext } from "#public/definitions/tool.js";
-import { type AuthorizationChallenge, requestAuthorization } from "#harness/authorization.js";
+import { type AuthorizationChallenge, requestAuthorization } from "#core/authorization.js";
 import {
   type AuthorizationDefinition,
   supportsInteractiveAuthorization,

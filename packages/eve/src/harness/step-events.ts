@@ -7,14 +7,14 @@ import {
   emitStepStarted,
   emitTurnEpilogue,
   emitTurnPreamble,
-} from "#harness/emission.js";
+} from "#core/emission.js";
 import type { HarnessStepFlow } from "#harness/step-flow.js";
 import type { GenerateConfig } from "#harness/types.js";
 import {
   createActionResultEvent,
   createCompactionCompletedEvent,
   createCompactionRequestedEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 
 /**
  * The event stream of the core step flow, bound to the harness emitters.

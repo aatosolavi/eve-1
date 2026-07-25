@@ -4,7 +4,7 @@ import {
   coalesceTurnInputs,
   normalizeUserContent,
   resolveAssistantStepText,
-} from "#harness/messages.js";
+} from "#core/messages.js";
 import type { StepInput } from "#harness/types.js";
 
 function textFilePart(overrides: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveRemainingSessionTokenLimits } from "#harness/subagent-token-budget.js";
-import { setTurnUsageState } from "#harness/turn-tag-state.js";
+import { setTurnUsageState } from "#core/turn-tag-state.js";
 import type { HarnessSession, SessionLimits } from "#harness/types.js";
 
 function createSessionWithUsage(input: {

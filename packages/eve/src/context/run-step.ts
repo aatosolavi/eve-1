@@ -1,4 +1,4 @@
-import { withOutcomeState } from "#harness/step-result.js";
+import { withOutcomeState } from "#core/step-outcome.js";
 import type { GenerateOutcome, HarnessLoopTypes, HarnessSession } from "#harness/types.js";
 import { type ContextContainer, contextStorage } from "#context/container.js";
 import type { FrameworkContextProvider } from "#context/provider.js";

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deserializeContext } from "#context/serialize.js";
 import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
-import { createDurableSessionState } from "#execution/durable-session-store.js";
+import { createDurableSessionState } from "#core/durable-session-store.js";
 import {
   cancelRemoteAgentTurn,
   isRetryableRemoteAgentCancelError,

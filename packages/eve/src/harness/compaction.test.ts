@@ -8,7 +8,7 @@ import {
   resolveCompactionModel,
   shouldCompact,
 } from "#harness/compaction.js";
-import { estimateTokens } from "#harness/token-estimate.js";
+import { estimateTokens } from "#core/token-estimate.js";
 import type { CompactionConfig } from "#harness/types.js";
 
 vi.mock("ai", () => ({

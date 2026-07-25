@@ -6,7 +6,7 @@ import {
 import {
   createDurableSessionState,
   type DurableSessionState,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { createSession } from "#execution/session.js";
 import { resolveInheritedTokenLimit } from "#core/run-session-limits.js";
 import type { RunSessionLimits } from "#channel/types.js";

@@ -15,27 +15,27 @@ import {
   createActionsRequestedEvent,
   createStepCompletedEvent,
   type StepCompletedProviderMetadata,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import {
   createRuntimeToolResultFromToolError,
   createRuntimeToolResultFromMessagePart,
   createRuntimeToolResultFromStepResult,
-} from "#harness/action-result-helpers.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
-import { emitStepStarted, normalizeAssistantStepFinishReason } from "#harness/emission.js";
-import { extractToolApprovalInputRequests } from "#harness/input-extraction.js";
+} from "#core/action-result-helpers.js";
+import type { HarnessEmissionState } from "#core/emission.js";
+import { emitStepStarted, normalizeAssistantStepFinishReason } from "#core/emission.js";
+import { extractToolApprovalInputRequests } from "#core/input-extraction.js";
 import {
   type AnthropicCacheMarker,
   applyConversationCacheControl,
   mergeGatewayAutoCaching,
   type PromptCachePath,
-} from "#harness/prompt-cache.js";
-import { createRuntimeActionRequestFromToolCall } from "#harness/runtime-actions.js";
-import { isInvalidToolCall } from "#harness/tool-call-input-errors.js";
-import type { RuntimeToolResultActionResult } from "#runtime/actions/types.js";
+} from "#core/prompt-cache.js";
+import { createRuntimeActionRequestFromToolCall } from "#core/runtime-actions.js";
+import { isInvalidToolCall } from "#core/tool-call-input-errors.js";
+import type { RuntimeToolResultActionResult } from "#core/actions/types.js";
 import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { contextStorage } from "#context/container.js";
-import { isAuthorizationSignal, isPendingAuthorizationToolOutput } from "#harness/authorization.js";
+import { isAuthorizationSignal, isPendingAuthorizationToolOutput } from "#core/authorization.js";
 import { readToolInterrupt } from "#harness/tool-interrupts.js";
 
 // ---------------------------------------------------------------------------

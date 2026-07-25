@@ -3,7 +3,7 @@ import { z } from "#compiled/zod/index.js";
 
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
 import type { HarnessToolMap } from "#harness/types.js";
-import { WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND } from "#harness/workflow-runtime-action-state.js";
+import { WORKFLOW_RUNTIME_ACTION_INTERRUPT_KIND } from "#core/workflow-runtime-action-state.js";
 import { DEFAULT_WORKFLOW_MAX_SUBAGENTS } from "#harness/workflow-subagent-limit.js";
 import { workflowToolDescription } from "#harness/workflow-tool-description.js";
 import {

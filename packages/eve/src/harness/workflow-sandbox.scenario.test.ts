@@ -2,7 +2,7 @@ import { jsonSchema } from "ai";
 import { describe, expect, it } from "vitest";
 
 import type { HarnessToolDefinition } from "#harness/execute-tool.js";
-import { getWorkflowRuntimeActionInterrupts } from "#harness/workflow-runtime-action-state.js";
+import { getWorkflowRuntimeActionInterrupts } from "#core/workflow-runtime-action-state.js";
 import {
   applyWorkflowTool,
   resolveWorkflowSandboxBridgeRequestLimit,

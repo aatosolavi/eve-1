@@ -22,7 +22,7 @@ import { hasProxyInputRequests } from "#core/proxy-input-requests.js";
 import type { HarnessSession, SessionStateMap } from "#harness/types.js";
 import { migrateDurableSessionSnapshot } from "#core/durable-session-migrations/snapshot.js";
 import type { SandboxState } from "#sandbox/state.js";
-import type { JsonObject } from "#shared/json.js";
+import type { JsonObject } from "#core/shared/json.js";
 
 export const EVE_SESSION_STREAM_NAMESPACE = "eve.session";
 

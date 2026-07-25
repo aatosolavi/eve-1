@@ -16,8 +16,8 @@
  */
 
 import type { AlsContext, ContextContainer } from "#context/container.js";
-import { ContextKey } from "#context/key.js";
-import type { AuthorizationSignal } from "#harness/authorization.js";
+import { ContextKey } from "#core/context/key.js";
+import type { AuthorizationSignal } from "#core/authorization.js";
 
 const PendingToolInterruptsKey = new ContextKey<Readonly<Record<string, AuthorizationSignal>>>(
   "eve.pendingToolInterrupts",

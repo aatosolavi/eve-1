@@ -2,21 +2,21 @@ import type { Span } from "#compiled/@opentelemetry/api/index.js";
 import type { LanguageModel, ModelMessage, SystemModelMessage, UserContent } from "ai";
 import type { AlsContext } from "#context/container.js";
 import type { StepFacets, StepFlowTypes } from "#core/step-ports.js";
-import { getHarnessEmissionState, setHarnessEmissionState } from "#harness/emission.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
-import { hasStepInput } from "#harness/input-requests.js";
-import type { RejectedActionBatch } from "#harness/input-requests.js";
-import { normalizeUserContent } from "#harness/messages.js";
+import { getHarnessEmissionState, setHarnessEmissionState } from "#core/emission.js";
+import type { HarnessEmissionState } from "#core/emission.js";
+import { hasStepInput } from "#core/input-requests.js";
+import type { RejectedActionBatch } from "#core/input-requests.js";
+import { normalizeUserContent } from "#core/messages.js";
 import type { ModelCallRunner, PreparedModelCallInput } from "#harness/model-call.js";
 import type { resolveCompactionModel } from "#harness/compaction.js";
-import type { AnthropicCacheMarker, PromptCachePath } from "#harness/prompt-cache.js";
+import type { AnthropicCacheMarker, PromptCachePath } from "#core/prompt-cache.js";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
 import type { RecoveryRetryCallOptions } from "#harness/model-call-recovery.js";
-import type { accumulateTurnUsage } from "#harness/turn-tag-state.js";
+import type { accumulateTurnUsage } from "#core/turn-tag-state.js";
 import type { HarnessSession, StepInput } from "#harness/types.js";
-import type { RuntimeActionResult } from "#runtime/actions/types.js";
-import type { JsonObject } from "#shared/json.js";
-import type { TokenUsage } from "#shared/token-usage.js";
+import type { RuntimeActionResult } from "#core/actions/types.js";
+import type { JsonObject } from "#core/shared/json.js";
+import type { TokenUsage } from "#core/shared/token-usage.js";
 
 /**
  * The harness binding of the core step flow

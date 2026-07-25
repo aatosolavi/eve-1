@@ -1,21 +1,21 @@
 import type { ModelMessage, ToolSet, TypedToolCall, TypedToolError, TypedToolResult } from "ai";
 import { createLogger, formatError } from "#internal/logging.js";
-import { toErrorMessage } from "#shared/errors.js";
-import { resolveAssistantStepText } from "#harness/messages.js";
+import { toErrorMessage } from "#core/shared/errors.js";
+import { resolveAssistantStepText } from "#core/messages.js";
 import {
   classifyModelCallError,
   EmptyModelResponseError,
   extractUnsupportedProviderToolTypes,
   isNoOutputGeneratedError,
   type UpstreamRejectionSummary,
-} from "#harness/model-call-error.js";
+} from "#core/model-call-error.js";
 import { resolveFrameworkToolFromUpstreamType } from "#harness/provider-tools.js";
-import type { SemanticErrorSummary } from "#harness/semantic-errors/index.js";
+import type { SemanticErrorSummary } from "#core/semantic-errors/index.js";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
-import { getInvalidToolCallInputError } from "#harness/tool-call-input-errors.js";
-import { throwIfTurnAborted } from "#harness/turn-cancellation.js";
-import { EMPTY_DELIVERY_SENTINEL } from "#shared/empty-delivery.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import { getInvalidToolCallInputError } from "#core/tool-call-input-errors.js";
+import { throwIfTurnAborted } from "#core/turn-cancellation.js";
+import { EMPTY_DELIVERY_SENTINEL } from "#core/shared/empty-delivery.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 import { FINAL_OUTPUT_TOOL_NAME } from "#runtime/framework-tools/final-output.js";
 
 const log = createLogger("harness.generate");

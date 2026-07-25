@@ -1,7 +1,7 @@
 import { generateText, jsonSchema, type LanguageModel, ToolLoopAgent } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { setPendingInputBatch } from "#harness/input-requests.js";
+import { setPendingInputBatch } from "#core/input-requests.js";
 import { createGenerate } from "#harness/generate.js";
 import type { HarnessSession, GenerateConfig } from "#harness/types.js";
 

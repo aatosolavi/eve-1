@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { runSession, runTurn } from "#core/index.js";
 import { TASK_MODE_WAIT_ERROR_MESSAGE } from "#core/turn-program.js";
-import { DURABLE_SESSION_VERSION } from "#execution/durable-session-store.js";
+import { DURABLE_SESSION_VERSION } from "#core/durable-session-store.js";
 import type { LoopRequest } from "#core/types.js";
 import type {
   ChildResults,

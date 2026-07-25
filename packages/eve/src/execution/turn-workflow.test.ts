@@ -4,7 +4,7 @@ import type { HookPayload } from "#channel/types.js";
 import { cancelDescendantTurnsStep } from "#execution/cancel-descendant-turns-step.js";
 import { dispatchRuntimeActionsStep } from "#internal/loops/workflow/dispatch-runtime-actions-step.js";
 import { dispatchWorkflowRuntimeActionsStep } from "#internal/loops/workflow/dispatch-workflow-runtime-actions-step.js";
-import type { DurableSessionState } from "#execution/durable-session-store.js";
+import type { DurableSessionState } from "#core/durable-session-store.js";
 import { runProxySubagentEventStep } from "#execution/subagent-event-proxy-step.js";
 import { turnWorkflow } from "#internal/loops/workflow/turn-workflow.js";
 import {

@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import { estimateTokens } from "#harness/token-estimate.js";
+import { estimateTokens } from "#core/token-estimate.js";
 
 export const COMPACTION_CHECKPOINT_MARKER = "Summary of our conversation so far:";
 

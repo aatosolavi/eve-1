@@ -16,7 +16,7 @@ import {
   createSessionWaitingEvent,
   createTurnCompletedEvent,
   createTurnStartedEvent,
-} from "../src/protocol/message.js";
+} from "#core/protocol/message.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

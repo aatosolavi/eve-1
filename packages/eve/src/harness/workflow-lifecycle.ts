@@ -1,16 +1,16 @@
 import type { ToolSet, TypedToolCall } from "ai";
 
-import { createRuntimeToolResultFromValue } from "#harness/action-result-helpers.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
-import { createRuntimeActionRequestFromToolCall } from "#harness/runtime-actions.js";
+import { createRuntimeToolResultFromValue } from "#core/action-result-helpers.js";
+import type { HarnessEmissionState } from "#core/emission.js";
+import { createRuntimeActionRequestFromToolCall } from "#core/runtime-actions.js";
 import type { HarnessToolMap } from "#harness/types.js";
 import { createLogger } from "#internal/logging.js";
 import {
   createActionResultEvent,
   createActionsRequestedEvent,
   type HandleMessageStreamEvent,
-} from "#protocol/message.js";
-import { toErrorMessage } from "#shared/errors.js";
+} from "#core/protocol/message.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import type { WorkflowSandboxLifecycle } from "#shared/workflow-sandbox.js";
 
 const log = createLogger("harness.workflow-lifecycle");

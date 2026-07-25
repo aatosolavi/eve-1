@@ -11,18 +11,18 @@ import {
   getPendingRuntimeActionBatch,
   setPendingRuntimeActionBatch,
 } from "#core/runtime-actions.js";
-import { getPendingAuthorization, setPendingAuthorization } from "#harness/authorization.js";
-import { classifyParkedSession } from "#harness/step-result.js";
+import { getPendingAuthorization, setPendingAuthorization } from "#core/authorization.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
 import type { GenerateOutcome, HarnessSession } from "#harness/types.js";
 import { createEmptyHookRegistry } from "#runtime/hooks/registry.js";
 import { getCompiledRuntimeAgentBundle } from "#runtime/sessions/compiled-agent-cache.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   DURABLE_SESSION_VERSION,
   type DurableSessionState,
   projectSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { createTurnWorkflowInput } from "#core/durable-session-migrations/turn-workflow.js";
 import { projectToDurableSession } from "#execution/session.js";
 import { createNodeGenerate } from "#execution/node-generate.js";
@@ -40,8 +40,15 @@ vi.mock("./durable-session-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./durable-session-store.js")>();
   return {
     ...actual,
-    createDurableSessionState: vi.fn(),
     readDurableSession: vi.fn(),
+  };
+});
+
+vi.mock("#core/durable-session-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#core/durable-session-store.js")>();
+  return {
+    ...actual,
+    createDurableSessionState: vi.fn(),
   };
 });
 

@@ -5,7 +5,7 @@ import {
   type AnthropicCacheMarker,
   applyConversationCacheControl,
   getAnthropicCacheMarker,
-} from "#harness/prompt-cache.js";
+} from "#core/prompt-cache.js";
 
 /**
  * Deterministic replay of two production benchmark traces that reported

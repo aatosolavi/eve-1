@@ -4,11 +4,11 @@ import { dispatchStreamEventHooks } from "#context/hook-lifecycle.js";
 import { withContextScope } from "#context/run-step.js";
 import { deserializeContext, serializeContext } from "#context/serialize.js";
 import { setChannelContext } from "#execution/channel-context.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { reconcileSessionContinuationToken } from "#core/reconcile-session-continuation-token.js";
 import { emitCancelledTurn } from "#harness/cancelled-turn-emission.js";

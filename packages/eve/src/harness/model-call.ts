@@ -11,9 +11,9 @@ import { buildDynamicTools } from "#context/build-dynamic-tools.js";
 import { contextStorage } from "#context/container.js";
 import { getActiveDynamicModelSelection } from "#context/dynamic-model-lifecycle.js";
 import { getAdvertisedTools } from "#harness/advertised-tools.js";
-import { emitStreamContent, type HarnessEmissionState } from "#harness/emission.js";
+import { emitStreamContent, type HarnessEmissionState } from "#core/emission.js";
 import { buildTelemetryRuntimeContext } from "#harness/instrumentation-runtime-context.js";
-import { EmptyModelResponseError } from "#harness/model-call-error.js";
+import { EmptyModelResponseError } from "#core/model-call-error.js";
 import {
   appendMissingToolResultMessages,
   extractToolResultCallIds,
@@ -28,15 +28,15 @@ import {
   applyLastToolCacheBreakpoint,
   applySystemCacheBreakpoint,
   type PromptCachePath,
-} from "#harness/prompt-cache.js";
-import { summarizeKnownError } from "#harness/semantic-errors/index.js";
+} from "#core/prompt-cache.js";
+import { summarizeKnownError } from "#core/semantic-errors/index.js";
 import { buildStepHooks, emitStepActions, type HarnessStepResult } from "#harness/step-hooks.js";
 import {
   buildToolApproval,
   buildToolSetFromDefinitions,
   buildToolSetWithProviderTools,
 } from "#harness/tools.js";
-import { throwIfTurnAborted } from "#harness/turn-cancellation.js";
+import { throwIfTurnAborted } from "#core/turn-cancellation.js";
 import type {
   CompactionConfig,
   HarnessSession,

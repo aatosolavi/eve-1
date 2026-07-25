@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { HarnessSession } from "#harness/types.js";
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   DURABLE_SESSION_VERSION,
   type DurableSessionSnapshot,
   type DurableSessionState,
   projectSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import type { NextDriverAction } from "#core/next-driver-action.js";
 import { projectToDurableSession } from "#execution/session.js";
 

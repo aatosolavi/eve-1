@@ -1,12 +1,12 @@
 import type { ModelMessage, ToolSet, TypedToolCall, TypedToolResult } from "ai";
 import { contextStorage } from "#context/container.js";
-import { createToolResultMessagePartFromToolError } from "#harness/action-result-helpers.js";
+import { createToolResultMessagePartFromToolError } from "#core/action-result-helpers.js";
 import { getAdvertisedTools } from "#harness/advertised-tools.js";
 import {
   type AuthorizationSignal,
   isAuthorizationSignal,
   setPendingAuthorization,
-} from "#harness/authorization.js";
+} from "#core/authorization.js";
 import { createNextCompactionConfig } from "#harness/compaction.js";
 import {
   advanceStep,
@@ -15,13 +15,13 @@ import {
   emitTurnEpilogue,
   getHarnessEmissionState,
   setHarnessEmissionState,
-} from "#harness/emission.js";
+} from "#core/emission.js";
 import {
   extractQuestionInputRequests,
   extractToolApprovalInputRequests,
-} from "#harness/input-extraction.js";
-import { hasDeferredStepInput, setPendingInputBatch } from "#harness/input-requests.js";
-import { resolveAssistantStepText } from "#harness/messages.js";
+} from "#core/input-extraction.js";
+import { hasDeferredStepInput, setPendingInputBatch } from "#core/input-requests.js";
+import { resolveAssistantStepText } from "#core/messages.js";
 import {
   appendMissingToolResultMessages,
   getInvalidToolCallInputErrors,
@@ -30,29 +30,27 @@ import { normalizeProviderToolHistory } from "#harness/provider-tool-history.js"
 import {
   createRuntimeActionRequestFromToolCall,
   setPendingRuntimeActionBatch,
-} from "#harness/runtime-actions.js";
+} from "#core/runtime-actions.js";
 import type { HarnessStepResult } from "#harness/step-hooks.js";
-import { isInvalidToolCall } from "#harness/tool-call-input-errors.js";
+import { isInvalidToolCall } from "#core/tool-call-input-errors.js";
 import { readToolInterrupt } from "#harness/tool-interrupts.js";
 import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { readWorkflowContinuationSecurity } from "#harness/workflow-continuation-security.js";
-import { isWorkflowRuntimeActionInterrupt } from "#harness/workflow-runtime-action-state.js";
+import { isWorkflowRuntimeActionInterrupt } from "#core/workflow-runtime-action-state.js";
 import { parkOnWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
 import { createLogger } from "#internal/logging.js";
 import {
   createAuthorizationRequiredEvent,
   createInputRequestedEvent,
   createResultCompletedEvent,
-} from "#protocol/message.js";
+} from "#core/protocol/message.js";
 import { FINAL_OUTPUT_TOOL_NAME } from "#runtime/framework-tools/final-output.js";
-import type { InputRequest } from "#runtime/input/types.js";
-import { hasEmptyDeliverySentinel } from "#shared/empty-delivery.js";
+import type { InputRequest } from "#core/input/types.js";
+import { hasEmptyDeliverySentinel } from "#core/shared/empty-delivery.js";
 import type { RunMode } from "#shared/run-mode.js";
-import type { JsonObject, JsonValue } from "#shared/json.js";
+import type { JsonObject, JsonValue } from "#core/shared/json.js";
 import { getWorkflowSandboxInterrupt } from "#shared/workflow-sandbox.js";
 
-export { classifyParkedSession, withOutcomeState } from "#core/step-outcome.js";
-export { resolveApprovalKeyFromTools } from "#core/input-requests.js";
 import { classifyParkedSession } from "#core/step-outcome.js";
 
 const log = createLogger("harness.generate");

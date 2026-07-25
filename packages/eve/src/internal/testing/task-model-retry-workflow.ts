@@ -7,11 +7,11 @@ import { MockLanguageModelV3 } from "ai/test";
 
 import { getStepMetadata, getWorkflowMetadata } from "#compiled/@workflow/core/index.js";
 
+import { readDurableSession } from "#execution/durable-session-store.js";
 import {
   createDurableSessionState,
   type DurableSessionState,
-  readDurableSession,
-} from "#execution/durable-session-store.js";
+} from "#core/durable-session-store.js";
 import { hydrateDurableSession } from "#execution/session.js";
 import { createGenerate } from "#harness/generate.js";
 import type { HarnessSession } from "#harness/types.js";

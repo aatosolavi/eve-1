@@ -9,7 +9,7 @@ import {
   InitiatorAuthKey,
   ParentSessionKey,
 } from "#core/context/keys.js";
-import type { HarnessEmissionState } from "#harness/emission.js";
+import type { HarnessEmissionState } from "#core/emission.js";
 import type { HarnessSession } from "#harness/types.js";
 import {
   normalizeInstrumentationChannelKind,
@@ -22,7 +22,12 @@ import type {
   InstrumentationRuntimeContext,
   InstrumentationStepStartedEventInput,
 } from "#public/instrumentation/index.js";
-import { parseJsonObject, parseJsonValue, type JsonObject, type JsonValue } from "#shared/json.js";
+import {
+  parseJsonObject,
+  parseJsonValue,
+  type JsonObject,
+  type JsonValue,
+} from "#core/shared/json.js";
 
 const log = createLogger("harness.instrumentation-runtime-context");
 

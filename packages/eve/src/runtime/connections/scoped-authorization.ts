@@ -12,12 +12,8 @@
 
 import { type AlsContext, contextStorage, loadContext } from "#context/container.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
-import {
-  type AuthorizationSignal,
-  getAuthorizationResult,
-  getHookUrl,
-  requestAuthorization,
-} from "#harness/authorization.js";
+import { getAuthorizationResult, getHookUrl } from "#harness/authorization.js";
+import { type AuthorizationSignal, requestAuthorization } from "#core/authorization.js";
 import type { JsonValue } from "#public/types/json.js";
 import {
   evictCachedToken,

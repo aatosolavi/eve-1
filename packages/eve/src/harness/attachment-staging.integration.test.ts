@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ChannelAdapter, FetchFileResult } from "#channel/adapter.js";
 import { EveAttachmentError } from "#internal/attachments/errors.js";
-import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
+import { decodeSandboxRef, isSandboxRefUrl } from "#core/attachments/sandbox-refs.js";
 import { createTestRuntime } from "#internal/testing/app-harness.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
 import { mockTool } from "#internal/testing/mocks/mock-tool.js";

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createGenerate } from "#harness/generate.js";
 import type { HandleEventFn, HarnessSession, GenerateConfig } from "#harness/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;

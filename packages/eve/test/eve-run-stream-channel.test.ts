@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { HandleMessageStreamEvent } from "../src/protocol/message.js";
+import type { HandleMessageStreamEvent } from "#core/protocol/message.js";
 import type { RouteHandlerArgs, GetSessionFn } from "../src/channel/routes.js";
 import type { Session } from "../src/channel/session.js";
 import { EVE_MESSAGE_STREAM_ROUTE_PATTERN } from "../src/protocol/routes.js";

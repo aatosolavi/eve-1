@@ -1,24 +1,24 @@
 import type { ModelMessage } from "ai";
 import { createLogger, logError } from "#internal/logging.js";
-import { getHarnessEmissionState, setHarnessEmissionState } from "#harness/emission.js";
-import { classifyParkedSession } from "#harness/step-result.js";
+import { getHarnessEmissionState, setHarnessEmissionState } from "#core/emission.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
 import type { GenerateOutcome, HarnessSession, GenerateConfig } from "#harness/types.js";
 import { getWorkflowContinuationSecurity } from "#harness/workflow-continuation-security.js";
 import {
   clearPendingWorkflowInterrupt,
   getPendingWorkflowInterrupt,
   setPendingWorkflowInterrupt,
-} from "#harness/workflow-interrupt-state.js";
+} from "#core/workflow-interrupt-state.js";
 import { createWorkflowLifecycle } from "#harness/workflow-lifecycle.js";
 import {
   getWorkflowRuntimeActionInterrupts,
   isWorkflowRuntimeActionInterrupt,
-} from "#harness/workflow-runtime-action-state.js";
+} from "#core/workflow-runtime-action-state.js";
 import {
   buildWorkflowHostTools,
   resolveWorkflowSandboxBridgeRequestLimit,
 } from "#harness/workflow-sandbox.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 import {
   continueWorkflowSandboxInterrupt,
   unwrapWorkflowSandboxResult,

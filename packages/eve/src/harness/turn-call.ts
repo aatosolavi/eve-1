@@ -14,7 +14,7 @@ import {
   EmptyModelResponseError,
   extractModelCallErrorDetails,
   extractUpstreamRejectionMessage,
-} from "#harness/model-call-error.js";
+} from "#core/model-call-error.js";
 import {
   attemptEmptyResponseRecovery,
   attemptUnsupportedProviderToolRecovery,
@@ -22,23 +22,24 @@ import {
   buildModelCallFailureLogFields,
 } from "#harness/model-call-recovery.js";
 import { createModelCallRunner } from "#harness/model-call.js";
-import { enforceSessionTokenLimit } from "#harness/session-limit-enforcement.js";
-import { summarizeKnownError } from "#harness/semantic-errors/index.js";
+import { enforceSessionTokenLimit } from "#core/session-limit-enforcement.js";
+import { summarizeKnownError } from "#core/semantic-errors/index.js";
 import type { HarnessStepFlow } from "#harness/step-flow.js";
-import { classifyParkedSession, handleStepResult } from "#harness/step-result.js";
+import { classifyParkedSession } from "#core/step-outcome.js";
+import { handleStepResult } from "#harness/step-result.js";
 import {
   accumulateTurnUsage,
   extractGatewayCostUsd,
   extractTokenUsageDelta,
   getTurnUsageState,
   setTurnUsageState,
-} from "#harness/turn-tag-state.js";
-import { throwIfTurnAborted } from "#harness/turn-cancellation.js";
-import { setHarnessEmissionState } from "#harness/emission.js";
+} from "#core/turn-tag-state.js";
+import { throwIfTurnAborted } from "#core/turn-cancellation.js";
+import { setHarnessEmissionState } from "#core/emission.js";
 import type { GenerateConfig } from "#harness/types.js";
-import { extractWorkflowStreamWriteErrorDetails } from "#harness/workflow-stream-error.js";
+import { extractWorkflowStreamWriteErrorDetails } from "#core/workflow-stream-error.js";
 import { continuePendingWorkflowInterrupt } from "#harness/workflow-interrupt-continuation.js";
-import { toErrorMessage } from "#shared/errors.js";
+import { toErrorMessage } from "#core/shared/errors.js";
 
 const log = createLogger("harness.generate");
 
