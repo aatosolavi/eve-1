@@ -10,14 +10,92 @@ import {
 } from "#runtime/session-callback-route.js";
 
 const resumeHookMock = vi.fn();
+const appendSessionStreamEventMock = vi.fn();
 
 vi.mock("#compiled/@workflow/core/runtime.js", () => ({
   resumeHook: (token: string, payload: unknown) => resumeHookMock(token, payload),
 }));
 
+vi.mock("#execution/session-stream-append.js", () => ({
+  appendSessionStreamEvent: (sessionId: string, event: unknown) =>
+    appendSessionStreamEventMock(sessionId, event),
+}));
+
 describe("session callback route", () => {
   beforeEach(() => {
     resumeHookMock.mockReset();
+    appendSessionStreamEventMock.mockReset();
+  });
+
+  it("appends a progress event to the caller stream as subagent.event, best-effort", async () => {
+    appendSessionStreamEventMock.mockResolvedValue(undefined);
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/wrun_parent%3Aevents", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: {
+            data: { message: "half a thought", sequence: 2, stepIndex: 0, turnId: "turn-0" },
+            status: "working",
+            type: "message.completed",
+          },
+          sessionId: "wrun_child",
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "wrun_parent:events" }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(resumeHookMock).not.toHaveBeenCalled();
+    expect(appendSessionStreamEventMock).toHaveBeenCalledWith("wrun_parent", {
+      data: {
+        callId: "call-1",
+        childSessionId: "wrun_child",
+        event: {
+          data: { message: "half a thought", sequence: 2, stepIndex: 0, turnId: "turn-0" },
+          type: "message.completed",
+        },
+        subagentName: "research",
+      },
+      type: "subagent.event",
+    });
+  });
+
+  it("still returns 202 when the progress stream append fails (session over)", async () => {
+    appendSessionStreamEventMock.mockRejectedValue(new Error("stream closed"));
+
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/wrun_parent%3Aevents", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: { data: {}, status: "working", type: "step.started" },
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "wrun_parent:events" }),
+    );
+
+    expect(response.status).toBe(202);
+  });
+
+  it("rejects a non-progress event type on the progress lane", async () => {
+    const response = await handleSessionCallbackRequest(
+      new Request("https://app.example.com/eve/v1/callback/wrun_parent%3Aevents", {
+        body: JSON.stringify({
+          callId: "call-1",
+          event: { data: {}, status: "working", type: "session.completed" },
+          subagentName: "research",
+        }),
+        method: "POST",
+      }),
+      createRouteContext({ token: "wrun_parent:events" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(appendSessionStreamEventMock).not.toHaveBeenCalled();
   });
 
   it("registers the POST framework callback route", () => {

@@ -2,6 +2,7 @@ import { z } from "#compiled/zod/index.js";
 
 import type { SessionCallback, SubagentAuthorizationEvent } from "#channel/types.js";
 import { createEveCallbackRoutePath } from "#protocol/routes.js";
+import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import type { JsonValue } from "#shared/json.js";
 import { isReservedIpAddress } from "#shared/network-address.js";
 import type { TokenUsage } from "#shared/token-usage.js";
@@ -52,11 +53,37 @@ export type SessionCallbackNotificationEvent = SubagentAuthorizationEvent & {
 };
 
 /**
+ * Non-terminal, rendering-only child telemetry (issue #1170): message,
+ * reasoning, and step progress. Forwarded best-effort to the caller's
+ * `:events` ingestion URL and appended to the caller's stream wrapped as
+ * `subagent.event`, never touching the caller's main run. Data rides
+ * loosely — progress drives no state, so it is not re-validated per type.
+ */
+export type SessionCallbackProgressEvent = HandleMessageStreamEvent & {
+  readonly status: "working";
+};
+
+/** Non-terminal child stream events forwarded on the progress lane. */
+export const PROGRESS_EVENT_TYPES = [
+  "message.appended",
+  "message.completed",
+  "reasoning.appended",
+  "reasoning.completed",
+  "step.started",
+  "step.completed",
+] as const;
+
+export function isProgressEventType(type: string): boolean {
+  return (PROGRESS_EVENT_TYPES as readonly string[]).includes(type);
+}
+
+/**
  * One event on the session callback wire contract, discriminated by
  * {@link SessionCallbackEventStatus}.
  */
 export type SessionCallbackEvent =
   | SessionCallbackNotificationEvent
+  | SessionCallbackProgressEvent
   | SessionCallbackTerminationEvent;
 
 /**
@@ -132,6 +159,7 @@ export type SessionCallbackParseResult =
 const sessionCallbackSchema = z
   .object({
     callId: z.string().min(1),
+    notifyUrl: z.string().min(1).optional(),
     subagentName: z.string().min(1),
     token: z.string().min(1),
     url: z.string().min(1),
@@ -167,6 +195,30 @@ const sessionCallbackSchema = z
         message: "Callback url host must not be a private or reserved address.",
         path: ["url"],
       });
+    }
+
+    // notifyUrl targets a different hook token (the caller's :events
+    // ingestion), so it gets the absolute-URL and SSRF checks but not the
+    // token match.
+    if (callback.notifyUrl !== undefined) {
+      let notifyUrl: URL;
+      try {
+        notifyUrl = new URL(callback.notifyUrl);
+      } catch {
+        ctx.addIssue({
+          code: "custom",
+          message: "Callback notifyUrl must be absolute.",
+          path: ["notifyUrl"],
+        });
+        return;
+      }
+      if (isReservedIpAddress(notifyUrl.hostname)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Callback notifyUrl host must not be a private or reserved address.",
+          path: ["notifyUrl"],
+        });
+      }
     }
   });
 

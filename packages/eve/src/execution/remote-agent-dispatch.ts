@@ -40,6 +40,13 @@ export async function startRemoteAgentSession(input: {
     body: JSON.stringify({
       callback: {
         callId: input.action.callId,
+        // Best-effort progress lane (issue #1170): the callee POSTs its
+        // non-terminal progress here, appended to the caller's stream
+        // without waking the caller's main run.
+        notifyUrl: createWorkflowCallbackUrl(
+          input.callbackBaseUrl,
+          createEveCallbackRoutePath(`${input.session.sessionId}:events`),
+        ),
         subagentName: input.action.remoteAgentName,
         token: callbackToken,
         url: createWorkflowCallbackUrl(

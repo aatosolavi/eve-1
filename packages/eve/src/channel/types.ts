@@ -213,6 +213,13 @@ export type HookPayload =
  */
 export interface SessionCallback {
   readonly callId: string;
+  /**
+   * Best-effort progress lane (issue #1170): the caller's `<sessionId>:events`
+   * ingestion URL. A callee POSTs its non-terminal progress events here; the
+   * caller appends them to its stream without waking its main run. Absent when
+   * the caller predates the progress lane.
+   */
+  readonly notifyUrl?: string;
   readonly subagentName: string;
   readonly token: string;
   readonly url: string;
