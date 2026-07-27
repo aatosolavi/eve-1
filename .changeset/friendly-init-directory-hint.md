@@ -2,5 +2,5 @@
 "eve": patch
 ---
 
-Suggest `eve init <name>` when a command cannot find an agent or a bare init cannot scaffold in a
-non-empty directory.
+Give first-time users clear next steps when eve cannot find an agent or cannot create one in a
+non-empty folder.

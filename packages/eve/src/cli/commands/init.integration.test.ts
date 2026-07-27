@@ -305,7 +305,9 @@ describe("runInitCommand", () => {
 
     await expect(
       runInitCommand(logger(), projectPath, undefined, {}, dependencies()),
-    ).rejects.toThrow("Use an empty directory, or pass a new directory name: `eve init <name>`.");
+    ).rejects.toThrow(
+      "This folder isn't empty. Create the project in a new folder with `eve init my-agent`, or run `eve init` from an empty folder.",
+    );
   });
 
   it.each([

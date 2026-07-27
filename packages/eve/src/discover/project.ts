@@ -96,7 +96,7 @@ export async function resolveDiscoveryProject(
   throw new DiscoveryProjectResolutionError(
     createDiscoverErrorDiagnostic({
       code: DISCOVER_PROJECT_NOT_FOUND,
-      message: `Could not resolve an eve agent root from "${startDirectory}". Run \`eve init <name>\` to create a new agent.`,
+      message: "No eve agent found. Create one with `eve init my-agent`.",
       sourcePath: startDirectory,
     }),
   );

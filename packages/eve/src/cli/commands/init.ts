@@ -108,10 +108,8 @@ async function assertCanScaffoldInPlace(targetRoot: string): Promise<void> {
     return;
   }
 
-  const visible = blocking.slice(0, 5).join(", ");
-  const suffix = blocking.length > 5 ? `, and ${blocking.length - 5} more` : "";
   throw new Error(
-    `Cannot create project in current directory because it is not empty. Found: ${visible}${suffix}. Use an empty directory, or pass a new directory name: \`eve init <name>\`.`,
+    "This folder isn't empty. Create the project in a new folder with `eve init my-agent`, or run `eve init` from an empty folder.",
   );
 }
 

@@ -85,7 +85,7 @@ describe("resolveDiscoveryProject (memory)", () => {
     await expect(
       resolveDiscoveryProject(project.appRoot, { source: project.source }),
     ).rejects.toMatchObject({
-      message: `Could not resolve an eve agent root from "${resolve(project.appRoot)}". Run \`eve init <name>\` to create a new agent.`,
+      message: "No eve agent found. Create one with `eve init my-agent`.",
     });
   });
 
