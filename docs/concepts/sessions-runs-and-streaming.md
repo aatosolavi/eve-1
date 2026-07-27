@@ -73,6 +73,46 @@ A delegated subagent publishes progress on its own child-session stream. The par
 
 `step.failed` and `turn.failed` carry `{ code, message, details? }` for the failed fragment or turn, and `session.failed` is the terminal session-level variant. `turn.cancelled` is not a failure: the cancelled turn ends without any failure event, `session.waiting` follows, and the session accepts the next message normally — whatever the turn streamed before cancellation stays on the stream, while durable history keeps only what had already settled. When a turn requested an output schema, the finalized payload lands on `result.completed` as `data.result` before the turn boundary. `authorization.required` carries the sign-in challenge (`data.authorization` may include `url`, `userCode`, `expiresAt`, `instructions`), and `authorization.completed` carries `data.outcome` (`"authorized" | "declined" | "failed" | "timed-out"`).
 
+## The event envelope
+
+Alongside `type` and `data`, every event carries a `meta` envelope:
+
+```json
+{
+  "type": "message.completed",
+  "data": {
+    "message": "Sunny and 72°F.",
+    "finishReason": "stop",
+    "sequence": 0,
+    "stepIndex": 0,
+    "turnId": "turn_0"
+  },
+  "meta": { "id": "evt_01K18VW2Q7B4M9XN3RTC5FDGHJ", "at": "2026-07-27T18:04:11.912Z" }
+}
+```
+
+- **`meta.id`** uniquely identifies the event. It is a `evt_`-prefixed [ULID](https://github.com/ulid/spec), so sorting ids as strings reproduces emission order.
+- **`meta.at`** is the ISO-8601 time the event was emitted.
+
+`meta.id` is stable. eve mints it once, when the event is written to the durable stream, and stores it with the event. Reconnecting from a cursor, rewinding to `startIndex=0`, or replaying a finished session all return the same id for the same event.
+
+That makes it the key for ingesting events into a database exactly once:
+
+```sql
+insert into agent_events (id, session_id, type, data, emitted_at)
+values ($1, $2, $3, $4, $5)
+on conflict (id) do nothing;
+```
+
+Because ids sort chronologically, a `primary key (id)` also keeps inserts clustered and lets you page with `where id > $cursor order by id`.
+
+Two caveats worth knowing:
+
+- **Ids identify events, not intent.** Two events with identical payloads — the `step.failed` → `turn.failed` → `session.failed` cascade, or two identical text deltas in one step — are distinct events with distinct ids. Deduplicate on `meta.id` only; matching on content would drop real data.
+- **A subagent's event is re-emitted, not shared.** When a parent forwards a child's event onto its own stream, the parent's copy is a separate event with its own id. Correlate the two streams through `subagent.called.data.childSessionId`.
+
+Authored [hooks](../guides/hooks) receive the same envelope, so a hook can use `event.meta.id` to make its own side effects idempotent across a retry.
+
 ## Send a follow-up message
 
 Once the session is waiting (you'll see `session.waiting`), POST your follow-up to the session endpoint with `event.data.continuationToken`:
@@ -111,6 +151,8 @@ Custom channel routes request the same cancellation without knowing the session 
 ## Reconnect and rewind
 
 The stream is durable. Every event is recorded before a step completes, so consumers can reconnect from their cursor when an HTTP connection ends. A nonnegative `startIndex` is an absolute event count: use it to pick up where you dropped off or pass `0` to rewind to the start.
+
+If a reconnect overlaps events you already handled, [`meta.id`](#the-event-envelope) identifies the duplicates: it is unchanged across reconnects and rewinds, so a consumer keyed on it can replay safely.
 
 ```bash
 curl "http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream?startIndex=<count>"

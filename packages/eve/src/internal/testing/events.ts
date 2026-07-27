@@ -1,5 +1,8 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { isCurrentTurnBoundaryEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  StampedHandleMessageStreamEvent,
+} from "#protocol/message.js";
+import { isCurrentTurnBoundaryEvent, stampMessageStreamEvent } from "#protocol/message.js";
 
 /**
  * Minimal, duck-typed handle to one workflow `Run`'s readable stream.
@@ -27,7 +30,7 @@ export interface CapturedTurnStream {
    * `session.completed`, or `session.failed`) and returns every event
    * observed in that turn.
    */
-  nextTurn(): Promise<HandleMessageStreamEvent[]>;
+  nextTurn(): Promise<StampedHandleMessageStreamEvent[]>;
   /** Releases the reader lock on the underlying `ReadableStream`. */
   dispose(): void;
 }
@@ -133,8 +136,8 @@ async function readUntilBoundary(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   state: StreamState,
   decoder: InstanceType<typeof TextDecoder>,
-): Promise<HandleMessageStreamEvent[]> {
-  const events: HandleMessageStreamEvent[] = [];
+): Promise<StampedHandleMessageStreamEvent[]> {
+  const events: StampedHandleMessageStreamEvent[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
@@ -157,7 +160,7 @@ async function readUntilBoundary(
         continue;
       }
 
-      const event = JSON.parse(line) as HandleMessageStreamEvent;
+      const event = JSON.parse(line) as StampedHandleMessageStreamEvent;
       events.push(event);
 
       if (isCurrentTurnBoundaryEvent(event)) {
@@ -165,4 +168,28 @@ async function readUntilBoundary(
       }
     }
   }
+}
+
+/**
+ * Stamps a constructed event so a test fixture satisfies the stamped stream
+ * contract without going through a real emit seam.
+ *
+ * Ids are sequential and deterministic so failure output stays readable. Use
+ * the real {@link stampMessageStreamEvent} when a test asserts on id format.
+ */
+export function stampTestEvent(
+  event: HandleMessageStreamEvent,
+  index = 0,
+): StampedHandleMessageStreamEvent {
+  return stampMessageStreamEvent(event, {
+    at: new Date(Date.UTC(2026, 0, 1) + index).toISOString(),
+    id: `evt_test_${String(index).padStart(4, "0")}`,
+  });
+}
+
+/** Stamps every event in a fixture list. See {@link stampTestEvent}. */
+export function stampTestEvents(
+  events: readonly HandleMessageStreamEvent[],
+): StampedHandleMessageStreamEvent[] {
+  return events.map((event, index) => stampTestEvent(event, index));
 }

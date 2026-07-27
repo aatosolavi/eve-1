@@ -26,7 +26,7 @@ import { clearPendingWorkflowInterrupt } from "#harness/workflow-interrupt-state
 import {
   encodeMessageStreamEvent,
   type HandleMessageStreamEvent,
-  timestampHandleMessageStreamEvent,
+  stampMessageStreamEvent,
 } from "#protocol/message.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
@@ -74,11 +74,13 @@ export async function settleCancelledTurnStep(input: {
     try {
       const scoped = await withContextScope(ctx, session, async (enrichedSession) => {
         const emit = async (event: HandleMessageStreamEvent): Promise<void> => {
-          const transformed = await callAdapterEventHandler(adapter, event, adapterCtx);
-          setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
-          await writer.write(
-            encodeMessageStreamEvent(timestampHandleMessageStreamEvent(transformed)),
+          const transformed = await callAdapterEventHandler(
+            adapter,
+            stampMessageStreamEvent(event),
+            adapterCtx,
           );
+          setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
+          await writer.write(encodeMessageStreamEvent(transformed));
           await dispatchStreamEventHooks({
             ctx,
             event: transformed,

@@ -12,6 +12,7 @@ import {
   createSessionWaitingEvent,
   type HandleMessageStreamEvent,
 } from "#protocol/message.js";
+import { stampTestEvents } from "#internal/testing/events.js";
 import { defaultMessageReducer } from "#client/message-reducer.js";
 import type { SessionState } from "#client/types.js";
 
@@ -25,12 +26,13 @@ function createStartedMessageResponse(sessionId: string, continuationToken: stri
   });
 }
 
+/** Serializes fixture events the way the server does: stamped, one per line. */
 function createEagerStreamResponse(events: readonly HandleMessageStreamEvent[]): Response {
   const encoder = new TextEncoder();
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const event of events) {
+        for (const event of stampTestEvents(events)) {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
         controller.close();
@@ -179,7 +181,7 @@ describe("EveAgentStore (Vue composable backing store)", () => {
     startResponse.resolve(createStartedMessageResponse("session_1", "http:session_1"));
     await sendPromise;
 
-    expect(seenEvents).toEqual(events);
+    expect(seenEvents).toEqual(stampTestEvents(events));
     expect(store.snapshot.status).toBe("ready");
     expect(store.snapshot.data).toEqual(
       completedTurnData({
@@ -403,7 +405,7 @@ describe("useEveAgent (Vue composable wiring)", () => {
 
   it("renders initial projection without subscribing during SSR", async () => {
     const agent = useEveAgent({
-      initialEvents: [
+      initialEvents: stampTestEvents([
         createMessageReceivedEvent({ message: "Hello", sequence: 0, turnId: "turn_1" }),
         createMessageCompletedEvent({
           message: "Hi there.",
@@ -411,7 +413,7 @@ describe("useEveAgent (Vue composable wiring)", () => {
           stepIndex: 0,
           turnId: "turn_1",
         }),
-      ],
+      ]),
       initialSession: {
         continuationToken: "http:session_1",
         sessionId: "session_1",

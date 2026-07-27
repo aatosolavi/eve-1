@@ -1,6 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { ClientSession, MessageResponse, type HandleMessageStreamEvent } from "eve/client";
+import {
+  ClientSession,
+  MessageResponse,
+  type HandleMessageStreamEvent,
+  type StampedHandleMessageStreamEvent,
+} from "eve/client";
 import { EveTUIRunner, MockScreen, MockUserInput } from "./lib/tui.ts";
 
 import { theme } from "./lib/theme.ts";
@@ -61,18 +66,29 @@ class FakeSession extends ClientSession {
     });
   }
 
-  override stream(): AsyncIterable<HandleMessageStreamEvent> {
+  override stream(): AsyncIterable<StampedHandleMessageStreamEvent> {
     const events = this.#continuations[this.#continuationIndex] ?? [];
     this.#continuationIndex += 1;
     return pacedEvents(events);
   }
 }
 
+let nextEventIndex = 0;
+
+/** Stamps a fixture event the way an emit seam does before it hits the wire. */
+function stamp(event: HandleMessageStreamEvent): StampedHandleMessageStreamEvent {
+  nextEventIndex += 1;
+  return {
+    ...event,
+    meta: { at: new Date().toISOString(), id: `evt_smoke_${nextEventIndex}` },
+  } as StampedHandleMessageStreamEvent;
+}
+
 async function* pacedEvents(
   events: readonly HandleMessageStreamEvent[],
-): AsyncGenerator<HandleMessageStreamEvent> {
+): AsyncGenerator<StampedHandleMessageStreamEvent> {
   for (const event of events) {
-    yield event;
+    yield stamp(event);
     // Pacing gives the renderer and smoke assertions a chance to observe
     // each lifecycle state between events, as the HTTP transport does live.
     await sleep(200);

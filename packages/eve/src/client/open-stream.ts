@@ -1,4 +1,4 @@
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { StampedHandleMessageStreamEvent } from "#protocol/message.js";
 import { createEveMessageStreamRoutePath } from "#protocol/routes.js";
 import { ClientError } from "#client/client-error.js";
 import { isStreamDisconnectError, readNdjsonStream } from "#client/ndjson.js";
@@ -94,7 +94,7 @@ interface FollowStreamInput {
  */
 export async function* followStreamIterable(
   input: FollowStreamInput,
-): AsyncGenerator<HandleMessageStreamEvent> {
+): AsyncGenerator<StampedHandleMessageStreamEvent> {
   const retryPolicy = resolveStreamReconnectPolicy(input.streamReconnectPolicy);
   const idleRetryPolicy = retryPolicy.streamIdleReconnectPolicy;
   let startIndex = input.startIndex;

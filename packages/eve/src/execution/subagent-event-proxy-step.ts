@@ -21,7 +21,7 @@ import { emitProxiedInputRequest } from "#execution/subagent-hitl-proxy.js";
 import { upsertProxyInputRequests } from "#harness/proxy-input-requests.js";
 import type { HarnessSession } from "#harness/types.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
-import { encodeMessageStreamEvent, timestampHandleMessageStreamEvent } from "#protocol/message.js";
+import { encodeMessageStreamEvent, stampMessageStreamEvent } from "#protocol/message.js";
 import { BundleKey, ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
 type SubagentEventHookPayload =
@@ -81,9 +81,15 @@ export async function emitProxiedSubagentEvent(input: {
   let proxyEntries: ProxyInputRequestEntries | undefined;
   let scopedSession: HarnessSession;
   try {
+    // A child event re-emitted here becomes a distinct event on the parent
+    // stream, so it is stamped with its own id rather than reusing the child's.
     const emit = async (event: HandleMessageStreamEvent): Promise<void> => {
-      const transformed = await callAdapterEventHandler(adapter, event, adapterCtx);
-      await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(transformed)));
+      const transformed = await callAdapterEventHandler(
+        adapter,
+        stampMessageStreamEvent(event),
+        adapterCtx,
+      );
+      await writer.write(encodeMessageStreamEvent(transformed));
     };
 
     const scopeResult = await withContextScope(ctx, session, async (enrichedSession) => {

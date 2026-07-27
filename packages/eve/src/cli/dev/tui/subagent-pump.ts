@@ -7,10 +7,11 @@
  */
 
 import type { Client } from "#client/index.js";
+import { createEventDeduper, type EventDeduper } from "#protocol/event-dedupe.js";
 import {
   isCurrentTurnBoundaryEvent,
   type ActionResultStreamEvent,
-  type HandleMessageStreamEvent,
+  type StampedHandleMessageStreamEvent,
   type SubagentCalledStreamEvent,
 } from "#protocol/message.js";
 import { toErrorMessage } from "#shared/errors.js";
@@ -87,6 +88,14 @@ export type SubagentRun = {
   /** Monotonic counter for new section keys. */
   nextSectionKey: number;
   tools: Map<string, SubagentToolState>;
+  /**
+   * Child events already folded into this run. A pump is removed from
+   * `#pumps` when its stream ends, so a later `subagent.called` for the same
+   * call — an SSE-resume re-entry, or a recovery after a dropped child
+   * stream — restarts the pump at `streamIndex: 0` while `steps` survives.
+   * Keyed on the durable event id, the replayed prefix folds in exactly once.
+   */
+  seenChildEvents: EventDeduper;
 };
 
 export type SubagentStepUpdate = {
@@ -148,6 +157,7 @@ export class SubagentPump {
         currentSectionKey: null,
         nextSectionKey: 0,
         tools: new Map(),
+        seenChildEvents: createEventDeduper(),
       });
     } else {
       existing.name = called.data.name;
@@ -358,9 +368,10 @@ export class SubagentPump {
     }
   }
 
-  #applyChildEvent(callId: string, event: HandleMessageStreamEvent) {
+  #applyChildEvent(callId: string, event: StampedHandleMessageStreamEvent) {
     const run = this.#runs.get(callId);
     if (!run) return;
+    if (run.seenChildEvents.isDuplicate(event)) return;
     // A child event after settle is a HITL-parked turn resuming: reopen the
     // run explicitly (begin clears the header's Done mark) instead of
     // mutating a completed section by accident.

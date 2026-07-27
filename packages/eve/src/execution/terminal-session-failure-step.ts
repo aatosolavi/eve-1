@@ -6,7 +6,7 @@ import { createLogger, formatError } from "#internal/logging.js";
 import {
   createSessionFailedEvent,
   encodeMessageStreamEvent,
-  timestampHandleMessageStreamEvent,
+  stampMessageStreamEvent,
 } from "#protocol/message.js";
 import { ChannelKey } from "#runtime/sessions/runtime-context-keys.js";
 
@@ -45,7 +45,9 @@ export async function emitTerminalSessionFailureStep(input: {
     code,
   });
 
-  const event = createSessionFailedEvent({ code, details, message, sessionId });
+  const event = stampMessageStreamEvent(
+    createSessionFailedEvent({ code, details, message, sessionId }),
+  );
 
   // Best-effort: invoke the adapter handler so channels surface the
   // failure. Errors are logged, never rethrown — the outer workflow
@@ -71,7 +73,7 @@ export async function emitTerminalSessionFailureStep(input: {
   try {
     const writer = input.parentWritable.getWriter();
     try {
-      await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(event)));
+      await writer.write(encodeMessageStreamEvent(event));
     } finally {
       writer.releaseLock();
     }

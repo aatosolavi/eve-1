@@ -38,7 +38,7 @@ import {
   type WorkflowFunction,
   type WorkflowMetadata,
 } from "#internal/workflow/runtime.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { StampedHandleMessageStreamEvent } from "#protocol/message.js";
 import type { RuntimeCompiledArtifactsSource } from "#runtime/compiled-artifacts-source.js";
 import { ROOT_RUNTIME_AGENT_NODE_ID } from "#runtime/graph.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
@@ -158,9 +158,9 @@ export function createWorkflowRuntime(config: {
         throw error;
       }
 
-      let events: ReadableStream<HandleMessageStreamEvent> | undefined;
+      let events: ReadableStream<StampedHandleMessageStreamEvent> | undefined;
       const getEvents = () => {
-        events ??= parseNdjsonStream<HandleMessageStreamEvent>(() =>
+        events ??= parseNdjsonStream<StampedHandleMessageStreamEvent>(() =>
           getRun(run.runId).getReadable(),
         );
         return events;
@@ -219,8 +219,8 @@ export function createWorkflowRuntime(config: {
     async getEventStream(
       sessionId: string,
       options?: GetEventStreamOptions,
-    ): Promise<ReadableStream<HandleMessageStreamEvent>> {
-      return parseNdjsonStream<HandleMessageStreamEvent>(() =>
+    ): Promise<ReadableStream<StampedHandleMessageStreamEvent>> {
+      return parseNdjsonStream<StampedHandleMessageStreamEvent>(() =>
         getRun(sessionId).getReadable({ startIndex: options?.startIndex }),
       );
     },

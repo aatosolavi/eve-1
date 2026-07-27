@@ -7,7 +7,11 @@ import { isHttpRouteDefinition } from "#channel/routes.js";
 import { ContextContainer, contextStorage } from "#context/container.js";
 import { SandboxKey, SessionKey } from "#context/keys.js";
 import { mockSandbox, type MockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  StampedHandleMessageStreamEvent,
+} from "#protocol/message.js";
+import { stampTestEvent } from "#internal/testing/events.js";
 import {
   clearGitHubInstallationTokenCache,
   seedGitHubInstallationTokenForTests,
@@ -84,10 +88,10 @@ function callEvent(
   event: HandleMessageStreamEvent,
   ctx: any,
   sandbox?: MockSandbox,
-): Promise<HandleMessageStreamEvent> {
+): Promise<StampedHandleMessageStreamEvent> {
   return contextStorage.run(
     sandbox === undefined ? stubAlsContext : createAlsContext(sandbox),
-    () => callAdapterEventHandler(adapter, event, ctx),
+    () => callAdapterEventHandler(adapter, stampTestEvent(event), ctx),
   );
 }
 

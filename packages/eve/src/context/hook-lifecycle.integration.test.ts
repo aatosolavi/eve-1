@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createRuntimeHookRegistry } from "#runtime/hooks/registry.js";
 import type { ResolvedHookDefinition } from "#runtime/types.js";
 import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import { stampTestEvent } from "#internal/testing/events.js";
 import { ContextContainer, contextStorage } from "./container.js";
 import { dispatchStreamEventHooks } from "./hook-lifecycle.js";
 import {
@@ -77,7 +78,7 @@ describe("dispatchStreamEventHooks", () => {
       dispatchStreamEventHooks({
         ctx,
         registry,
-        event: { type: "session.completed" } satisfies HandleMessageStreamEvent,
+        event: stampTestEvent({ type: "session.completed" }),
       }),
     );
     expect(calls).toEqual(["typed", "wildcard:session.completed"]);
@@ -96,9 +97,34 @@ describe("dispatchStreamEventHooks", () => {
         dispatchStreamEventHooks({
           ctx,
           registry: brokenRegistry,
-          event: { type: "session.completed" } satisfies HandleMessageStreamEvent,
+          event: stampTestEvent({ type: "session.completed" }),
         }),
       ),
     ).rejects.toThrow(/event hook boom/);
+  });
+
+  it("hands subscribers the stamped envelope so a hook can dedupe its own work", async () => {
+    const seen: string[] = [];
+    const registry = createRuntimeHookRegistry([
+      hook("audit", {
+        events: {
+          // Typed and wildcard subscribers see one event, so both agree on the
+          // key a hook would write to a database.
+          "session.completed": async (event) => {
+            seen.push(event.meta.id);
+          },
+          "*": async (event) => {
+            seen.push(event.meta.id);
+          },
+        },
+      }),
+    ]);
+    const ctx = buildCtx();
+    const event = stampTestEvent({ type: "session.completed" });
+
+    await contextStorage.run(ctx, () => dispatchStreamEventHooks({ ctx, registry, event }));
+
+    expect(seen).toEqual([event.meta.id, event.meta.id]);
+    expect(event.meta.id).toBe("evt_test_0000");
   });
 });

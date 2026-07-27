@@ -1,7 +1,8 @@
 import { Client } from "#client/client.js";
 import type { EveAgentReducer, EveAgentReducerEvent } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import { createEventDeduper } from "#protocol/event-dedupe.js";
+import type { StampedHandleMessageStreamEvent } from "#protocol/message.js";
 import { toError } from "#shared/errors.js";
 import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
 import type { UserContent } from "ai";
@@ -30,7 +31,7 @@ export type PrepareSend = (input: SendTurnPayload) => SendTurnPayload | Promise<
 export interface EveAgentStoreSnapshot<TData> {
   readonly data: TData;
   readonly error: Error | undefined;
-  readonly events: readonly HandleMessageStreamEvent[];
+  readonly events: readonly StampedHandleMessageStreamEvent[];
   readonly session: SessionState;
   readonly status: EveAgentStoreStatus;
 }
@@ -44,7 +45,7 @@ export interface EveAgentStoreSnapshot<TData> {
  */
 export interface EveAgentStoreCallbacks<TData> {
   readonly onError?: (error: Error) => void;
-  readonly onEvent?: (event: HandleMessageStreamEvent) => void;
+  readonly onEvent?: (event: StampedHandleMessageStreamEvent) => void;
   readonly onFinish?: (snapshot: EveAgentStoreSnapshot<TData>) => void;
   readonly onSessionChange?: (session: SessionState) => void;
   readonly prepareSend?: PrepareSend;
@@ -66,7 +67,7 @@ export interface EveAgentStoreInit<TData> {
   readonly auth?: ClientAuth;
   readonly headers?: HeadersValue;
   readonly host?: string;
-  readonly initialEvents?: readonly HandleMessageStreamEvent[];
+  readonly initialEvents?: readonly StampedHandleMessageStreamEvent[];
   readonly initialSession?: SessionState;
   readonly optimistic?: boolean;
   readonly reducer: EveAgentReducer<TData>;
@@ -97,11 +98,19 @@ export class EveAgentStore<TData> {
   readonly #reducer: EveAgentReducer<TData>;
   readonly #subscribers = new Set<() => void>();
 
+  /**
+   * Events already folded into the projection. `initialEvents` is typically a
+   * server-rendered prefix that the live stream then overlaps, and a
+   * reconnect can re-deliver the chunk it resumed from — both re-deliver the
+   * ids they were emitted with.
+   */
+  #seenEvents = createEventDeduper();
+
   #abortController: AbortController | undefined;
   #callbacks: EveAgentStoreCallbacks<TData> = {};
   #data: TData;
   #error: Error | undefined;
-  #events: readonly HandleMessageStreamEvent[];
+  #events: readonly StampedHandleMessageStreamEvent[];
   #operationId = 0;
   #pendingMessageSubmission: PendingMessageSubmission | undefined;
   #projectionEvents: readonly EveAgentReducerEvent[];
@@ -118,7 +127,9 @@ export class EveAgentStore<TData> {
             headers: init.headers,
             host: init.host ?? "",
           }).session(init.initialSession);
-    this.#events = [...(init.initialEvents ?? [])];
+    this.#events = (init.initialEvents ?? []).filter(
+      (event) => !this.#seenEvents.isDuplicate(event),
+    );
     this.#projectionEvents = [...this.#events];
     this.#optimistic = init.optimistic ?? true;
     this.#reducer = init.reducer;
@@ -182,6 +193,10 @@ export class EveAgentStore<TData> {
           this.#status = "streaming";
         }
 
+        if (this.#seenEvents.isDuplicate(event)) {
+          continue;
+        }
+
         this.#events = [...this.#events, event];
         this.#applyServerEvent(event);
         this.#callbacks.onEvent?.(event);
@@ -228,6 +243,7 @@ export class EveAgentStore<TData> {
     this.#abortController = undefined;
     this.#session = this.#createSession?.() ?? this.#session;
     this.#events = [];
+    this.#seenEvents = createEventDeduper();
     this.#pendingMessageSubmission = undefined;
     this.#projectionEvents = [];
     this.#data = this.#reducer.initial();
@@ -293,7 +309,7 @@ export class EveAgentStore<TData> {
     });
   }
 
-  #applyServerEvent(event: HandleMessageStreamEvent): void {
+  #applyServerEvent(event: StampedHandleMessageStreamEvent): void {
     if (event.type === "message.received" && this.#pendingMessageSubmission !== undefined) {
       const submissionId = this.#pendingMessageSubmission.id;
       this.#pendingMessageSubmission = undefined;
@@ -309,7 +325,7 @@ export class EveAgentStore<TData> {
     this.#appendProjectionEvent(event);
   }
 
-  #applyTerminalStreamFailure(event: HandleMessageStreamEvent): void {
+  #applyTerminalStreamFailure(event: StampedHandleMessageStreamEvent): void {
     const error = toTerminalStreamFailureError(event);
     if (error === undefined) {
       return;
@@ -439,7 +455,7 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function toTerminalStreamFailureError(event: HandleMessageStreamEvent): Error | undefined {
+function toTerminalStreamFailureError(event: StampedHandleMessageStreamEvent): Error | undefined {
   if (event.type !== "session.failed") {
     return undefined;
   }

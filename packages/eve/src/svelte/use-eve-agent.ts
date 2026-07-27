@@ -12,7 +12,7 @@ import { defaultMessageReducer, type EveMessageData } from "#client/message-redu
 import type { EveAgentReducer } from "#client/reducer.js";
 import type { ClientSession } from "#client/session.js";
 import type { ClientAuth, HeadersValue, SendTurnPayload, SessionState } from "#client/types.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { StampedHandleMessageStreamEvent } from "#protocol/message.js";
 
 export type { PrepareSend };
 
@@ -43,7 +43,7 @@ export interface UseEveAgentReturn<TData> {
   /** Last transport-level error, or `undefined` when healthy. */
   readonly error: Error | undefined;
   /** Raw server events received during this session (authoritative stream). */
-  readonly events: readonly HandleMessageStreamEvent[];
+  readonly events: readonly StampedHandleMessageStreamEvent[];
   /** Clear all state and start a new session. */
   readonly reset: () => void;
   /** Send a turn with full structured input (message, attachments, input responses). */
@@ -91,7 +91,7 @@ export interface UseEveAgentOptions<TData> extends EveAgentStoreCallbacks<TData>
    */
   readonly host?: string;
   /** Seed events for resuming a prior conversation. */
-  readonly initialEvents?: readonly HandleMessageStreamEvent[];
+  readonly initialEvents?: readonly StampedHandleMessageStreamEvent[];
   /** Seed session identity and stream cursor for resuming a prior conversation. */
   readonly initialSession?: SessionState;
   /**
@@ -148,7 +148,7 @@ class SvelteEveAgent<TData> implements UseEveAgentReturn<TData> {
     return this.#snapshot.error;
   }
 
-  get events(): readonly HandleMessageStreamEvent[] {
+  get events(): readonly StampedHandleMessageStreamEvent[] {
     this.#subscribe();
     return this.#snapshot.events;
   }

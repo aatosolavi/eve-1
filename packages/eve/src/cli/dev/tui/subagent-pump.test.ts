@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { Client, type HandleMessageStreamEvent } from "#client/index.js";
-import type { SubagentCalledStreamEvent } from "#protocol/message.js";
+import { Client, type StampedHandleMessageStreamEvent } from "#client/index.js";
+import { stampTestEvent } from "#internal/testing/events.js";
+import type { HandleMessageStreamEvent, SubagentCalledStreamEvent } from "#protocol/message.js";
 
 import { SubagentPump, type SubagentView } from "./subagent-pump.js";
 
@@ -21,17 +22,17 @@ function fakeView(): SubagentView {
  * the pump must never reach the view.
  */
 function pushableChildStream() {
-  const queue: HandleMessageStreamEvent[] = [];
+  const queue: StampedHandleMessageStreamEvent[] = [];
   let wake: (() => void) | undefined;
   let aborted = false;
 
   return {
-    push(event: HandleMessageStreamEvent) {
+    push(event: StampedHandleMessageStreamEvent) {
       queue.push(event);
       wake?.();
       wake = undefined;
     },
-    stream(options?: { signal?: AbortSignal }): AsyncIterable<HandleMessageStreamEvent> {
+    stream(options?: { signal?: AbortSignal }): AsyncIterable<StampedHandleMessageStreamEvent> {
       const signal = options?.signal;
       return {
         async *[Symbol.asyncIterator]() {
@@ -72,17 +73,29 @@ function subagentCalled(callId: string): SubagentCalledStreamEvent {
   } as SubagentCalledStreamEvent;
 }
 
-function reasoningEvent(delta: string): HandleMessageStreamEvent {
-  return {
-    type: "reasoning.appended",
-    data: {
-      reasoningDelta: delta,
-      reasoningSoFar: delta,
-      sequence: 2,
-      stepIndex: 0,
-      turnId: "child-turn",
-    },
-  } as HandleMessageStreamEvent;
+let nextChildEventIndex = 0;
+
+function reasoningEvent(delta: string): StampedHandleMessageStreamEvent {
+  return stampTestEvent(
+    {
+      type: "reasoning.appended",
+      data: {
+        reasoningDelta: delta,
+        reasoningSoFar: delta,
+        sequence: 2,
+        stepIndex: 0,
+        turnId: "child-turn",
+      },
+    } as HandleMessageStreamEvent,
+    nextChildEventIndex++,
+  );
+}
+
+function boundaryEvent(): StampedHandleMessageStreamEvent {
+  return stampTestEvent(
+    { type: "session.waiting", data: { wait: "next-user-message" } } as HandleMessageStreamEvent,
+    nextChildEventIndex++,
+  );
 }
 
 async function settleAsyncWork(): Promise<void> {
@@ -123,5 +136,50 @@ describe("SubagentPump.settleAll", () => {
     const completions = vi.mocked(view.complete).mock.calls.length;
     pump.settle("call-1");
     expect(vi.mocked(view.complete).mock.calls.length).toBe(completions);
+  });
+});
+
+describe("SubagentPump child stream replay", () => {
+  it("folds a replayed child transcript in once when the pump restarts", async () => {
+    // A pump is dropped from the registry when its stream ends, so a second
+    // `subagent.called` for the same call — an SSE-resume re-entry — reopens
+    // the child at `streamIndex: 0` while the run's sections survive.
+    const transcript = [reasoningEvent("looked up the forecast"), boundaryEvent()];
+    let opened = 0;
+    const client = new Client({ host: "http://localhost:3000" });
+    vi.spyOn(client, "session").mockReturnValue({
+      stream: () => {
+        opened += 1;
+        return {
+          async *[Symbol.asyncIterator]() {
+            for (const event of transcript) yield event;
+          },
+        };
+      },
+    } as never);
+    const view = fakeView();
+    const pump = new SubagentPump({ client, view, formatActionResultError: () => "failed" });
+
+    const called = subagentCalled("call-1");
+    pump.begin(called);
+    await settleAsyncWork();
+    pump.begin(called);
+    await settleAsyncWork();
+
+    expect(opened).toBe(2);
+    const reasoning = vi
+      .mocked(view.upsertStep)
+      .mock.calls.map(([update]) => update.reasoning)
+      .filter((text): text is string => text !== undefined && text.length > 0);
+    expect(reasoning.length).toBeGreaterThan(0);
+    // Every paint carries the transcript once, and the replay opened no
+    // second section to paint it into again.
+    for (const text of reasoning) {
+      expect(text).toBe("looked up the forecast");
+    }
+    const sectionKeys = new Set(
+      vi.mocked(view.upsertStep).mock.calls.map(([update]) => update.sectionKey),
+    );
+    expect(sectionKeys.size).toBe(1);
   });
 });

@@ -14,13 +14,14 @@ import {
   createStepStartedEvent,
   createTurnCancelledEvent,
   encodeMessageStreamEvent,
-  timestampHandleMessageStreamEvent,
+  stampMessageStreamEvent,
 } from "#protocol/message.js";
+import { isEventId } from "#protocol/event-id.js";
 import { createEveConnectionCallbackRoutePath } from "#protocol/routes.js";
 
 describe("message stream protocol", () => {
   it("pins the stream version for timed session events", () => {
-    expect(EVE_MESSAGE_STREAM_VERSION).toBe("19");
+    expect(EVE_MESSAGE_STREAM_VERSION).toBe("20");
   });
 
   it("publishes the channel-local continuation token on session.waiting", () => {
@@ -59,24 +60,38 @@ describe("message stream protocol", () => {
     });
   });
 
-  it("stamps durable timing metadata and preserves it through encoding", () => {
-    const timed = timestampHandleMessageStreamEvent(
+  it("stamps durable envelope metadata and preserves it through encoding", () => {
+    const timed = stampMessageStreamEvent(
       createStepStartedEvent({
         sequence: 0,
         stepIndex: 1,
         turnId: "turn_0",
       }),
-      "2026-04-17T10:14:22.123Z",
+      { at: "2026-04-17T10:14:22.123Z", id: "evt_fixed" },
     );
 
     expect(timed.meta).toEqual({
       at: "2026-04-17T10:14:22.123Z",
+      id: "evt_fixed",
     });
 
     const encoded = encodeMessageStreamEvent(timed);
     const decoded = JSON.parse(new TextDecoder().decode(encoded).trim()) as typeof timed;
 
     expect(decoded).toEqual(timed);
+  });
+
+  it("mints a unique event id per stamp", () => {
+    const event = createStepStartedEvent({ sequence: 0, stepIndex: 0, turnId: "turn_0" });
+
+    const first = stampMessageStreamEvent(event);
+    const second = stampMessageStreamEvent(event);
+
+    expect(isEventId(first.meta.id)).toBe(true);
+    expect(isEventId(second.meta.id)).toBe(true);
+    // Two emissions of an identical payload are two distinct stream events, so
+    // a consumer keyed on `meta.id` must store both rather than collapse them.
+    expect(first.meta.id).not.toBe(second.meta.id);
   });
 
   it("builds authorization.required with optional challenge and webhookUrl", () => {

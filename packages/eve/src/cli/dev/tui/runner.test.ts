@@ -6,9 +6,11 @@ import {
   MessageResponse,
   type AgentInfoResult,
   type ClientSession,
-  type HandleMessageStreamEvent,
+  type StampedHandleMessageStreamEvent,
 } from "#client/index.js";
+import { stampTestEvent } from "#internal/testing/events.js";
 import { resolveTestVercelTarget } from "#internal/testing/verified-vercel-target.js";
+import type { HandleMessageStreamEvent } from "#protocol/message.js";
 import { createDevelopmentCredentialGate } from "#services/dev-client/credential-gate.js";
 import type { VercelDeploymentResolution } from "#setup/vercel-deployment.js";
 
@@ -54,15 +56,34 @@ function stubSession(): ClientSession {
   return stubClient().session();
 }
 
-/** Wraps literal stream events in a real `MessageResponse`. */
+/**
+ * Wraps literal stream events in a real `MessageResponse`.
+ *
+ * Each literal is stamped as its own emission, so a fixture that repeats an
+ * identical payload models two distinct events rather than a re-delivery.
+ * Re-delivery is modelled by reusing one stamped event — see
+ * {@link replayed}.
+ */
 function messageResponseOf(events: readonly unknown[]): MessageResponse {
+  const stamped = events.map((event, index) =>
+    isStamped(event) ? event : stampTestEvent(event as HandleMessageStreamEvent, index),
+  );
   return new MessageResponse({
     continuationToken: "eve:test",
     createStream: async function* () {
-      for (const event of events) yield event as HandleMessageStreamEvent;
+      for (const event of stamped) yield event;
     },
     sessionId: "session_test",
   });
+}
+
+function isStamped(event: unknown): event is StampedHandleMessageStreamEvent {
+  return typeof (event as StampedHandleMessageStreamEvent).meta?.id === "string";
+}
+
+/** Models a re-delivered durable chunk: the same event, id included. */
+function replayed(event: unknown, index: number): StampedHandleMessageStreamEvent {
+  return isStamped(event) ? event : stampTestEvent(event as HandleMessageStreamEvent, index);
 }
 
 const AGENT_INFO: AgentInfoResult = {
@@ -558,7 +579,15 @@ describe("EveTUIRunner development session continuity", () => {
             start(controller) {
               controller.enqueue(
                 encoder.encode(
-                  '{"type":"session.waiting","data":{"continuationToken":"token-session-1","wait":"next-user-message"}}\n',
+                  `${JSON.stringify(
+                    stampTestEvent({
+                      type: "session.waiting",
+                      data: {
+                        continuationToken: "token-session-1",
+                        wait: "next-user-message",
+                      },
+                    } as HandleMessageStreamEvent),
+                  )}\n`,
                 ),
               );
               controller.close();
@@ -965,14 +994,14 @@ describe("EveTUIRunner connection authorization", () => {
       { type: "session.waiting", data: { wait: "connection-authorization" } },
     ]);
     vi.spyOn(session, "stream").mockImplementation(async function* () {
-      yield {
+      yield stampTestEvent({
         type: "authorization.completed",
         data: { name: "linear", outcome: "authorized" },
-      } as HandleMessageStreamEvent;
-      yield {
+      } as HandleMessageStreamEvent);
+      yield stampTestEvent({
         type: "session.waiting",
         data: { wait: "next-user-message" },
-      } as HandleMessageStreamEvent;
+      } as HandleMessageStreamEvent);
     });
     const renderer: AgentTUIRenderer = {
       readPrompt: vi.fn(async () => prompts.shift()),
@@ -1159,6 +1188,59 @@ describe("EveTUIRunner reused step indexes", () => {
 });
 
 describe("EveTUIRunner replay guards", () => {
+  it("renders a re-delivered chunk once even after the next step reuses its key", async () => {
+    // The hard case: a reconnect re-sends a chunk from the completed step
+    // after `step.started` opened the next one. Coordinates alone cannot tell
+    // that apart from a fresh model call reusing `stepIndex`, so without the
+    // id it renders as a second assistant block.
+    const appended = replayed(
+      {
+        type: "message.appended",
+        data: {
+          messageDelta: "Sunny.",
+          messageSoFar: "Sunny.",
+          sequence: 0,
+          stepIndex: 0,
+          turnId: "turn_0",
+        },
+      },
+      1,
+    );
+    const prompts: Array<string | undefined> = ["weather", undefined];
+    const emitted: AgentTUIStreamEvent[] = [];
+    const session = sessionYielding([
+      { type: "step.started", data: { sequence: 0, stepIndex: 0, turnId: "turn_0" } },
+      appended,
+      {
+        type: "message.completed",
+        data: {
+          finishReason: "stop",
+          message: "Sunny.",
+          sequence: 0,
+          stepIndex: 0,
+          turnId: "turn_0",
+        },
+      },
+      { type: "step.started", data: { sequence: 1, stepIndex: 0, turnId: "turn_0" } },
+      appended,
+      { type: "session.waiting", data: { wait: "next-user-message" } },
+    ]);
+    const renderer: AgentTUIRenderer = {
+      readPrompt: vi.fn(async () => prompts.shift()),
+      renderStream: vi.fn(async (result) => {
+        for await (const event of result.events as AsyncIterable<AgentTUIStreamEvent>) {
+          emitted.push(event);
+        }
+      }),
+    };
+
+    const runner = new EveTUIRunner({ session, renderer, name: "Weather Agent" });
+    await runner.run();
+
+    const deltas = emitted.filter((event) => event.type === "assistant-delta");
+    expect(deltas).toEqual([{ type: "assistant-delta", id: "text:turn_0:0", delta: "Sunny." }]);
+  });
+
   it("deduplicates repeated call IDs and divergent text attempts in one turn", async () => {
     const prompts: Array<string | undefined> = ["weather", undefined];
     const emitted: AgentTUIStreamEvent[] = [];
@@ -1907,20 +1989,26 @@ describe("EveTUIRunner renderer teardown", () => {
     vi.spyOn(client, "session").mockReturnValue(childSession);
     vi.spyOn(childSession, "stream").mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
-        yield {
-          type: "message.completed",
-          data: {
-            finishReason: "stop",
-            message: "final answer",
-            sequence: 0,
-            stepIndex: 0,
-            turnId: "turn-child",
-          },
-        } as HandleMessageStreamEvent;
-        yield {
-          type: "session.waiting",
-          data: { wait: "next-user-message" },
-        } as HandleMessageStreamEvent;
+        yield stampTestEvent(
+          {
+            type: "message.completed",
+            data: {
+              finishReason: "stop",
+              message: "final answer",
+              sequence: 0,
+              stepIndex: 0,
+              turnId: "turn-child",
+            },
+          } as HandleMessageStreamEvent,
+          0,
+        );
+        yield stampTestEvent(
+          {
+            type: "session.waiting",
+            data: { wait: "next-user-message" },
+          } as HandleMessageStreamEvent,
+          1,
+        );
       },
     }));
 
@@ -1997,10 +2085,13 @@ describe("EveTUIRunner renderer teardown", () => {
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
-          yield {
-            type: "session.waiting",
-            data: { wait: "next-user-message" },
-          } as HandleMessageStreamEvent;
+          yield stampTestEvent(
+            {
+              type: "session.waiting",
+              data: { wait: "next-user-message" },
+            } as HandleMessageStreamEvent,
+            1,
+          );
         },
       };
     });
@@ -2829,12 +2920,24 @@ describe("EveTUIRunner mid-turn message queue", () => {
         new MessageResponse({
           continuationToken: "eve:test",
           createStream: async function* () {
-            yield { type: "turn.started", data: { turnId: "turn-1", sequence: 1 } } as never;
+            yield stampTestEvent(
+              {
+                type: "turn.started",
+                data: { turnId: "turn-1", sequence: 1 },
+              } as HandleMessageStreamEvent,
+              0,
+            );
             // Hold the stream mid-turn until the retry loop has proven both
             // attempts, then settle the turn as cancelled.
             await gate.promise;
-            yield { type: "turn.cancelled", data: { turnId: "turn-1", sequence: 2 } } as never;
-            yield { type: "session.waiting" } as never;
+            yield stampTestEvent(
+              {
+                type: "turn.cancelled",
+                data: { turnId: "turn-1", sequence: 2 },
+              } as HandleMessageStreamEvent,
+              1,
+            );
+            yield stampTestEvent({ type: "session.waiting" } as HandleMessageStreamEvent, 2);
           },
           sessionId: "session_test",
         }),

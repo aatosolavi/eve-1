@@ -6,6 +6,7 @@ import {
   isSerializedUrlFilePart,
 } from "#internal/attachments/url-refs.js";
 import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
+import { createEventId } from "#protocol/event-id.js";
 import type { ConnectionAuthorizationChallenge } from "#public/connections/errors.js";
 import type { RuntimeActionRequest, RuntimeActionResult } from "#runtime/actions/types.js";
 import type { InputRequest, InputResponse } from "#runtime/input/types.js";
@@ -17,7 +18,7 @@ export const EVE_STREAM_FORMAT_HEADER = "x-eve-stream-format";
 export const EVE_STREAM_VERSION_HEADER = "x-eve-stream-version";
 export const EVE_MESSAGE_STREAM_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";
 export const EVE_MESSAGE_STREAM_FORMAT = "ndjson";
-export const EVE_MESSAGE_STREAM_VERSION = "19";
+export const EVE_MESSAGE_STREAM_VERSION = "20";
 
 /**
  * eve-owned finish reason for one completed assistant step.
@@ -46,11 +47,22 @@ export interface StepCompletedProviderMetadata {
 /**
  * Durable metadata attached to one persisted session stream event.
  *
- * Runtime code stamps this immediately before writing the event to the
- * workflow-owned stream so replay preserves the original timing.
+ * Runtime code stamps this once, before the channel adapter and hooks observe
+ * the event and before it is written to the workflow-owned stream, so every
+ * observer of one event agrees on its identity and timing.
+ *
+ * `id` identifies the persisted event. It is minted once and stored with the
+ * event, so re-reading the stream — reconnecting from a cursor, rewinding to
+ * `startIndex: 0`, or replaying a finished session — always yields the same id
+ * for the same event. Consumers persisting events can use it as a primary key
+ * to make ingestion idempotent.
+ *
+ * `at` is the ISO-8601 emission time. Replays preserve the original value
+ * instead of recomputing it.
  */
 export interface HandleMessageStreamEventMeta {
   readonly at: string;
+  readonly id: string;
 }
 
 /**
@@ -626,10 +638,13 @@ export type TurnFailureStreamEvent =
 /**
  * One public session stream event after runtime metadata has been stamped.
  *
- * Runtime/execution code owns this stamping boundary. Replays must preserve the
- * original `meta.at` value instead of recomputing it.
+ * Every event read from a session stream is stamped, so this — not
+ * {@link HandleMessageStreamEvent} — is the type consumers receive.
+ *
+ * Runtime/execution code owns the stamping boundary. Replays must preserve the
+ * original `meta` values instead of recomputing them.
  */
-export type TimedHandleMessageStreamEvent = HandleMessageStreamEvent & {
+export type StampedHandleMessageStreamEvent = HandleMessageStreamEvent & {
   readonly meta: HandleMessageStreamEventMeta;
 };
 
@@ -1404,21 +1419,27 @@ export function createSessionCompletedEvent(): SessionCompletedStreamEvent {
 }
 
 /**
- * Stamps one session event with durable timing metadata immediately before it
- * is written to the workflow-owned stream.
+ * Stamps one session event with its durable identity and emission time.
  *
- * Only runtime/execution code should call this. Keeping one stamping seam
- * ensures every persisted event shares the same clock contract and replay never
- * invents new timestamps.
+ * Only runtime/execution code should call this, once per event, at the top of
+ * an emit seam. Keeping one stamping seam ensures the channel adapter, the
+ * persisted stream, and authored hooks all observe the same `meta.id`, and that
+ * replay never invents a new id or timestamp.
+ *
+ * `overrides` exists for tests that need a fixed envelope.
  */
-export function timestampHandleMessageStreamEvent(
+export function stampMessageStreamEvent(
   event: HandleMessageStreamEvent,
-  at = new Date().toISOString(),
-): TimedHandleMessageStreamEvent {
+  overrides?: {
+    readonly at?: string;
+    readonly id?: string;
+  },
+): StampedHandleMessageStreamEvent {
   return {
     ...event,
     meta: {
-      at,
+      at: overrides?.at ?? new Date().toISOString(),
+      id: overrides?.id ?? createEventId(),
     },
   };
 }
@@ -1426,7 +1447,7 @@ export function timestampHandleMessageStreamEvent(
 /**
  * Encodes one message stream event as newline-delimited JSON.
  */
-export function encodeMessageStreamEvent(event: TimedHandleMessageStreamEvent): Uint8Array {
+export function encodeMessageStreamEvent(event: StampedHandleMessageStreamEvent): Uint8Array {
   return textEncoder.encode(`${JSON.stringify(event)}\n`);
 }
 

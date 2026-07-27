@@ -1,6 +1,9 @@
 import type { UserContent } from "ai";
 
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  StampedHandleMessageStreamEvent,
+} from "#protocol/message.js";
 import type { CancelTurnStatus } from "#protocol/cancel-turn.js";
 import type { RunMode } from "#shared/run-mode.js";
 import type { RuntimeActionResult } from "#runtime/actions/types.js";
@@ -371,7 +374,7 @@ export type RunResult =
  */
 export interface RunHandle {
   readonly continuationToken: string;
-  readonly events: ReadableStream<HandleMessageStreamEvent>;
+  readonly events: ReadableStream<StampedHandleMessageStreamEvent>;
   /**
    * Runtime-owned identifier for this session. Stream and inspection APIs
    * key on it: workflow-backed runs expose the workflow run id.
@@ -425,7 +428,7 @@ export interface Runtime {
   getEventStream(
     sessionId: string,
     options?: GetEventStreamOptions,
-  ): Promise<ReadableStream<HandleMessageStreamEvent>>;
+  ): Promise<ReadableStream<StampedHandleMessageStreamEvent>>;
 }
 
 /**

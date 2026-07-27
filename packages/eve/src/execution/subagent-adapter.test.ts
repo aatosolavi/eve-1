@@ -7,6 +7,7 @@ import { ContextContainer } from "#context/container.js";
 import { ContinuationTokenKey, SessionIdKey } from "#context/keys.js";
 import type { InputRequest } from "#runtime/input/types.js";
 import { SUBAGENT_ADAPTER } from "#execution/subagent-adapter.js";
+import { stampTestEvent } from "#internal/testing/events.js";
 
 const SUBAGENT_INPUT_REQUESTED = SUBAGENT_ADAPTER["input.requested"];
 const SUBAGENT_AUTHORIZATION_REQUIRED = SUBAGENT_ADAPTER["authorization.required"];
@@ -83,7 +84,7 @@ describe("SUBAGENT_ADAPTER authorization handlers", () => {
 
     await callAdapterEventHandler(
       SUBAGENT_ADAPTER,
-      { data, type: "authorization.required" },
+      stampTestEvent({ data, type: "authorization.required" }),
       makeContext(),
     );
 

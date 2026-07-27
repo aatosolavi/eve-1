@@ -15,7 +15,11 @@ import { createWorkflowRuntime } from "#execution/workflow-runtime.js";
 import { normalizeEveAttributes } from "#runtime/attributes/normalize.js";
 import { ROOT_COMPILED_AGENT_NODE_ID } from "#compiler/manifest.js";
 import { ConnectionAuthorizationRequiredError } from "#public/connections/errors.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  StampedHandleMessageStreamEvent,
+} from "#protocol/message.js";
+import { isEventId } from "#protocol/event-id.js";
 import type { ToolContext } from "#public/definitions/tool.js";
 import type { AuthorizationDefinition, TokenResult } from "#runtime/connections/types.js";
 import type { ResolvedToolDefinition } from "#runtime/types.js";
@@ -290,6 +294,67 @@ describe("workflowEntry integration", () => {
         ).toBe(true);
       } finally {
         stream.dispose();
+        await run.cancel();
+      }
+    });
+  });
+
+  it("stamps every stream event with an id that survives a rewind", async () => {
+    const runtime = createTestRuntime({ agent: { name: "workflow-entry-event-ids" } });
+    const continuationToken = "http:workflow-entry-event-ids";
+
+    await runtime.run(async () => {
+      const run = await start(workflowEntry, [
+        {
+          input: { message: "identify these events" },
+          serializedContext: buildSerializedContext({
+            channelKind: "http",
+            continuationToken,
+            mode: "conversation",
+          }),
+        },
+      ]);
+
+      const stream = captureTurnEvents(run);
+      let firstTurn: readonly StampedHandleMessageStreamEvent[];
+      try {
+        firstTurn = await stream.nextTurn();
+      } finally {
+        stream.dispose();
+      }
+
+      try {
+        expect(firstTurn.length).toBeGreaterThan(1);
+        // Every event carries a well-formed id, and no two events share one —
+        // including the append events that share `(turnId, sequence, stepIndex)`.
+        expect(firstTurn.every((event) => isEventId(event.meta.id))).toBe(true);
+        expect(new Set(firstTurn.map((event) => event.meta.id)).size).toBe(firstTurn.length);
+
+        // Ids are minted in emission order, so a consumer can sort by them.
+        const ids = firstTurn.map((event) => event.meta.id);
+        expect(ids).toEqual([...ids].sort());
+
+        // The contract that makes DB ingestion idempotent: re-reading the same
+        // durable stream returns the same ids, so a reconnect or a full rewind
+        // re-delivers events a consumer has already stored under those keys.
+        const workflowRuntime = createWorkflowRuntime({
+          compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
+        });
+        const replayed = await workflowRuntime.getEventStream(run.runId, { startIndex: 0 });
+        const replayedIds: string[] = [];
+        const reader = replayed.getReader();
+        try {
+          while (replayedIds.length < firstTurn.length) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            replayedIds.push(value.meta.id);
+          }
+        } finally {
+          await reader.cancel();
+        }
+
+        expect(replayedIds).toEqual(ids);
+      } finally {
         await run.cancel();
       }
     });

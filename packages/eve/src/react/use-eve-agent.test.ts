@@ -14,6 +14,7 @@ import {
   createTurnFailedEvent,
   type HandleMessageStreamEvent,
 } from "#protocol/message.js";
+import { stampTestEvents } from "#internal/testing/events.js";
 import type { SessionState } from "#client/types.js";
 
 function createStartedMessageResponse(sessionId: string, continuationToken: string): Response {
@@ -26,13 +27,13 @@ function createStartedMessageResponse(sessionId: string, continuationToken: stri
   });
 }
 
+/** Serializes fixture events the way the server does: stamped, one per line. */
 function createEagerStreamResponse(events: readonly HandleMessageStreamEvent[]): Response {
   const encoder = new TextEncoder();
-
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const event of events) {
+        for (const event of stampTestEvents(events)) {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
         controller.close();
@@ -199,7 +200,7 @@ describe("useEveAgent", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(seenEvents).toEqual(events);
+    expect(seenEvents).toEqual(stampTestEvents(events));
     expect(seenSessions).toEqual([
       {
         continuationToken: "http:session_1",
@@ -481,7 +482,7 @@ describe("useEveAgent", () => {
     expect(seenErrors.map((error) => error.name)).toEqual(["MODEL_CALL_FAILED"]);
     expect(helpers?.status).toBe("error");
     expect(helpers?.error?.message).toBe("Bad Request");
-    expect(helpers?.events).toEqual(events);
+    expect(helpers?.events).toEqual(stampTestEvents(events));
     expect(helpers?.data).toEqual(
       completedTurnData({
         turnId: "turn_1",
@@ -548,7 +549,7 @@ describe("useEveAgent", () => {
     expect(seenErrors).toEqual([]);
     expect(helpers?.status).toBe("ready");
     expect(helpers?.error).toBeUndefined();
-    expect(helpers?.events).toEqual(events);
+    expect(helpers?.events).toEqual(stampTestEvents(events));
   });
 
   it("projects input responses before the resumed stream returns", async () => {

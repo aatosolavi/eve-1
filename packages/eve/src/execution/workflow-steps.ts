@@ -44,7 +44,8 @@ import {
   createSessionStartedEvent,
   encodeMessageStreamEvent,
   type HandleMessageStreamEvent,
-  timestampHandleMessageStreamEvent,
+  stampMessageStreamEvent,
+  type StampedHandleMessageStreamEvent,
 } from "#protocol/message.js";
 import {
   CallbackBaseUrlKey,
@@ -290,10 +291,18 @@ export async function turnStep(rawInput: TurnStepInput): Promise<DurableStepResu
 
   const writer = input.parentWritable.getWriter();
 
-  const emit = async (event: HandleMessageStreamEvent): Promise<HandleMessageStreamEvent> => {
-    const toEmit = await callAdapterEventHandler(adapter, event, adapterCtx);
+  // Stamp before the adapter runs so the adapter, the persisted chunk, and the
+  // hooks below all observe one `meta.id` for this event.
+  const emit = async (
+    event: HandleMessageStreamEvent,
+  ): Promise<StampedHandleMessageStreamEvent> => {
+    const toEmit = await callAdapterEventHandler(
+      adapter,
+      stampMessageStreamEvent(event),
+      adapterCtx,
+    );
     setChannelContext(ctx, { ...adapter, state: { ...adapterCtx.state } });
-    await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(toEmit)));
+    await writer.write(encodeMessageStreamEvent(toEmit));
     return toEmit;
   };
 

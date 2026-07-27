@@ -80,15 +80,44 @@ import { search } from "@acme/crm/tools";
 const crmSearch = toolResultFrom(event.data.result, search); // typed; matches crm__search
 ```
 
+### Making a hook idempotent
+
+Every event carries a `meta` envelope with a stable `meta.id`. A hook may run more than once for the same event — a durable step can be retried, and a turn can be re-driven after a park — so use the id as the key for any side effect that must happen once:
+
+```ts title="agent/hooks/persist.ts"
+import { defineHook } from "eve/hooks";
+
+export default defineHook({
+  events: {
+    async "*"(event, ctx) {
+      await db.query(
+        `insert into agent_events (id, session_id, type, data, emitted_at)
+         values ($1, $2, $3, $4, $5)
+         on conflict (id) do nothing`,
+        [
+          event.meta.id,
+          ctx.session.id,
+          event.type,
+          "data" in event ? event.data : null,
+          event.meta.at,
+        ],
+      );
+    },
+  },
+});
+```
+
+See [the event envelope](../concepts/sessions-runs-and-streaming#the-event-envelope) for the full contract, including what `meta.id` does and does not deduplicate.
+
 ## Execution order
 
 When a stream event fires, three things happen in order:
 
-1. Emit. The channel adapter handler runs, then the event is written to the durable stream.
+1. Emit. The event is stamped with its `meta` envelope, the channel adapter handler runs, then the event is written to the durable stream.
 2. Hooks. Stream-event hooks fire (typed handlers first, then the `*` wildcard). Return values are ignored.
 3. Dynamic tool resolvers. Resolvers subscribed to the event type run and update the tool set.
 
-Hooks always run after the event is durably recorded, so if a hook throws, the stream stays consistent.
+Hooks always run after the event is durably recorded, so if a hook throws, the stream stays consistent. The adapter, the persisted event, and every hook observe the same `meta.id`.
 
 ## What happens when a hook throws
 

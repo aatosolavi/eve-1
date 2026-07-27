@@ -5,7 +5,6 @@ import {
   type AuthorizationCompletedStreamEvent,
   type ConnectionAuthorizationOutcome,
   type AuthorizationRequiredStreamEvent,
-  type HandleMessageStreamEvent,
   type InputOption,
   type InputRequest,
   type InputRequestedStreamEvent,
@@ -14,6 +13,7 @@ import {
   type ReasoningAppendedStreamEvent,
   type SessionFailedStreamEvent,
   type StepCompletedStreamEvent,
+  type StampedHandleMessageStreamEvent,
   type SubagentCalledStreamEvent,
   type SubagentCompletedStreamEvent,
   Client,
@@ -21,6 +21,7 @@ import {
 } from "#client/index.js";
 import { loadDevelopmentEnvironmentFiles } from "#cli/dev/environment.js";
 import { subscribeDevelopmentSandboxPrewarmLogs } from "#execution/sandbox/development-prewarm.js";
+import { createEventDeduper } from "#protocol/event-dedupe.js";
 import {
   createDevelopmentRuntimeArtifactRefresher,
   type DevelopmentRuntimeArtifactRefresher,
@@ -1184,7 +1185,7 @@ export class EveTUIRunner {
   }
 
   #createTUIStreamResult(
-    events: AsyncIterable<HandleMessageStreamEvent>,
+    events: AsyncIterable<StampedHandleMessageStreamEvent>,
     abort: () => void,
   ): AgentTUIStreamResult {
     const turnState = createTurnState();
@@ -1632,7 +1633,7 @@ function formatAgentUpdateNotice(
 }
 
 type EveStreamTranslatorInput = {
-  events: AsyncIterable<HandleMessageStreamEvent>;
+  events: AsyncIterable<StampedHandleMessageStreamEvent>;
   pendingInputRequests: Map<string, InputRequest>;
   turnState: AgentTUITurnState;
   onSubagentCalled?: (event: SubagentCalledStreamEvent) => void;
@@ -1671,11 +1672,15 @@ async function* eveEventsToTUIStream(
   } = input;
   const textParts = new Map<string, StreamPartState>();
   const reasoningParts = new Map<string, StreamPartState>();
+  // Re-delivery of a durable chunk — a reconnect, or a rewind to replay the
+  // turn so far — carries the id it was emitted with. Dropping those here
+  // means every case below is a genuinely new emission.
+  const seenEvents = createEventDeduper();
   // Counts `step.started` events. The harness reuses `stepIndex` across the
   // model calls of one turn (e.g. the post-subagent call restarts at the same
-  // index), so a part key alone cannot distinguish "new message under a
-  // reused key" from "replayed events of the finished message". A fresh
-  // `step.started` since the part completed is the discriminator.
+  // index), so a part key alone cannot distinguish a new message under a
+  // reused key from a re-emission of the finished one. A fresh `step.started`
+  // since the part completed is the discriminator.
   let stepEpoch = 0;
   const knownToolCalls = new Set<string>();
   const seenInputRequestIds = new Set<string>();
@@ -1688,6 +1693,10 @@ async function* eveEventsToTUIStream(
   let latestStepUsage: StepCompletedStreamEvent["data"]["usage"] | undefined;
 
   for await (const event of events) {
+    if (seenEvents.isDuplicate(event)) {
+      continue;
+    }
+
     if (visibleTurnCompleted && isPostTurnVisibleEvent(event)) {
       continue;
     }
@@ -1726,10 +1735,9 @@ async function* eveEventsToTUIStream(
         const next = appended.data.messageSoFar;
 
         if (state.completed) {
-          // Replays of the finished message re-stream prefixes of it — drop.
-          if (state.text.startsWith(next)) break;
-          // Divergent text without an intervening `step.started` is a retry
-          // of the same model call — drop it rather than mixing attempts.
+          // Text under a completed key without an intervening `step.started`
+          // is a retry of the same model call — drop it rather than mixing
+          // attempts.
           if (stepEpoch <= state.completedEpoch) break;
           // A fresh model call reusing this part key (the harness restarts
           // `stepIndex` after a park/resume, e.g. post-subagent): open a new
@@ -1755,7 +1763,7 @@ async function* eveEventsToTUIStream(
         const message = event.data.message;
 
         if (state.completed) {
-          if (message === null || message === state.text) break;
+          if (message === null) break;
           if (stepEpoch <= state.completedEpoch) break;
           // Channels that skip per-delta events: a new full message under a
           // reused key after a fresh model call.
@@ -1802,7 +1810,6 @@ async function* eveEventsToTUIStream(
         const next = appended.data.reasoningSoFar;
 
         if (state.completed) {
-          if (state.text.startsWith(next)) break;
           if (stepEpoch <= state.completedEpoch) break;
           state.generation += 1;
           state.text = "";
@@ -1825,7 +1832,7 @@ async function* eveEventsToTUIStream(
         const next = event.data.reasoning;
 
         if (state.completed) {
-          if (next.length === 0 || next === state.text || state.text.startsWith(next)) break;
+          if (next.length === 0) break;
           if (stepEpoch <= state.completedEpoch) break;
           state.generation += 1;
           state.text = next;
@@ -2144,7 +2151,7 @@ function* closeOpenParts(
   }
 }
 
-function isPostTurnVisibleEvent(event: HandleMessageStreamEvent): boolean {
+function isPostTurnVisibleEvent(event: StampedHandleMessageStreamEvent): boolean {
   switch (event.type) {
     case "actions.requested":
     case "authorization.completed":

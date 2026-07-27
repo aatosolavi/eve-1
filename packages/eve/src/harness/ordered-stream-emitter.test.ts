@@ -47,8 +47,14 @@ describe("createOrderedStreamEmitter", () => {
     const emitter = createOrderedStreamEmitter(emitFn);
 
     await emitter.emit(message("A", "A"));
-    await emitter.emit({ ...message("B", "AB"), meta: { at: "2026-07-10T18:00:00.000Z" } });
-    await emitter.emit({ ...message("C", "ABC"), meta: { at: "2026-07-10T18:00:01.000Z" } });
+    await emitter.emit({
+      ...message("B", "AB"),
+      meta: { at: "2026-07-10T18:00:00.000Z", id: "evt_test_0000" },
+    });
+    await emitter.emit({
+      ...message("C", "ABC"),
+      meta: { at: "2026-07-10T18:00:01.000Z", id: "evt_test_0001" },
+    });
 
     expect(emitFn).toHaveBeenCalledTimes(1);
     firstWrite.resolve();
@@ -56,7 +62,7 @@ describe("createOrderedStreamEmitter", () => {
 
     expect(events).toEqual([
       message("A", "A"),
-      { ...message("BC", "ABC"), meta: { at: "2026-07-10T18:00:01.000Z" } },
+      { ...message("BC", "ABC"), meta: { at: "2026-07-10T18:00:01.000Z", id: "evt_test_0001" } },
     ]);
   });
 

@@ -1,7 +1,10 @@
 import type { ContextAccessor } from "#context/key.js";
 import type { StepInput } from "#harness/types.js";
 import { createLogger } from "#internal/logging.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type {
+  HandleMessageStreamEvent,
+  StampedHandleMessageStreamEvent,
+} from "#protocol/message.js";
 import type { SessionHandle } from "#channel/session.js";
 import type { DeliverPayload } from "#channel/types.js";
 import type { FetchFileResult, FetchFileFunction } from "#shared/channel-definition.js";
@@ -227,14 +230,18 @@ export function getAdapterKind(adapter: ChannelAdapter): string {
  * runtime refreshes `session.waiting` with the live continuation token so a
  * handler that re-keyed the session publishes the new resume handle.
  *
+ * The event arrives already stamped, so the adapter, the persisted stream, and
+ * hooks all observe the same `meta.id`. The `session.waiting` refresh preserves
+ * that envelope.
+ *
  * Throwing handlers are logged and swallowed so a downstream delivery
  * failure does not corrupt the event stream write path.
  */
 export async function callAdapterEventHandler(
   adapter: ChannelAdapter,
-  event: HandleMessageStreamEvent,
+  event: StampedHandleMessageStreamEvent,
   ctx: ChannelAdapterContext,
-): Promise<HandleMessageStreamEvent> {
+): Promise<StampedHandleMessageStreamEvent> {
   const handler = adapter[event.type] as
     | ((data: unknown, ctx: ChannelAdapterContext) => void | Promise<void>)
     | undefined;

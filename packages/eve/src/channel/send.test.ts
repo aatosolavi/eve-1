@@ -4,12 +4,12 @@ import type { ChannelAdapter } from "#channel/adapter.js";
 import { createSendFn } from "#channel/send.js";
 import type { RunHandle, Runtime } from "#channel/types.js";
 import { RuntimeNoActiveSessionError } from "#execution/runtime-errors.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { StampedHandleMessageStreamEvent } from "#protocol/message.js";
 
 function createMockRunHandle(): RunHandle {
   return {
     continuationToken: "test:token",
-    events: new ReadableStream<HandleMessageStreamEvent>(),
+    events: new ReadableStream<StampedHandleMessageStreamEvent>(),
     sessionId: "mock-session-id",
   };
 }
@@ -20,7 +20,9 @@ function createRuntime(deliverError: unknown): Runtime {
     deliver: vi.fn().mockRejectedValue(deliverError),
     resolveSession: vi.fn(),
     run: vi.fn().mockResolvedValue(createMockRunHandle()),
-    getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
+    getEventStream: vi
+      .fn()
+      .mockResolvedValue(new ReadableStream<StampedHandleMessageStreamEvent>()),
     terminateSession: vi.fn(),
   };
 }
@@ -83,7 +85,9 @@ describe("createSendFn", () => {
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       resolveSession: vi.fn(),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
-      getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
+      getEventStream: vi
+        .fn()
+        .mockResolvedValue(new ReadableStream<StampedHandleMessageStreamEvent>()),
       terminateSession: vi.fn(),
     };
 
@@ -117,7 +121,9 @@ describe("createSendFn", () => {
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       resolveSession: vi.fn(),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
-      getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
+      getEventStream: vi
+        .fn()
+        .mockResolvedValue(new ReadableStream<StampedHandleMessageStreamEvent>()),
       terminateSession: vi.fn(),
     };
 
@@ -146,7 +152,9 @@ describe("createSendFn", () => {
       deliver: vi.fn().mockResolvedValue({ sessionId: "existing-session-id" }),
       resolveSession: vi.fn(),
       run: vi.fn().mockResolvedValue(createMockRunHandle()),
-      getEventStream: vi.fn().mockResolvedValue(new ReadableStream<HandleMessageStreamEvent>()),
+      getEventStream: vi
+        .fn()
+        .mockResolvedValue(new ReadableStream<StampedHandleMessageStreamEvent>()),
       terminateSession: vi.fn(),
     };
 
