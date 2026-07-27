@@ -112,6 +112,14 @@ export function getInvalidToolCallInputError(input: {
     return undefined;
   }
 
+  // Provider-executed calls carry their result inline in the assistant
+  // message. Synthesizing a history tool-result here would give the tool_use
+  // a second result and the provider rejects the turn. The emission layer
+  // surfaces the malformed input as a failed action result for observability.
+  if (toolCall.providerExecuted === true) {
+    return undefined;
+  }
+
   try {
     resolveToolCallInputObject(toolCall.input, {
       callId: toolCall.toolCallId,

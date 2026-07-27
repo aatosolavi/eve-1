@@ -2649,6 +2649,73 @@ describe("createToolLoopHarness", () => {
     });
   });
 
+  it("never synthesizes a history tool-result for a provider-executed tool call with non-object input", async () => {
+    // A provider-executed tool call carries its result inline in the
+    // assistant message. Synthesizing a second tool-result here produced two
+    // tool_result blocks for one id and Anthropic rejected the turn with
+    // "each tool_use must have a single result".
+    const providerInput = '{"query": bare unquoted value}';
+    setupMockAgent({
+      finishReason: "tool-calls",
+      response: {
+        messages: [
+          {
+            content: [
+              {
+                input: providerInput,
+                providerExecuted: true,
+                toolCallId: "call-provider",
+                toolName: "web_search",
+                type: "tool-call",
+              },
+              {
+                output: { type: "json", value: { results: [] } },
+                providerExecuted: true,
+                toolCallId: "call-provider",
+                toolName: "web_search",
+                type: "tool-result",
+              },
+            ],
+            role: "assistant",
+          },
+        ],
+      },
+      text: "",
+      toolCalls: [
+        {
+          input: providerInput,
+          providerExecuted: true,
+          toolCallId: "call-provider",
+          toolName: "web_search",
+          type: "tool-call",
+        },
+      ],
+      toolResults: [
+        {
+          input: providerInput,
+          output: { type: "json", value: { results: [] } },
+          providerExecuted: true,
+          toolCallId: "call-provider",
+          toolName: "web_search",
+          type: "tool-result",
+        },
+      ],
+    });
+
+    const { emit } = createEventCollector();
+    const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
+    const firstStep = await runStep(createTestSession(), { message: "Search please" });
+
+    const toolResultIds = firstStep.session.history
+      .filter((message) => message.role === "tool" && Array.isArray(message.content))
+      .flatMap((message) =>
+        (message.content as { type: string; toolCallId?: string }[])
+          .filter((part) => part.type === "tool-result")
+          .map((part) => part.toolCallId),
+      );
+    expect(toolResultIds).not.toContain("call-provider");
+  });
+
   it("only emits valid tool calls when a step mixes valid and invalid tool calls", async () => {
     setupMockAgent({
       finishReason: "tool-calls",
