@@ -109,7 +109,7 @@ async function assertCanScaffoldInPlace(targetRoot: string): Promise<void> {
   }
 
   throw new Error(
-    "This folder isn't empty. Create the project in a new folder with `eve init my-agent`, or run `eve init` from an empty folder.",
+    "This folder isn't empty. Create an agent in a new folder with `eve init my-agent`, or run `eve init` from an empty folder.",
   );
 }
 
