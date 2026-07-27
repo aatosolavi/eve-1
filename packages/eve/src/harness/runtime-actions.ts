@@ -420,6 +420,10 @@ export function createRuntimeActionRequestFromToolCall(input: {
  * Coerces an AI SDK tool-call `input` into the runtime-action `JsonObject`
  * contract, throwing a `TypeError` (with the original as `cause`) that names
  * the offending tool when the payload is not a JSON object.
+ *
+ * String inputs are parsed as JSON first: the model protocol carries tool
+ * arguments as text, and provider-executed tool calls can surface that raw
+ * string — or an empty string when the model sends no arguments.
  */
 export function resolveToolCallInputObject(
   value: unknown,
@@ -429,8 +433,12 @@ export function resolveToolCallInputObject(
     return {};
   }
 
+  if (typeof value === "string" && value.trim() === "") {
+    return {};
+  }
+
   try {
-    return parseJsonObject(value);
+    return parseJsonObject(typeof value === "string" ? JSON.parse(value) : value);
   } catch (error) {
     // This module is bundled into the workflow driver body, which cannot
     // import the logger, so enrich the error (and keep the original as

@@ -685,8 +685,12 @@ function resolveToolCallInputObject(
     return {};
   }
 
+  if (typeof value === "string" && value.trim() === "") {
+    return {};
+  }
+
   try {
-    return parseJsonObject(value);
+    return parseJsonObject(typeof value === "string" ? JSON.parse(value) : value);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new TypeError(
