@@ -146,9 +146,8 @@ export function resolvePendingInput(input: {
     return { outcome: "continue", messages: baseHistory, session };
   }
 
-  // Pending batch exists -- only resolve if we have actual responses.
   const resolvedStepInput = resolveTextMessageInput(pendingBatch, stepInput);
-  const responses = resolvedStepInput?.inputResponses ?? [];
+  const responses = synthesizeFollowUpResponses(pendingBatch.requests, resolvedStepInput);
   const resolvesApprovalBatch = pendingBatch.requests.some((request) => isApprovalRequest(request));
 
   if (responses.length === 0 && resolvedStepInput?.message === undefined) {
@@ -158,28 +157,6 @@ export function resolvePendingInput(input: {
   if (resolvesApprovalBatch && hasUnansweredApproval({ pendingBatch, responses })) {
     session = queueDeferredStepInput(session, compactStepInput(resolvedStepInput));
     return { deferredMessage: true, outcome: "unresolved", messages: baseHistory, session };
-  }
-
-  if (responses.length === 0 && resolvedStepInput?.message !== undefined) {
-    // A follow-up message arrived for question-only input with no explicit
-    // responses. Keep the existing question semantics: mark unanswered
-    // question requests ignored so the model can continue with the message.
-    const toolParts = buildToolResponseParts(pendingBatch, []);
-    const messages: ModelMessage[] = [...baseHistory, ...pendingBatch.responseMessages];
-    if (toolParts.length > 0) {
-      messages.push({ content: toolParts, role: "tool" });
-    }
-
-    const rejectedActions = buildRejectedActionBatch(pendingBatch, []);
-    session = clearPendingInputBatch(session);
-
-    return {
-      consumedMessage: resolvedStepInput?.messageConsumed,
-      outcome: "resolved",
-      messages,
-      rejectedActions,
-      session,
-    };
   }
 
   const limitContinuation = resolveSessionLimitContinuation({
@@ -579,6 +556,37 @@ function buildToolResponseParts(
   return parts;
 }
 
+/**
+ * Gives every non-approval request an ignored response when a user follow-up
+ * supersedes it. Non-freeform approvals are denied instead. Explicit responses
+ * always win, and freeform approvals keep waiting for an explicit response.
+ */
+function synthesizeFollowUpResponses(
+  requests: readonly InputRequest[],
+  stepInput: StepInput | undefined,
+): InputResponse[] {
+  const explicitResponses = stepInput?.inputResponses ?? [];
+  if (stepInput?.message === undefined) {
+    return [...explicitResponses];
+  }
+
+  const explicitResponseIds = new Set(explicitResponses.map((response) => response.requestId));
+  return [
+    ...explicitResponses,
+    ...requests.flatMap((request) => {
+      if (explicitResponseIds.has(request.requestId)) {
+        return [];
+      }
+      if (isApprovalRequest(request)) {
+        return request.allowFreeform === false
+          ? [{ optionId: "deny", requestId: request.requestId }]
+          : [];
+      }
+      return [{ requestId: request.requestId }];
+    }),
+  ];
+}
+
 function buildToolResponsePartsForRequest(
   request: InputRequest,
   response: InputResponse | undefined,
@@ -632,7 +640,7 @@ function buildToolResponsePartsForRequest(
       output: {
         type: "json",
         value:
-          response !== undefined
+          response?.optionId !== undefined || response?.text !== undefined
             ? { optionId: response.optionId, text: response.text, status: "answered" }
             : { status: "ignored" },
       },

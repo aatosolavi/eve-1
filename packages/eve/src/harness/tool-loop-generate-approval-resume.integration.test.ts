@@ -174,4 +174,113 @@ describe("tool loop generate approval resume (real AI SDK)", () => {
       role: "assistant",
     });
   });
+
+  it("denies a pending approval when a user sends a freeform follow-up", async () => {
+    const execute = vi.fn(async () => "/workspace");
+    const model = new MockLanguageModelV4({
+      doGenerate: {
+        content: [{ text: "I will not run that command.", type: "text" }],
+        finishReason: { raw: undefined, unified: "stop" },
+        usage,
+        warnings: [],
+      },
+      modelId: "generate-approval-resume-model",
+      provider: "eve-integration-mock",
+    });
+    const config: ToolLoopHarnessConfig = {
+      mode: "conversation",
+      resolveModel: async (): Promise<LanguageModel> => model,
+      tools: new Map([
+        [
+          "bash",
+          {
+            description: "Run a shell command.",
+            execute,
+            inputSchema: jsonSchema({ type: "object" }),
+            name: "bash",
+          },
+        ],
+      ]),
+    };
+
+    const session = setPendingInputBatch({
+      requests: [
+        {
+          action: {
+            callId: "delete-temp-directory",
+            input: { command: "rm -rf /tmp/eve-test" },
+            kind: "tool-call",
+            toolName: "bash",
+          },
+          allowFreeform: false,
+          display: "confirmation",
+          options: [
+            { id: "approve", label: "Yes" },
+            { id: "deny", label: "No" },
+          ],
+          prompt: "Approve deleting the temporary directory.",
+          requestId: "delete-temp-directory-approval",
+        },
+      ],
+      responseMessages: [
+        {
+          content: [
+            {
+              input: { command: "rm -rf /tmp/eve-test" },
+              toolCallId: "delete-temp-directory",
+              toolName: "bash",
+              type: "tool-call",
+            },
+            {
+              approvalId: "delete-temp-directory-approval",
+              toolCallId: "delete-temp-directory",
+              type: "tool-approval-request",
+            },
+          ],
+          role: "assistant",
+        },
+      ],
+      session: {
+        agent: {
+          modelReference: { id: "generate-approval-resume-model" },
+          system: "You are a test assistant.",
+          tools: [
+            {
+              description: "Run a shell command.",
+              inputSchema: { type: "object" },
+              name: "bash",
+            },
+          ],
+        },
+        compaction: { recentWindowSize: 10, threshold: 100_000 },
+        continuationToken: "http:freeform-approval-session",
+        history: [{ content: "Delete the temporary directory.", role: "user" }],
+        sessionId: "freeform-approval-session",
+      },
+    });
+
+    const result = await createToolLoopHarness(config)(session, {
+      message: "Never mind, do something else.",
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(findPart(model.doGenerateCalls[0]?.prompt ?? [], "tool-result")).toMatchObject({
+      output: { type: "execution-denied" },
+      toolCallId: "delete-temp-directory",
+      toolName: "bash",
+    });
+    expect(typeof result.next).toBe("function");
+    if (typeof result.next !== "function") {
+      throw new TypeError("Expected the denial to continue with the deferred user message.");
+    }
+
+    await result.next(result.session);
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+    expect(model.doGenerateCalls[1]?.prompt.at(-1)).toMatchObject({
+      content: [{ text: "Never mind, do something else.", type: "text" }],
+      role: "user",
+    });
+  });
 });

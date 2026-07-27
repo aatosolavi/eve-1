@@ -192,6 +192,79 @@ describe("resolvePendingInput", () => {
     });
   });
 
+  it("normalizes a follow-up across unanswered questions and approvals", () => {
+    const session = setPendingInputBatch({
+      event: { sequence: 7, stepIndex: 2, turnId: "turn_1" },
+      requests: [
+        {
+          action: {
+            callId: "question-call",
+            input: { prompt: "Pick one." },
+            kind: "tool-call",
+            toolName: "ask_question",
+          },
+          display: "select",
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+          prompt: "Pick one.",
+          requestId: "question-1",
+        } satisfies InputRequest,
+        {
+          action: {
+            callId: "approval-call",
+            input: { command: "pwd" },
+            kind: "tool-call",
+            toolName: "bash",
+          },
+          allowFreeform: false,
+          display: "confirmation",
+          options: [
+            { id: "approve", label: "Yes" },
+            { id: "deny", label: "No" },
+          ],
+          prompt: "Approve tool call: bash",
+          requestId: "approval-1",
+        } satisfies InputRequest,
+      ],
+      responseMessages: [],
+      session: createHarnessSession(),
+    });
+
+    const result = resolvePendingInput({
+      stepInput: { message: "Do something else." },
+      session,
+    });
+
+    expect(result.outcome).toBe("resolved");
+    expect(result.deferredMessage).toBe(true);
+    expect(result.messages.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({
+          output: { type: "json", value: { status: "ignored" } },
+          toolCallId: "question-call",
+          type: "tool-result",
+        }),
+        expect.objectContaining({
+          approvalId: "approval-1",
+          approved: false,
+          type: "tool-approval-response",
+        }),
+        expect.objectContaining({
+          output: expect.objectContaining({ type: "execution-denied" }),
+          toolCallId: "approval-call",
+          type: "tool-result",
+        }),
+      ]),
+      role: "tool",
+    });
+    expect(result.rejectedActions?.results).toHaveLength(1);
+
+    const deferred = consumeDeferredStepInput({ session: result.session });
+    expect(deferred.input).toEqual({ message: "Do something else." });
+  });
+
   it("resolves freeform question input from a follow-up message", () => {
     const session = setPendingInputBatch({
       requests: [
@@ -669,7 +742,7 @@ describe("resolvePendingInput", () => {
     expect(result.rejectedActions).toBeUndefined();
   });
 
-  it("keeps a pending approval and queues an unrelated follow-up message", () => {
+  it("denies a non-freeform approval when the user sends a follow-up message", () => {
     const session = setPendingInputBatch({
       event: { sequence: 7, stepIndex: 2, turnId: "turn_1" },
       requests: [
@@ -699,9 +772,22 @@ describe("resolvePendingInput", () => {
       session,
     });
 
-    expect(result.outcome).toBe("unresolved");
-    expect(result.rejectedActions).toBeUndefined();
-    expect(result.messages).toEqual([{ content: "previous", role: "user" }]);
+    expect(result.outcome).toBe("resolved");
+    expect(result.rejectedActions).toMatchObject({
+      results: [
+        {
+          callId: "approval-call",
+          output: { approval: { requestId: "approval-1", status: "denied" } },
+        },
+      ],
+    });
+    expect(result.messages.at(-1)).toMatchObject({
+      content: [
+        { approvalId: "approval-1", approved: false, type: "tool-approval-response" },
+        { toolCallId: "approval-call", type: "tool-result" },
+      ],
+      role: "tool",
+    });
     expect(hasDeferredStepInput(result.session)).toBe(true);
 
     const deferred = consumeDeferredStepInput({ session: result.session });
