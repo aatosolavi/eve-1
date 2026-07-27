@@ -438,7 +438,7 @@ export function resolveToolCallInputObject(
   }
 
   try {
-    return parseJsonObject(typeof value === "string" ? JSON.parse(value) : value);
+    return parseJsonObject(typeof value === "string" ? parseJsonStringInput(value) : value);
   } catch (error) {
     // This module is bundled into the workflow driver body, which cannot
     // import the logger, so enrich the error (and keep the original as
@@ -448,6 +448,16 @@ export function resolveToolCallInputObject(
       `Failed to parse tool-call arguments for "${context.toolName}" (${context.callId}): ${detail}`,
       { cause: error },
     );
+  }
+}
+
+function parseJsonStringInput(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    // Not JSON at all — return the raw string so parseJsonObject rejects it
+    // with the canonical "Expected a JSON-serializable object." detail.
+    return value;
   }
 }
 
