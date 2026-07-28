@@ -95,10 +95,12 @@ function createSessionSandboxHarness() {
     sourceId: "agent/sandbox/sandbox",
     sourceKind: "module",
   };
+  const workspaceResourceRoot = { logicalPath: "", rootEntries: [] as const };
   const registry: RuntimeSandboxRegistry = {
     sandbox: {
       definition,
-      workspaceResourceRoot: { logicalPath: "", rootEntries: [] },
+      workspaceResourceRoot,
+      workspaceResourceRoots: [workspaceResourceRoot],
     },
   };
 

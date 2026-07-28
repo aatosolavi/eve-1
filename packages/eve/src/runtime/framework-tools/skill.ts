@@ -37,7 +37,10 @@ async function executeLoadSkillTool(
           `The dynamic skill "${skill}" requires sandbox access on the runtime context.`,
         );
       }
-      return await loadSkillFromSandbox(sandbox, skill, availableSkills);
+      return await loadSkillFromSandbox(sandbox, skill, {
+        availableSkillNames: availableSkills,
+        enforceAvailableSkills: true,
+      });
     }
 
     const authoredSkill = authoredSkills.find((entry) => entry.name === skill);

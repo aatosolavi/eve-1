@@ -38,18 +38,35 @@ function makeSchedule(name: string): CompiledScheduleDefinition {
   };
 }
 
-function makeSubagent(name: string): CompiledSubagentNode {
+function makeSubagent(
+  name: string,
+  options: {
+    inherit?: { connections?: boolean; sandbox?: boolean };
+  } = {},
+): CompiledSubagentNode {
+  const config: {
+    inherit?: { connections?: boolean; sandbox?: boolean };
+    model: {
+      id: string;
+      routing: { kind: "gateway"; target: string };
+    };
+    name: string;
+  } = {
+    model: {
+      id: "anthropic/claude-sonnet-5",
+      routing: { kind: "gateway", target: "anthropic" },
+    },
+    name,
+  };
+  if (options.inherit !== undefined) {
+    config.inherit = options.inherit;
+  }
+
   return {
     agent: createCompiledAgentNodeManifest({
       agentRoot: `${AGENT_ROOT}/subagents/${name}`,
       appRoot: APP_ROOT,
-      config: {
-        model: {
-          id: "anthropic/claude-sonnet-5",
-          routing: { kind: "gateway", target: "anthropic" },
-        },
-        name,
-      },
+      config,
     }),
     description: `${name} subagent description`,
     entryPath: `subagents/${name}/agent.ts`,
@@ -174,12 +191,44 @@ describe("buildApplicationInfoJson", () => {
       application: getApplicationInfo(APP_ROOT),
       compiledState: makeCompiledState({
         schedules: [makeSchedule("morning-digest"), makeSchedule("weekly-report")],
-        subagents: [makeSubagent("research")],
+        subagents: [
+          makeSubagent("research"),
+          makeSubagent("reviewer", { inherit: { connections: true, sandbox: true } }),
+        ],
       }),
       messaging: MESSAGING,
     });
 
-    expect(json.subagents).toEqual(["research"]);
+    expect(json.subagents).toEqual([
+      {
+        name: "research",
+        effective: {
+          connections: {
+            inherited: false,
+            owned: 0,
+          },
+          sandbox: "default",
+        },
+        inherit: {
+          connections: false,
+          sandbox: false,
+        },
+      },
+      {
+        name: "reviewer",
+        effective: {
+          connections: {
+            inherited: true,
+            owned: 0,
+          },
+          sandbox: "inherited",
+        },
+        inherit: {
+          connections: true,
+          sandbox: true,
+        },
+      },
+    ]);
     expect(json.schedules).toEqual(["morning-digest", "weekly-report"]);
   });
 

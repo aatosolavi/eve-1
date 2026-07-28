@@ -161,6 +161,7 @@ function createResolvedAgentConfig(manifest: CompiledAgentNodeManifest): Resolve
     reasoning?: ResolvedAgent["config"]["reasoning"];
     source?: ResolvedAgent["config"]["source"];
     limits?: ResolvedAgent["config"]["limits"];
+    inherit?: ResolvedAgent["config"]["inherit"];
   } = {
     model:
       manifest.config.model.source === undefined
@@ -230,6 +231,13 @@ function createResolvedAgentConfig(manifest: CompiledAgentNodeManifest): Resolve
         manifest.config.experimental.workflow === undefined
           ? undefined
           : { world: manifest.config.experimental.workflow.world },
+    };
+  }
+
+  if (manifest.config.inherit !== undefined) {
+    config.inherit = {
+      connections: manifest.config.inherit.connections,
+      sandbox: manifest.config.inherit.sandbox,
     };
   }
 

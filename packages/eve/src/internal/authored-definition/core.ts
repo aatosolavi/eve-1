@@ -7,6 +7,7 @@ import type { ScheduleDefinition, ScheduleRunHandler } from "#public/definitions
 import type { SkillDefinition, SkillFileContent } from "#public/definitions/skill.js";
 import type { InstructionsDefinition } from "#public/definitions/instructions.js";
 import {
+  expectBoolean,
   expectFunction,
   expectObjectRecord,
   expectOnlyKnownKeys,
@@ -51,6 +52,7 @@ export function normalizeAgentDefinition(
       "compaction",
       "description",
       "experimental",
+      "inherit",
       "limits",
       "model",
       "modelContextWindowTokens",
@@ -84,6 +86,10 @@ export function normalizeAgentDefinition(
     definition.experimental = normalizeAgentExperimentalDefinition(record.experimental, message);
   }
 
+  if (record.inherit !== undefined) {
+    definition.inherit = normalizeAgentInheritanceDefinition(record.inherit, message);
+  }
+
   if (record.modelOptions !== undefined) {
     definition.modelOptions = normalizeAgentModelOptions(record.modelOptions, message);
   }
@@ -108,6 +114,24 @@ export function normalizeAgentDefinition(
   }
 
   return definition as Readonly<NormalizedAgentDefinition>;
+}
+
+function normalizeAgentInheritanceDefinition(
+  value: unknown,
+  message: string,
+): NonNullable<NormalizedAgentDefinition["inherit"]> {
+  const record = expectObjectRecord(value, message);
+  expectOnlyKnownKeys(record, ["connections", "sandbox"], message);
+  const normalizedDefinition: Mutable<NonNullable<NormalizedAgentDefinition["inherit"]>> = {};
+
+  if (record.connections !== undefined) {
+    normalizedDefinition.connections = expectBoolean(record.connections, message);
+  }
+  if (record.sandbox !== undefined) {
+    normalizedDefinition.sandbox = expectBoolean(record.sandbox, message);
+  }
+
+  return normalizedDefinition;
 }
 
 function normalizeAgentReasoningDefinition(

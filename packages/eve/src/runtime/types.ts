@@ -30,7 +30,10 @@ import type {
   MarkdownSourceRef,
 } from "#shared/source-ref.js";
 import type { NamedSkillDefinition } from "#shared/skill-definition.js";
-import type { InternalAgentDefinition } from "#shared/agent-definition.js";
+import type {
+  AgentInheritanceDefinition,
+  InternalAgentDefinition,
+} from "#shared/agent-definition.js";
 import type { RuntimeDynamicModelReference } from "#runtime/agent/bootstrap.js";
 import type { InternalToolDefinitionWithExecuteFn } from "#shared/tool-definition.js";
 import type { SandboxBackend } from "#shared/sandbox-backend.js";
@@ -269,6 +272,7 @@ export type ResolvedRuntimeSubagentNode = Readonly<
   ModuleSourceRef &
     Node & {
       description: string;
+      inherit?: AgentInheritanceDefinition;
       kind: "subagent";
       name: string;
     }
