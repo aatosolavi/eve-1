@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSourceManifest } from "#discover/manifest.js";
 import {
   createAgentSourceManifest,
+  createConnectionSourceRef,
   createLocalSubagentSourceRef,
   createModuleSourceRef,
 } from "#discover/manifest.js";
@@ -13,6 +14,7 @@ import { experimental_workflow } from "#public/definitions/tool.js";
 
 const mocks = vi.hoisted(() => ({
   compileAgentConfig: vi.fn(),
+  compileConnectionDefinition: vi.fn(),
   loadModuleBackedDefinition: vi.fn(),
 }));
 
@@ -24,9 +26,14 @@ vi.mock("#compiler/normalize-helpers.js", () => ({
   loadModuleBackedDefinition: mocks.loadModuleBackedDefinition,
 }));
 
+vi.mock("#compiler/normalize-connection.js", () => ({
+  compileConnectionDefinition: mocks.compileConnectionDefinition,
+}));
+
 describe("compileAgentManifest", () => {
   beforeEach(() => {
     mocks.compileAgentConfig.mockReset();
+    mocks.compileConnectionDefinition.mockReset();
     mocks.loadModuleBackedDefinition.mockReset();
   });
 
@@ -209,6 +216,74 @@ describe("compileAgentManifest", () => {
 
     await expect(compileAgentManifest(manifest)).rejects.toThrow(
       'Subagent "research" cannot both inherit the parent sandbox and define its own sandbox.',
+    );
+  });
+
+  it("rejects subagents that inherit connections and own a colliding connection name", async () => {
+    const subagentManifest = createAgentSourceManifest({
+      agentId: "reviewer",
+      agentRoot: "/app/agent/subagents/reviewer",
+      appRoot: "/app",
+      configModule: createModuleSourceRef({
+        logicalPath: "agent.ts",
+      }),
+      connections: [
+        createConnectionSourceRef({
+          connectionName: "github",
+          logicalPath: "connections/github.ts",
+        }),
+      ],
+    });
+    const manifest = createAgentSourceManifest({
+      agentId: "root",
+      agentRoot: "/app/agent",
+      appRoot: "/app",
+      connections: [
+        createConnectionSourceRef({
+          connectionName: "github",
+          logicalPath: "connections/github.ts",
+        }),
+      ],
+      subagents: [
+        createLocalSubagentSourceRef({
+          entryPath: "subagents/reviewer/agent.ts",
+          logicalPath: "subagents/reviewer",
+          manifest: subagentManifest,
+          rootPath: "/app/agent/subagents/reviewer",
+          subagentId: "reviewer",
+        }),
+      ],
+    });
+
+    mocks.compileAgentConfig.mockImplementation(async (input: AgentSourceManifest) =>
+      input.agentId === "reviewer"
+        ? createConfig({
+            description: "Reviewer subagent",
+            inherit: {
+              connections: true,
+            },
+            name: "reviewer",
+          })
+        : createConfig({ name: "root" }),
+    );
+    mocks.compileConnectionDefinition.mockImplementation(
+      async (_agentRoot: string, source: { readonly connectionName: string }) => ({
+        connectionName: source.connectionName,
+        description: `${source.connectionName} connection`,
+        logicalPath: `connections/${source.connectionName}.ts`,
+        protocol: "mcp",
+        sourceId: `connections/${source.connectionName}`,
+        sourceKind: "module",
+        url: "https://example.com",
+      }),
+    );
+    mocks.loadModuleBackedDefinition.mockResolvedValue({
+      description: "Reviewer subagent",
+      model: "openai/gpt-5.5",
+    });
+
+    await expect(compileAgentManifest(manifest)).rejects.toThrow(
+      'Subagent "reviewer" inherits connection "github" but also defines a connection with that name.',
     );
   });
 });

@@ -95,11 +95,18 @@ function resolveSandboxRuntimeNode(input: {
   readonly node: ReturnType<typeof getActiveRuntimeNode>;
   readonly sandboxNodeId: unknown;
 }): ReturnType<typeof getActiveRuntimeNode> {
-  if (typeof input.sandboxNodeId !== "string") {
+  // Absent / empty means the active node owns the sandbox (isolation path).
+  if (typeof input.sandboxNodeId !== "string" || input.sandboxNodeId === "") {
     return input.node;
   }
 
-  return input.bundle.graph.nodesByNodeId.get(input.sandboxNodeId) ?? input.node;
+  const resolved = input.bundle.graph.nodesByNodeId.get(input.sandboxNodeId);
+  if (resolved === undefined) {
+    throw new Error(
+      `Inherited sandbox node "${input.sandboxNodeId}" is not present in the runtime agent graph.`,
+    );
+  }
+  return resolved;
 }
 
 function createSandboxOwnerContext(input: {

@@ -44,6 +44,7 @@ export async function compileAgentManifest(
     compileAgentNodeManifest,
     context,
     externalDependencies: compiledNode.config.build?.externalDependencies ?? [],
+    parentConnectionNames: compiledNode.connections.map((connection) => connection.connectionName),
     parentNodeId: ROOT_COMPILED_AGENT_NODE_ID,
     subagents: manifest.subagents,
   });

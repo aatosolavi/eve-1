@@ -53,6 +53,12 @@ export async function compileSubagentGraph(input: {
   readonly compileAgentNodeManifest: CompileAgentNodeManifestFn;
   readonly context: ManifestCompileContext;
   readonly externalDependencies?: readonly string[];
+  /**
+   * Effective connection names available on the parent node after its own
+   * inheritance is applied. Used to fail fast when a child both inherits
+   * connections and owns a colliding name.
+   */
+  readonly parentConnectionNames?: readonly string[];
   readonly parentNodeId: string;
   readonly subagents: readonly LocalSubagentSourceRef[];
 }): Promise<{
@@ -70,6 +76,7 @@ export async function compileSubagentGraph(input: {
       compileAgentNodeManifest: input.compileAgentNodeManifest,
       context: input.context,
       externalDependencies: input.externalDependencies,
+      parentConnectionNames: input.parentConnectionNames ?? [],
       parentNodeId: input.parentNodeId,
       source: subagentSource,
     });
@@ -101,6 +108,7 @@ async function compileSubagentDefinition(input: {
   readonly compileAgentNodeManifest: CompileAgentNodeManifestFn;
   readonly context: ManifestCompileContext;
   readonly externalDependencies?: readonly string[];
+  readonly parentConnectionNames: readonly string[];
   readonly parentNodeId: string;
   readonly source: LocalSubagentSourceRef;
 }): Promise<
@@ -154,6 +162,7 @@ async function compileSubagent(input: {
   readonly compileAgentNodeManifest: CompileAgentNodeManifestFn;
   readonly context: ManifestCompileContext;
   readonly externalDependencies?: readonly string[];
+  readonly parentConnectionNames: readonly string[];
   readonly parentNodeId: string;
   readonly source: LocalSubagentSourceRef;
 }): Promise<{
@@ -187,11 +196,34 @@ async function compileSubagent(input: {
     );
   }
 
+  if (agent.config.inherit?.connections === true) {
+    const parentConnectionNames = new Set(input.parentConnectionNames);
+    const duplicateConnection = agent.connections.find((connection) =>
+      parentConnectionNames.has(connection.connectionName),
+    );
+    if (duplicateConnection !== undefined) {
+      throw new Error(
+        `Subagent "${subagentName}" inherits connection "${duplicateConnection.connectionName}" but also defines a connection with that name.`,
+      );
+    }
+  }
+
+  // Descendants that inherit connections receive this node's effective set:
+  // owned names plus any names this node itself inherits from its parent.
+  const effectiveConnectionNames =
+    agent.config.inherit?.connections === true
+      ? [
+          ...input.parentConnectionNames,
+          ...agent.connections.map((connection) => connection.connectionName),
+        ]
+      : agent.connections.map((connection) => connection.connectionName);
+
   const descendants = await compileSubagentGraph({
     appRoot: input.appRoot,
     compileAgentNodeManifest: input.compileAgentNodeManifest,
     context: input.context,
     externalDependencies: agent.config.build?.externalDependencies,
+    parentConnectionNames: effectiveConnectionNames,
     parentNodeId: nodeId,
     subagents: input.source.manifest.subagents,
   });

@@ -21,7 +21,10 @@ import {
   countActiveSandboxHandles,
   shutdownActiveSandboxHandles,
 } from "#execution/sandbox/active-handles.js";
-import { ensureSandboxAccess } from "#execution/sandbox/ensure.js";
+import {
+  clearSandboxSessionInitializationStateForTest,
+  ensureSandboxAccess,
+} from "#execution/sandbox/ensure.js";
 import type { SandboxState } from "#sandbox/state.js";
 
 const mocks = vi.hoisted(() => ({
@@ -119,6 +122,7 @@ function createSession(): Session {
 
 describe("ensureSandboxAccess", () => {
   beforeEach(() => {
+    clearSandboxSessionInitializationStateForTest();
     mocks.prewarmAppSandboxes.mockReset();
     mocks.prewarmAppSandboxes.mockResolvedValue(undefined);
     mocks.waitForSandboxTemplatePrewarmLock.mockReset();
@@ -361,6 +365,35 @@ describe("ensureSandboxAccess", () => {
     expect(onSession).toHaveBeenCalledTimes(1);
     await expect(firstAccess.captureState()).resolves.toMatchObject({ initialized: true });
     await expect(secondAccess.captureState()).resolves.toMatchObject({ initialized: true });
+  });
+
+  it("does not re-run onSession when a second open starts after the first completed", async () => {
+    const ctx = new ContextContainer();
+    ctx.set(SessionKey, createSession());
+    const runOnSession = async (callback: () => Promise<void>) =>
+      await contextStorage.run(ctx, callback);
+    const onSession = vi.fn();
+    const backend = createBackend();
+    const registry = createTestRegistry({ onSession }, backend);
+
+    const first = await ensure({ registry, runOnSession });
+    await first.get();
+    const firstState = await first.captureState();
+    expect(firstState).toMatchObject({ initialized: true });
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    // Simulate an inheriting child that starts after the first open finished
+    // but before durable parentSandboxState is available (state null /
+    // initialized false). Process-lifetime tracking must still skip onSession.
+    const second = await ensure({
+      registry,
+      runOnSession,
+      state: { initialized: false, session: null },
+    });
+    await second.get();
+
+    expect(onSession).toHaveBeenCalledTimes(1);
+    await expect(second.captureState()).resolves.toMatchObject({ initialized: true });
   });
 
   it("does not pass bootstrap or seed files to runtime create", async () => {

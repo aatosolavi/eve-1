@@ -194,6 +194,7 @@ function createRegistryWithRoots(
 
 describe("sandboxProvider", () => {
   beforeEach(() => {
+    vi.mocked(ensureSandboxAccess).mockReset();
     vi.mocked(ensureSandboxAccess).mockResolvedValue({
       captureState: vi.fn().mockResolvedValue({ initialized: false, session: null }),
       get: vi.fn().mockResolvedValue(null),
@@ -260,6 +261,57 @@ describe("sandboxProvider", () => {
           channel: "subagent",
           sessionId: "child-session",
         },
+      }),
+    );
+  });
+
+  it("throws when an inherited sandbox node id is missing from the runtime graph", async () => {
+    const ctx = new ContextContainer();
+    const childRegistry: RuntimeSandboxRegistry = createStubSandboxRegistry();
+
+    ctx.set(
+      BundleKey,
+      createBundle({
+        agentName: "reviewer",
+        registry: childRegistry,
+      }),
+    );
+    ctx.set(ChannelKey, {
+      kind: "subagent",
+      state: {
+        sandboxNodeId: "subagents/missing-parent",
+        sandboxSessionId: "parent-session",
+      },
+    });
+    ctx.set(SessionIdKey, "child-session");
+
+    await expect(sandboxProvider.create(ctx, createHarnessSession())).rejects.toThrow(
+      'Inherited sandbox node "subagents/missing-parent" is not present in the runtime agent graph.',
+    );
+    expect(ensureSandboxAccess).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the active node when sandboxNodeId is absent or empty", async () => {
+    const ctx = new ContextContainer();
+    const registry: RuntimeSandboxRegistry = createStubSandboxRegistry();
+
+    ctx.set(BundleKey, createBundle({ agentName: "weather-agent", registry }));
+    ctx.set(ChannelKey, {
+      kind: "subagent",
+      state: {
+        sandboxNodeId: "",
+        sandboxSessionId: "parent-session",
+      },
+    });
+    ctx.set(SessionIdKey, "child-session");
+
+    await sandboxProvider.create(ctx, createHarnessSession());
+
+    expect(ensureSandboxAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nodeId: "__root__",
+        registry,
+        sessionId: "parent-session",
       }),
     );
   });

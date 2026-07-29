@@ -1,3 +1,4 @@
+import { projectSubagentCapabilities } from "#compiler/subagent-capabilities.js";
 import { type ApplicationInspection, inspectApplication } from "#services/inspect-application.js";
 import { type CliRow, createCliTheme, renderCliBanner, renderCliSection } from "#cli/ui/output.js";
 
@@ -71,25 +72,11 @@ export function buildApplicationInfoJson(inspection: ApplicationInspection): App
     skills: (compiledState?.manifest.skills ?? []).map((skill) => skill.name),
     tools: (compiledState?.manifest.tools ?? []).map((tool) => tool.name),
     subagents: (compiledState?.manifest.subagents ?? []).map((subagent) => {
-      const inheritsConnections = subagent.agent.config.inherit?.connections === true;
-      const inheritsSandbox = subagent.agent.config.inherit?.sandbox === true;
+      const capabilities = projectSubagentCapabilities(subagent);
       return {
         name: subagent.name,
-        effective: {
-          connections: {
-            inherited: inheritsConnections,
-            owned: subagent.agent.connections.length,
-          },
-          sandbox: inheritsSandbox
-            ? "inherited"
-            : subagent.agent.sandbox === null && subagent.agent.sandboxWorkspaces.length === 0
-              ? "default"
-              : "owned",
-        },
-        inherit: {
-          connections: inheritsConnections,
-          sandbox: inheritsSandbox,
-        },
+        effective: capabilities.effective,
+        inherit: capabilities.inherit,
       };
     }),
     schedules: (compiledState?.manifest.schedules ?? []).map((schedule) => schedule.name),

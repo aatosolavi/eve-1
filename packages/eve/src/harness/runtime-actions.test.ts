@@ -187,6 +187,115 @@ describe("resolvePendingRuntimeActions", () => {
     expect(resolved.outcome).toBe("resolved");
     expect(resolved.session.sandboxState).toEqual(sandboxState);
   });
+
+  it("prefers initialized inherited sandbox state over a later uninitialized capture", async () => {
+    let session = createParkedSession();
+    session = setPendingRuntimeActionBatch({
+      actions: [
+        {
+          callId: "call-1",
+          description: "research subagent",
+          input: { message: "go" },
+          kind: "subagent-call",
+          name: "researcher",
+          nodeId: "subagents/researcher",
+          subagentName: "researcher",
+        },
+        {
+          callId: "call-2",
+          description: "reviewer subagent",
+          input: { message: "review" },
+          kind: "subagent-call",
+          name: "reviewer",
+          nodeId: "subagents/reviewer",
+          subagentName: "reviewer",
+        },
+      ],
+      event: { sequence: 0, stepIndex: 0, turnId: "turn_0" },
+      responseMessages: [],
+      session,
+    });
+
+    const initializedState = {
+      initialized: true,
+      session: {
+        backendName: "test-sandbox",
+        metadata: { workspace: "repo" },
+        sessionKey: "sandbox-session-key",
+      },
+    };
+    const uninitializedState = {
+      initialized: false,
+      session: null,
+    };
+
+    const resolved = await resolvePendingRuntimeActions({
+      session,
+      stepInput: {
+        runtimeActionResults: [
+          {
+            callId: "call-1",
+            inheritedSandbox: {
+              nodeId: "__root__",
+              sessionId: "test-session",
+              state: initializedState,
+            },
+            kind: "subagent-result",
+            output: "done",
+            subagentName: "researcher",
+          },
+          {
+            callId: "call-2",
+            inheritedSandbox: {
+              nodeId: "__root__",
+              sessionId: "test-session",
+              state: uninitializedState,
+            },
+            kind: "subagent-result",
+            output: "done",
+            subagentName: "reviewer",
+          },
+        ],
+      },
+    });
+
+    expect(resolved.outcome).toBe("resolved");
+    expect(resolved.session.sandboxState).toEqual(initializedState);
+  });
+
+  it("ignores inherited sandbox results that do not match the parent session id", async () => {
+    const session = createParkedSession();
+    const sandboxState = {
+      initialized: true,
+      session: {
+        backendName: "test-sandbox",
+        metadata: { workspace: "repo" },
+        sessionKey: "sandbox-session-key",
+      },
+    };
+
+    const resolved = await resolvePendingRuntimeActions({
+      session,
+      stepInput: {
+        runtimeActionResults: [
+          {
+            callId: "call-1",
+            inheritedSandbox: {
+              nodeId: "__root__",
+              sessionId: "other-session",
+              state: sandboxState,
+            },
+            kind: "subagent-result",
+            output: "done",
+            subagentName: "researcher",
+          },
+        ],
+      },
+    });
+
+    expect(resolved.outcome).toBe("resolved");
+    expect(resolved.session.sandboxState).toBeUndefined();
+  });
 });
 
 describe("pending subagent child adoption", () => {

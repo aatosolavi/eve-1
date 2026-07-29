@@ -128,29 +128,58 @@ export async function dispatchRuntimeActionsStep(input: {
         case "subagent-call": {
           const registered = bundle.subagentRegistry.subagentsByNodeId.get(action.nodeId);
           const parentNodeId = bundle.nodeId ?? ROOT_RUNTIME_AGENT_NODE_ID;
-          const source: SubagentInputSource =
-            registered?.definition.kind === "subagent"
-              ? {
-                  description: registered.definition.description,
-                  effectiveSandbox: createEffectiveSandboxSource({
-                    adapterState: adapter.state,
-                    parentNodeId,
-                    protectedDynamicSkillNames: currentDynamicSkillNames,
-                    session,
-                  }),
-                  inherit: registered.definition.inherit,
-                  parentNodeId,
-                  type: "local",
-                }
-              : {
-                  effectiveSandbox: createEffectiveSandboxSource({
-                    adapterState: adapter.state,
-                    parentNodeId,
-                    protectedDynamicSkillNames: currentDynamicSkillNames,
-                    session,
-                  }),
-                  type: "runtime",
-                };
+          const localDefinition =
+            registered?.definition.kind === "subagent" ? registered.definition : undefined;
+          // Only attach sandbox sharing payload when the child will share:
+          // local declared inherit.sandbox, or built-in runtime self-agent.
+          const willShareSandbox =
+            localDefinition !== undefined
+              ? localDefinition.inherit?.sandbox === true
+              : action.subagentName === "agent";
+          const effectiveSandbox = willShareSandbox
+            ? createEffectiveSandboxSource({
+                adapterState: adapter.state,
+                parentNodeId,
+                protectedDynamicSkillNames: currentDynamicSkillNames,
+                session,
+              })
+            : undefined;
+          let source: SubagentInputSource;
+          if (localDefinition !== undefined) {
+            const localSource: {
+              description: string;
+              effectiveSandbox?: NonNullable<
+                Extract<SubagentInputSource, { type: "local" }>["effectiveSandbox"]
+              >;
+              inherit?: typeof localDefinition.inherit;
+              parentNodeId?: string;
+              type: "local";
+            } = {
+              description: localDefinition.description,
+              inherit: localDefinition.inherit,
+              type: "local",
+            };
+            if (effectiveSandbox !== undefined) {
+              localSource.effectiveSandbox = effectiveSandbox;
+            }
+            if (willShareSandbox) {
+              localSource.parentNodeId = parentNodeId;
+            }
+            source = localSource;
+          } else {
+            const runtimeSource: {
+              effectiveSandbox?: NonNullable<
+                Extract<SubagentInputSource, { type: "runtime" }>["effectiveSandbox"]
+              >;
+              type: "runtime";
+            } = {
+              type: "runtime",
+            };
+            if (effectiveSandbox !== undefined) {
+              runtimeSource.effectiveSandbox = effectiveSandbox;
+            }
+            source = runtimeSource;
+          }
           const childRuntime = createWorkflowRuntime({
             compiledArtifactsSource: bundle.compiledArtifactsSource,
             nodeId: action.nodeId,

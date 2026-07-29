@@ -386,13 +386,32 @@ function applyInheritedSandboxResults(input: {
       continue;
     }
 
-    nextSession = {
-      ...nextSession,
-      sandboxState: result.inheritedSandbox.state,
-    };
+    const inherited = result.inheritedSandbox;
+    // Shared sandboxes are owned by the parent session id. Ignore mismatched
+    // identities so a bad/stale child result cannot clobber parent state.
+    if (inherited.sessionId !== input.session.sessionId) {
+      continue;
+    }
+
+    nextSession = pickPreferredSandboxState(nextSession, inherited.state);
   }
 
   return nextSession;
+}
+
+function pickPreferredSandboxState(
+  current: HarnessSession,
+  candidate: NonNullable<HarnessSession["sandboxState"]>,
+): HarnessSession {
+  // Prefer an already-initialized capture over a later uninitialized one.
+  if (current.sandboxState?.initialized === true && candidate.initialized !== true) {
+    return current;
+  }
+
+  return {
+    ...current,
+    sandboxState: candidate,
+  };
 }
 
 function toPublicRuntimeActionResult(result: RuntimeActionResult): RuntimeActionResult {

@@ -167,56 +167,43 @@ function createSharedSandboxAdapterState(input: {
   readonly sandboxOwnerDynamicSkillNames?: readonly string[];
   readonly sandboxSessionId?: string;
 } {
-  if (input.source.type === "runtime" && input.subagentName === "agent") {
-    const effectiveSandbox = input.source.effectiveSandbox;
-    const parentSandboxState = input.session.sandboxState ?? effectiveSandbox?.parentSandboxState;
-    const sandboxSessionId =
-      effectiveSandbox?.sandboxSessionId ??
-      (parentSandboxState === undefined ? undefined : input.session.sessionId);
-
-    if (sandboxSessionId === undefined) {
-      return {};
-    }
-
-    const state: {
-      parentSandboxState?: HarnessSession["sandboxState"];
-      sandboxNodeId?: string;
-      sandboxOwnerDynamicSkillNames?: readonly string[];
-      sandboxSessionId: string;
-    } = {
-      sandboxSessionId,
-    };
-
-    if (parentSandboxState !== undefined) {
-      state.parentSandboxState = parentSandboxState;
-    }
-    if (effectiveSandbox?.sandboxNodeId !== undefined) {
-      state.sandboxNodeId = effectiveSandbox.sandboxNodeId;
-    }
-    if (
-      effectiveSandbox?.sandboxOwnerDynamicSkillNames !== undefined &&
-      effectiveSandbox.sandboxOwnerDynamicSkillNames.length > 0
-    ) {
-      state.sandboxOwnerDynamicSkillNames = effectiveSandbox.sandboxOwnerDynamicSkillNames;
-    }
-
-    return state;
-  }
-
-  if (input.source.type !== "local" || input.source.inherit?.sandbox !== true) {
+  const shouldShare =
+    (input.source.type === "runtime" && input.subagentName === "agent") ||
+    (input.source.type === "local" && input.source.inherit?.sandbox === true);
+  if (!shouldShare) {
     return {};
   }
 
   const effectiveSandbox = input.source.effectiveSandbox;
   const parentSandboxState = input.session.sandboxState ?? effectiveSandbox?.parentSandboxState;
-  const sandboxNodeId = effectiveSandbox?.sandboxNodeId ?? input.source.parentNodeId;
+
+  // Local inherit always pins the parent session id. Built-in runtime
+  // self-delegation only shares when parent state or an explicit
+  // effective identity is already available (share-before-first-open
+  // still works when effectiveSandbox carries sandboxSessionId).
+  const sandboxSessionId =
+    effectiveSandbox?.sandboxSessionId ??
+    (input.source.type === "local"
+      ? input.session.sessionId
+      : parentSandboxState === undefined
+        ? undefined
+        : input.session.sessionId);
+
+  if (sandboxSessionId === undefined) {
+    return {};
+  }
+
+  const sandboxNodeId =
+    effectiveSandbox?.sandboxNodeId ??
+    (input.source.type === "local" ? input.source.parentNodeId : undefined);
+
   const state: {
     parentSandboxState?: HarnessSession["sandboxState"];
     sandboxNodeId?: string;
     sandboxOwnerDynamicSkillNames?: readonly string[];
     sandboxSessionId: string;
   } = {
-    sandboxSessionId: effectiveSandbox?.sandboxSessionId ?? input.session.sessionId,
+    sandboxSessionId,
   };
 
   if (parentSandboxState !== undefined) {

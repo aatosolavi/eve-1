@@ -1,4 +1,5 @@
 import { ROOT_COMPILED_AGENT_NODE_ID } from "#compiler/manifest.js";
+import { projectSubagentCapabilities } from "#compiler/subagent-capabilities.js";
 import {
   getAllFrameworkToolDefinitions,
   getAllFrameworkToolNames,
@@ -530,28 +531,14 @@ function renderSandbox(sandbox: ResolvedSandboxDefinition | null): AgentInfoSand
 }
 
 export function renderSubagent(subagent: CompiledSubagentNode): AgentInfoSubagentEntry {
-  const inheritsSandbox = subagent.agent.config.inherit?.sandbox === true;
-  const inheritsConnections = subagent.agent.config.inherit?.connections === true;
+  const capabilities = projectSubagentCapabilities(subagent);
 
   return {
     ...toSource(subagent),
     description: subagent.description,
     entryPath: subagent.entryPath,
-    effective: {
-      connections: {
-        inherited: inheritsConnections,
-        owned: subagent.agent.connections.length,
-      },
-      sandbox: inheritsSandbox
-        ? "inherited"
-        : subagent.agent.sandbox === null && subagent.agent.sandboxWorkspaces.length === 0
-          ? "default"
-          : "owned",
-    },
-    inherit: {
-      connections: inheritsConnections,
-      sandbox: inheritsSandbox,
-    },
+    effective: capabilities.effective,
+    inherit: capabilities.inherit,
     name: subagent.name,
     nodeId: subagent.nodeId,
     rootPath: subagent.rootPath,

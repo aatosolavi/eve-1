@@ -40,6 +40,24 @@ export interface EnsureSandboxAccessInput {
 const sandboxSessionInitializationLocks = new Map<string, Promise<SandboxBackendHandle>>();
 
 /**
+ * Session keys whose `onSession` already completed successfully in this
+ * process. Kept for process lifetime (same as the in-flight lock map):
+ * locks are cleared when the init promise settles, so sequential
+ * inheriting children that start after the first finishes still need a
+ * durable "already initialized" signal when durable parent state has not
+ * been written back yet.
+ */
+const sandboxSessionInitializedKeys = new Set<string>();
+
+/**
+ * Clears process-lifetime sandbox init tracking. Test-only.
+ */
+export function clearSandboxSessionInitializationStateForTest(): void {
+  sandboxSessionInitializationLocks.clear();
+  sandboxSessionInitializedKeys.clear();
+}
+
+/**
  * Creates or reattaches the live sandbox from the compiled agent bundle's
  * registry and persisted session state, returning a {@link SandboxAccess}
  * suitable for the runtime context.
@@ -168,26 +186,34 @@ export async function ensureSandboxAccess(input: EnsureSandboxAccessInput): Prom
       return handle;
     }
 
-    if (initialized) {
-      return await openHandle();
-    }
-
     const lockKey = createSandboxSessionInitializationLockKey({
       appRoot,
       backendName: backend.name,
       sessionKey: keys.sessionKey,
     });
+
+    // Durable session state, or a prior successful init in this process
+    // (including a sibling that finished before this open started).
+    if (initialized || sandboxSessionInitializedKeys.has(lockKey)) {
+      initialized = true;
+      sandboxSessionInitializedKeys.add(lockKey);
+      return await openHandle();
+    }
+
     const existingLock = sandboxSessionInitializationLocks.get(lockKey);
     if (existingLock !== undefined) {
       const handle = await existingLock;
       initialized = true;
+      sandboxSessionInitializedKeys.add(lockKey);
       return handle;
     }
 
     const lock = openAndInitializeHandle();
     sandboxSessionInitializationLocks.set(lockKey, lock);
     try {
-      return await lock;
+      const handle = await lock;
+      sandboxSessionInitializedKeys.add(lockKey);
+      return handle;
     } finally {
       if (sandboxSessionInitializationLocks.get(lockKey) === lock) {
         sandboxSessionInitializationLocks.delete(lockKey);
