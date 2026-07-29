@@ -46,6 +46,13 @@ const sandboxSessionInitializationLocks = new Map<string, Promise<SandboxBackend
  * inheriting children that start after the first finishes still need a
  * durable "already initialized" signal when durable parent state has not
  * been written back yet.
+ *
+ * Growth bound: one entry per distinct backend/appRoot/sessionKey triple
+ * seen by this process. Entries are never pruned (no cheap session-end
+ * hook today). Long-lived multi-tenant hosts that mint many unique sandbox
+ * session keys will accumulate set entries for the process lifetime; that
+ * is intentional for correctness over the shared-init race and matches
+ * other process-scoped maps in this module.
  */
 const sandboxSessionInitializedKeys = new Set<string>();
 

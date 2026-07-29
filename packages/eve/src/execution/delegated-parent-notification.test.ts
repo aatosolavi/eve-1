@@ -214,4 +214,45 @@ describe("notifyDelegatedParentStep", () => {
       ],
     });
   });
+
+  it("addresses nested shared-sandbox backfill to the immediate parent, not the owner", async () => {
+    // Nested chain: root owns the sandbox; leaf's adapter keeps
+    // sandboxSessionId=root while parentSessionId=mid. The result must
+    // target mid so applyInheritedSandboxResults on mid accepts it.
+    const sandboxState = {
+      initialized: true,
+      session: {
+        backendName: "test-sandbox",
+        metadata: { workspace: "repo" },
+        sessionKey: "sandbox-session-key",
+      },
+    };
+
+    await notifyDelegatedParentStep({
+      result: createSuccessResult(),
+      serializedContext: createSerializedContext({
+        parentSessionId: "mid-session",
+        sandboxNodeId: "__root__",
+        sandboxSessionId: "root-session",
+      }),
+      sessionState: createSessionState({ sandboxState }),
+    });
+
+    expect(resumeHookMock).toHaveBeenCalledWith("parent-tok", {
+      kind: "runtime-action-result",
+      results: [
+        {
+          callId: "call-1",
+          inheritedSandbox: {
+            nodeId: "__root__",
+            sessionId: "mid-session",
+            state: sandboxState,
+          },
+          kind: "subagent-result",
+          output: "done",
+          subagentName: "research",
+        },
+      ],
+    });
+  });
 });

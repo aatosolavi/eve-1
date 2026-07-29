@@ -387,8 +387,11 @@ function applyInheritedSandboxResults(input: {
     }
 
     const inherited = result.inheritedSandbox;
-    // Shared sandboxes are owned by the parent session id. Ignore mismatched
-    // identities so a bad/stale child result cannot clobber parent state.
+    // inherited.sessionId is the intended recipient (immediate parent),
+    // set from adapter parentSessionId. Ignore results aimed at another
+    // session so a stale/mismatched child cannot clobber parent state.
+    // Nested chains still work: leaf→mid uses mid's sessionId even when
+    // sandboxSessionId remains the root owner.
     if (inherited.sessionId !== input.session.sessionId) {
       continue;
     }
@@ -403,9 +406,24 @@ function pickPreferredSandboxState(
   current: HarnessSession,
   candidate: NonNullable<HarnessSession["sandboxState"]>,
 ): HarnessSession {
+  const currentState = current.sandboxState;
+
   // Prefer an already-initialized capture over a later uninitialized one.
-  if (current.sandboxState?.initialized === true && candidate.initialized !== true) {
+  if (currentState?.initialized === true && candidate.initialized !== true) {
     return current;
+  }
+
+  // Do not wipe reattach metadata with a capture that has no session
+  // record (e.g. initialized:true + session:null). Keep the richer
+  // existing session when the candidate omits it.
+  if (candidate.session === null && currentState?.session != null) {
+    return {
+      ...current,
+      sandboxState: {
+        initialized: candidate.initialized || currentState.initialized,
+        session: currentState.session,
+      },
+    };
   }
 
   return {

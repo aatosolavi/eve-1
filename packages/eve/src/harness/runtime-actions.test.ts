@@ -296,6 +296,125 @@ describe("resolvePendingRuntimeActions", () => {
     expect(resolved.outcome).toBe("resolved");
     expect(resolved.session.sandboxState).toBeUndefined();
   });
+
+  it("accepts nested shared-sandbox backfill addressed to the mid-chain parent", async () => {
+    // Leaf kept sandboxSessionId=root owner, but inheritedSandbox.sessionId is
+    // the immediate parent (mid). Mid must accept and store the capture so it
+    // can later forward to root.
+    const midSession = setPendingRuntimeActionBatch({
+      actions: [
+        {
+          callId: "call-leaf",
+          description: "leaf worker",
+          input: { message: "work" },
+          kind: "subagent-call",
+          name: "worker",
+          nodeId: "subagents/researcher/subagents/worker",
+          subagentName: "worker",
+        },
+      ],
+      event: { sequence: 0, stepIndex: 0, turnId: "turn_0" },
+      responseMessages: [],
+      session: {
+        agent: { modelReference: { id: "test-model" }, system: "", tools: [] },
+        compaction: { recentWindowSize: 10, threshold: 100_000 },
+        continuationToken: "http:mid-session",
+        history: [{ content: "delegate", role: "user" }],
+        sessionId: "mid-session",
+      },
+    });
+
+    const leafCapture = {
+      initialized: true,
+      session: {
+        backendName: "test-sandbox",
+        metadata: { workspace: "repo" },
+        sessionKey: "sandbox-session-key",
+      },
+    };
+
+    const resolved = await resolvePendingRuntimeActions({
+      session: midSession,
+      stepInput: {
+        runtimeActionResults: [
+          {
+            callId: "call-leaf",
+            inheritedSandbox: {
+              nodeId: "__root__",
+              sessionId: "mid-session",
+              state: leafCapture,
+            },
+            kind: "subagent-result",
+            output: "done",
+            subagentName: "worker",
+          },
+        ],
+      },
+    });
+
+    expect(resolved.outcome).toBe("resolved");
+    expect(resolved.session.sandboxState).toEqual(leafCapture);
+  });
+
+  it("does not clobber reattach metadata with an initialized capture that has null session", async () => {
+    let session = createParkedSession();
+    session = {
+      ...session,
+      sandboxState: {
+        initialized: true,
+        session: {
+          backendName: "test-sandbox",
+          metadata: { workspace: "repo" },
+          sessionKey: "sandbox-session-key",
+        },
+      },
+    };
+    session = setPendingRuntimeActionBatch({
+      actions: [
+        {
+          callId: "call-1",
+          description: "research subagent",
+          input: { message: "go" },
+          kind: "subagent-call",
+          name: "researcher",
+          nodeId: "subagents/researcher",
+          subagentName: "researcher",
+        },
+      ],
+      event: { sequence: 0, stepIndex: 0, turnId: "turn_0" },
+      responseMessages: [],
+      session,
+    });
+
+    const resolved = await resolvePendingRuntimeActions({
+      session,
+      stepInput: {
+        runtimeActionResults: [
+          {
+            callId: "call-1",
+            inheritedSandbox: {
+              nodeId: "__root__",
+              sessionId: "test-session",
+              state: { initialized: true, session: null },
+            },
+            kind: "subagent-result",
+            output: "done",
+            subagentName: "researcher",
+          },
+        ],
+      },
+    });
+
+    expect(resolved.outcome).toBe("resolved");
+    expect(resolved.session.sandboxState).toEqual({
+      initialized: true,
+      session: {
+        backendName: "test-sandbox",
+        metadata: { workspace: "repo" },
+        sessionKey: "sandbox-session-key",
+      },
+    });
+  });
 });
 
 describe("pending subagent child adoption", () => {

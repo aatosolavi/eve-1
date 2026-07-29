@@ -89,9 +89,20 @@ async function readInheritedSandboxResult(input: {
   readonly adapterState: Readonly<Record<string, unknown>> | undefined;
   readonly sessionState: DurableSessionState;
 }): Promise<RuntimeInheritedSandboxResult | undefined> {
+  // Only children that share a sandbox carry sandboxSessionId. Isolation
+  // paths omit it and must not backfill parent sandbox state.
   const sandboxSessionId = readNonEmptyString(input.adapterState?.sandboxSessionId);
-
   if (sandboxSessionId === undefined) {
+    return undefined;
+  }
+
+  // sessionId is the *intended recipient* (immediate parent), not the
+  // sandbox owner. Nested inherit.sandbox chains keep sandboxSessionId as
+  // the root owner while parentSessionId points at the waiting parent;
+  // applyInheritedSandboxResults matches this against the receiving
+  // harness session id so mid-chain parents accept the backfill.
+  const parentSessionId = readNonEmptyString(input.adapterState?.parentSessionId);
+  if (parentSessionId === undefined) {
     return undefined;
   }
 
@@ -106,7 +117,7 @@ async function readInheritedSandboxResult(input: {
     sessionId: string;
     state: NonNullable<typeof session.sandboxState>;
   } = {
-    sessionId: sandboxSessionId,
+    sessionId: parentSessionId,
     state: session.sandboxState,
   };
   const sandboxNodeId = readNonEmptyString(input.adapterState?.sandboxNodeId);

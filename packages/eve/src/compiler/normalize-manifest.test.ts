@@ -286,6 +286,107 @@ describe("compileAgentManifest", () => {
       'Subagent "reviewer" inherits connection "github" but also defines a connection with that name.',
     );
   });
+
+  it("rejects nested subagents that collide with an effective inherited parent connection name", async () => {
+    // root owns github → mid inherits connections → leaf inherits and also
+    // defines github. Effective parent names for leaf include root's github.
+    const leafManifest = createAgentSourceManifest({
+      agentId: "leaf",
+      agentRoot: "/app/agent/subagents/mid/subagents/leaf",
+      appRoot: "/app",
+      configModule: createModuleSourceRef({
+        logicalPath: "agent.ts",
+      }),
+      connections: [
+        createConnectionSourceRef({
+          connectionName: "github",
+          logicalPath: "connections/github.ts",
+        }),
+      ],
+    });
+    const midManifest = createAgentSourceManifest({
+      agentId: "mid",
+      agentRoot: "/app/agent/subagents/mid",
+      appRoot: "/app",
+      configModule: createModuleSourceRef({
+        logicalPath: "agent.ts",
+      }),
+      subagents: [
+        createLocalSubagentSourceRef({
+          entryPath: "subagents/leaf/agent.ts",
+          logicalPath: "subagents/leaf",
+          manifest: leafManifest,
+          rootPath: "/app/agent/subagents/mid/subagents/leaf",
+          subagentId: "leaf",
+        }),
+      ],
+    });
+    const manifest = createAgentSourceManifest({
+      agentId: "root",
+      agentRoot: "/app/agent",
+      appRoot: "/app",
+      connections: [
+        createConnectionSourceRef({
+          connectionName: "github",
+          logicalPath: "connections/github.ts",
+        }),
+      ],
+      subagents: [
+        createLocalSubagentSourceRef({
+          entryPath: "subagents/mid/agent.ts",
+          logicalPath: "subagents/mid",
+          manifest: midManifest,
+          rootPath: "/app/agent/subagents/mid",
+          subagentId: "mid",
+        }),
+      ],
+    });
+
+    mocks.compileAgentConfig.mockImplementation(async (input: AgentSourceManifest) => {
+      if (input.agentId === "leaf") {
+        return createConfig({
+          description: "Leaf subagent",
+          inherit: { connections: true },
+          name: "leaf",
+        });
+      }
+      if (input.agentId === "mid") {
+        return createConfig({
+          description: "Mid subagent",
+          inherit: { connections: true },
+          name: "mid",
+        });
+      }
+      return createConfig({ name: "root" });
+    });
+    mocks.compileConnectionDefinition.mockImplementation(
+      async (_agentRoot: string, source: { readonly connectionName: string }) => ({
+        connectionName: source.connectionName,
+        description: `${source.connectionName} connection`,
+        logicalPath: `connections/${source.connectionName}.ts`,
+        protocol: "mcp",
+        sourceId: `connections/${source.connectionName}`,
+        sourceKind: "module",
+        url: "https://example.com",
+      }),
+    );
+    mocks.loadModuleBackedDefinition.mockImplementation(async (input: { kind: string }) => {
+      if (input.kind === "subagent config") {
+        return {
+          description: "Nested subagent",
+          model: "openai/gpt-5.5",
+        };
+      }
+      return {
+        description: "Nested subagent",
+        model: "openai/gpt-5.5",
+      };
+    });
+
+    await expect(compileAgentManifest(manifest)).rejects.toThrow(
+      'Subagent "leaf" inherits connection "github" but also defines a connection with that name.',
+    );
+  });
 });
 
 function createConfig(

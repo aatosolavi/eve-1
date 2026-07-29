@@ -140,9 +140,15 @@ export type RuntimeSubagentResultActionResult = z.infer<
  * Eve-internal inherited sandbox state carried from an inheriting child back
  * to its waiting parent. Runtime stream projections strip this before emitting
  * public `action.result` events.
+ *
+ * `sessionId` is the intended recipient (immediate parent harness session),
+ * not the sandbox owner. Nested `inherit.sandbox` chains keep the owner id on
+ * adapter `sandboxSessionId` / `nodeId` while addressing backfill to each hop
+ * via `parentSessionId`.
  */
 export interface RuntimeInheritedSandboxResult {
   readonly nodeId?: string;
+  /** Immediate parent harness session id that should apply this backfill. */
   readonly sessionId: string;
   readonly state: SandboxState;
 }

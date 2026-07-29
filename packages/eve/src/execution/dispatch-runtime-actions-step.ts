@@ -306,8 +306,10 @@ function createEffectiveSandboxSource(input: {
   readonly protectedDynamicSkillNames?: readonly string[];
   readonly session: HarnessSession;
 }): Extract<SubagentInputSource, { readonly type: "local" }>["effectiveSandbox"] {
-  const inheritedSandboxNodeId = input.adapterState?.sandboxNodeId;
-  const inheritedSandboxSessionId = input.adapterState?.sandboxSessionId;
+  // Match resolveSandboxRuntimeNode / readInheritedSandboxResult: empty
+  // strings are absent, not meaningful identities.
+  const inheritedSandboxNodeId = readNonEmptyString(input.adapterState?.sandboxNodeId);
+  const inheritedSandboxSessionId = readNonEmptyString(input.adapterState?.sandboxSessionId);
   const parentSandboxState = input.adapterState?.parentSandboxState as
     | HarnessSession["sandboxState"]
     | undefined;
@@ -317,12 +319,8 @@ function createEffectiveSandboxSource(input: {
     sandboxOwnerDynamicSkillNames?: readonly string[];
     sandboxSessionId: string;
   } = {
-    sandboxNodeId:
-      typeof inheritedSandboxNodeId === "string" ? inheritedSandboxNodeId : input.parentNodeId,
-    sandboxSessionId:
-      typeof inheritedSandboxSessionId === "string"
-        ? inheritedSandboxSessionId
-        : input.session.sessionId,
+    sandboxNodeId: inheritedSandboxNodeId ?? input.parentNodeId,
+    sandboxSessionId: inheritedSandboxSessionId ?? input.session.sessionId,
   };
 
   if (parentSandboxState !== undefined) {
@@ -337,6 +335,10 @@ function createEffectiveSandboxSource(input: {
   }
 
   return effectiveSandbox;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 function resolveCurrentDynamicSkillNames(

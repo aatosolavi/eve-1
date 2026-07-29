@@ -381,10 +381,15 @@ describe("ensureSandboxAccess", () => {
     const firstState = await first.captureState();
     expect(firstState).toMatchObject({ initialized: true });
     expect(onSession).toHaveBeenCalledTimes(1);
+    expect(backend.create).toHaveBeenCalledTimes(1);
+    const firstSessionKey = vi.mocked(backend.create).mock.calls[0]?.[0].sessionKey;
+    expect(typeof firstSessionKey).toBe("string");
 
     // Simulate an inheriting child that starts after the first open finished
     // but before durable parentSandboxState is available (state null /
     // initialized false). Process-lifetime tracking must still skip onSession.
+    // The second open still creates a backend handle (open vs init split);
+    // it must reuse the same sessionKey without re-running onSession.
     const second = await ensure({
       registry,
       runOnSession,
@@ -393,6 +398,8 @@ describe("ensureSandboxAccess", () => {
     await second.get();
 
     expect(onSession).toHaveBeenCalledTimes(1);
+    expect(backend.create).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(backend.create).mock.calls[1]?.[0].sessionKey).toBe(firstSessionKey);
     await expect(second.captureState()).resolves.toMatchObject({ initialized: true });
   });
 
