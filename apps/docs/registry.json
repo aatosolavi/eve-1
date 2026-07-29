@@ -8,9 +8,7 @@
       "type": "registry:item",
       "title": "agent-browser",
       "description": "Add browser automation tools backed by agent-browser to an eve agent.",
-      "dependencies": [
-        "@agent-browser/eve"
-      ],
+      "dependencies": ["@agent-browser/eve"],
       "files": [
         {
           "path": "registry/extensions/agent-browser.ts",
@@ -24,9 +22,7 @@
       "type": "registry:item",
       "title": "Browserbase",
       "description": "Search, fetch, and automate the web with Browserbase and Stagehand.",
-      "dependencies": [
-        "@browserbasehq/eve"
-      ],
+      "dependencies": ["@browserbasehq/eve"],
       "envVars": {
         "BROWSERBASE_API_KEY": ""
       },
@@ -43,10 +39,7 @@
       "type": "registry:item",
       "title": "GitHub Tools",
       "description": "Add scoped GitHub tools with Vercel Connect authentication and approval rules.",
-      "dependencies": [
-        "@github-tools/eve-extension",
-        "@vercel/connect"
-      ],
+      "dependencies": ["@github-tools/eve-extension", "@vercel/connect"],
       "envVars": {
         "GITHUB_TOKEN": ""
       },
@@ -63,9 +56,7 @@
       "type": "registry:item",
       "title": "Jetty",
       "description": "Grade agent turns, compare experiments, and store durable evaluation trajectories.",
-      "dependencies": [
-        "@jetty/eve"
-      ],
+      "dependencies": ["@jetty/eve"],
       "envVars": {
         "JETTY_API_TOKEN": "",
         "JETTY_COLLECTION": ""
@@ -83,9 +74,7 @@
       "type": "registry:item",
       "title": "KERNEL",
       "description": "Let your eve agent use the Internet with KERNEL browser infrastructure, observability, and stealth.",
-      "dependencies": [
-        "@onkernel/eve-extension"
-      ],
+      "dependencies": ["@onkernel/eve-extension"],
       "envVars": {
         "KERNEL_API_KEY": ""
       },
@@ -102,9 +91,7 @@
       "type": "registry:item",
       "title": "Upstash AgentKit",
       "description": "Add long-term memory, Redis Search, and durable chat history with Upstash Redis.",
-      "dependencies": [
-        "@upstash/agentkit-eve-extension"
-      ],
+      "dependencies": ["@upstash/agentkit-eve-extension"],
       "envVars": {
         "UPSTASH_REDIS_REST_URL": "",
         "UPSTASH_REDIS_REST_TOKEN": ""
@@ -138,9 +125,7 @@
       "type": "registry:item",
       "title": "Vercel",
       "description": "Manage Vercel projects, deployments, and logs through Vercel's MCP server.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/vercel.ts",
@@ -154,9 +139,7 @@
       "type": "registry:item",
       "title": "Linear",
       "description": "Issues, projects, cycles, and comments via Linear's MCP server.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/linear.ts",
@@ -170,9 +153,7 @@
       "type": "registry:item",
       "title": "Notion",
       "description": "Search and edit Notion pages and databases over MCP or OpenAPI.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/notion.ts",
@@ -186,9 +167,7 @@
       "type": "registry:item",
       "title": "Datadog",
       "description": "Query metrics, monitors, and logs through Datadog's MCP server.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/datadog.ts",
@@ -202,9 +181,7 @@
       "type": "registry:item",
       "title": "Honeycomb",
       "description": "Explore traces and run queries through Honeycomb's MCP server.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/honeycomb.ts",
@@ -218,9 +195,7 @@
       "type": "registry:item",
       "title": "Airtable",
       "description": "Bases, tables, and records through Airtable's MCP server.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/airtable.ts",
@@ -234,9 +209,7 @@
       "type": "registry:item",
       "title": "Bitly",
       "description": "Shorten links, generate QR Codes, and track performance.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/bitly.ts",
@@ -250,9 +223,7 @@
       "type": "registry:item",
       "title": "Brex",
       "description": "Expenses, cards, and cash through Brex's finance automation.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/brex.ts",
@@ -266,9 +237,7 @@
       "type": "registry:item",
       "title": "Candid",
       "description": "Research nonprofits and funders using Candid's data.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/candid.ts",
@@ -282,9 +251,7 @@
       "type": "registry:item",
       "title": "ClickHouse",
       "description": "Query and explore your ClickHouse Cloud data.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/clickhouse.ts",
@@ -298,9 +265,7 @@
       "type": "registry:item",
       "title": "Cloudinary",
       "description": "Manage, transform, and deliver your images and videos.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/cloudinary.ts",
@@ -314,9 +279,7 @@
       "type": "registry:item",
       "title": "Coda",
       "description": "Create, search, and update docs and tables.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/coda.ts",
@@ -330,9 +293,7 @@
       "type": "registry:item",
       "title": "Egnyte",
       "description": "Securely access and analyze Egnyte content.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/egnyte.ts",
@@ -346,9 +307,7 @@
       "type": "registry:item",
       "title": "Embat",
       "description": "Ask Embat about cash, debt, payments, and accounting.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/embat.ts",
@@ -362,9 +321,7 @@
       "type": "registry:item",
       "title": "Hugging Face",
       "description": "Access the Hugging Face Hub and thousands of Gradio apps.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/hugging-face.ts",
@@ -378,9 +335,7 @@
       "type": "registry:item",
       "title": "Local Falcon",
       "description": "AI visibility and local search intelligence.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/local-falcon.ts",
@@ -394,9 +349,7 @@
       "type": "registry:item",
       "title": "Make",
       "description": "Run Make scenarios and manage your Make account.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/make.ts",
@@ -410,9 +363,7 @@
       "type": "registry:item",
       "title": "Manufact",
       "description": "Deploy and monitor MCP servers with Manufact.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/manufact.ts",
@@ -426,9 +377,7 @@
       "type": "registry:item",
       "title": "Mem0",
       "description": "Persistent memory for AI agents and assistants.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/mem0.ts",
@@ -442,9 +391,7 @@
       "type": "registry:item",
       "title": "Miro",
       "description": "Access and create content on Miro boards.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/miro.ts",
@@ -458,9 +405,7 @@
       "type": "registry:item",
       "title": "Mixpanel",
       "description": "Analyze, query, and manage your Mixpanel data.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/mixpanel.ts",
@@ -474,9 +419,7 @@
       "type": "registry:item",
       "title": "Netlify",
       "description": "Create, deploy, manage, and secure websites on Netlify.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/netlify.ts",
@@ -490,9 +433,7 @@
       "type": "registry:item",
       "title": "O'Reilly",
       "description": "Discover O'Reilly's expert learning content.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/oreilly.ts",
@@ -506,9 +447,7 @@
       "type": "registry:item",
       "title": "PlanetScale",
       "description": "Authenticated access to your PlanetScale Postgres and MySQL databases.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/planetscale.ts",
@@ -522,9 +461,7 @@
       "type": "registry:item",
       "title": "PostHog",
       "description": "Query, analyze, and manage your PostHog insights.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/posthog.ts",
@@ -538,9 +475,7 @@
       "type": "registry:item",
       "title": "Postman",
       "description": "Give API context to your coding agents with Postman.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/postman.ts",
@@ -554,9 +489,7 @@
       "type": "registry:item",
       "title": "Razorpay",
       "description": "Razorpay payments, settlements, and dashboard data.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/razorpay.ts",
@@ -570,9 +503,7 @@
       "type": "registry:item",
       "title": "Sentry",
       "description": "Search, query, and debug errors intelligently.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/sentry.ts",
@@ -586,9 +517,7 @@
       "type": "registry:item",
       "title": "Similarweb",
       "description": "Real-time web, mobile app, and market data.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/similarweb.ts",
@@ -602,9 +531,7 @@
       "type": "registry:item",
       "title": "Stripe",
       "description": "Payment processing and financial infrastructure tools.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/stripe.ts",
@@ -618,9 +545,7 @@
       "type": "registry:item",
       "title": "Supabase",
       "description": "Manage databases, authentication, and storage.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/supabase.ts",
@@ -634,9 +559,7 @@
       "type": "registry:item",
       "title": "Ticket Tailor",
       "description": "Manage tickets, orders, and events with Ticket Tailor.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/ticket-tailor.ts",
@@ -650,9 +573,7 @@
       "type": "registry:item",
       "title": "TickTick",
       "description": "Search, create, and manage your tasks and habits in TickTick.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/ticktick.ts",
@@ -666,9 +587,7 @@
       "type": "registry:item",
       "title": "Todoist",
       "description": "Search, complete, and manage your tasks in Todoist.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/todoist.ts",
@@ -682,9 +601,7 @@
       "type": "registry:item",
       "title": "Webflow",
       "description": "Manage Webflow CMS, pages, assets, and sites.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/webflow.ts",
@@ -698,9 +615,7 @@
       "type": "registry:item",
       "title": "Wix",
       "description": "Manage and build sites and apps on Wix.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/wix.ts",
@@ -714,9 +629,7 @@
       "type": "registry:item",
       "title": "Zapier",
       "description": "Automate workflows across thousands of apps.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/zapier.ts",
@@ -730,9 +643,7 @@
       "type": "registry:item",
       "title": "Zomato",
       "description": "Online food ordering and delivery through Zomato.",
-      "dependencies": [
-        "@vercel/connect"
-      ],
+      "dependencies": ["@vercel/connect"],
       "files": [
         {
           "path": "registry/connections/zomato.ts",
@@ -750,18 +661,12 @@
         "eve": {
           "setup": {
             "command": "eve",
-            "args": [
-              "integration",
-              "setup",
-              "slack"
-            ]
+            "args": ["integration", "setup", "slack"]
           },
           "requires": ">=0.27.8"
         }
       },
-      "dependencies": [
-        "@vercel/connect@0.4.2"
-      ]
+      "dependencies": ["@vercel/connect@0.4.2"]
     },
     {
       "name": "channel/discord",
@@ -875,11 +780,7 @@
         "eve": {
           "setup": {
             "command": "eve",
-            "args": [
-              "integration",
-              "setup",
-              "web"
-            ]
+            "args": ["integration", "setup", "web"]
           },
           "requires": ">=0.27.8"
         }
@@ -1106,11 +1007,7 @@
       "type": "registry:item",
       "title": "Google Chat",
       "description": "Google Chat spaces and DMs via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@chat-adapter/gchat",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@chat-adapter/gchat", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-gchat.ts",
@@ -1127,11 +1024,7 @@
       "type": "registry:item",
       "title": "WhatsApp",
       "description": "Customer messaging through WhatsApp Business Cloud via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@chat-adapter/whatsapp",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@chat-adapter/whatsapp", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-whatsapp.ts",
@@ -1151,11 +1044,7 @@
       "type": "registry:item",
       "title": "X",
       "description": "Public mentions and DMs on X via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@chat-adapter/x",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@chat-adapter/x", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-x.ts",
@@ -1173,11 +1062,7 @@
       "type": "registry:item",
       "title": "Messenger",
       "description": "Facebook Messenger bots with templates, buttons, and reactions via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@chat-adapter/messenger",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@chat-adapter/messenger", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-messenger.ts",
@@ -1196,11 +1081,7 @@
       "type": "registry:item",
       "title": "Zernio",
       "description": "Reach seven social and messaging platforms through one Zernio integration.",
-      "dependencies": [
-        "chat",
-        "@zernio/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@zernio/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "ZERNIO_API_KEY": "",
         "ZERNIO_WEBHOOK_SECRET": ""
@@ -1218,11 +1099,7 @@
       "type": "registry:item",
       "title": "Velt",
       "description": "Add agents to anchored comments across documents, canvases, PDFs, and video.",
-      "dependencies": [
-        "chat",
-        "@veltdev/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@veltdev/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "VELT_API_KEY": "",
         "VELT_WEBHOOK_SECRET": ""
@@ -1240,11 +1117,7 @@
       "type": "registry:item",
       "title": "Sendblue",
       "description": "Send and receive iMessage, SMS, and RCS through Sendblue.",
-      "dependencies": [
-        "chat",
-        "chat-adapter-sendblue",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "chat-adapter-sendblue", "@chat-adapter/state-memory"],
       "envVars": {
         "SENDBLUE_API_KEY": "",
         "SENDBLUE_API_SECRET": "",
@@ -1263,11 +1136,7 @@
       "type": "registry:item",
       "title": "Novu",
       "description": "Reach Slack, Teams, WhatsApp, Telegram, and email through Novu.",
-      "dependencies": [
-        "chat",
-        "@novu/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@novu/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-novu.ts",
@@ -1285,11 +1154,7 @@
       "type": "registry:item",
       "title": "Liveblocks",
       "description": "Bring your agent into Liveblocks comment threads, mentions, and reactions.",
-      "dependencies": [
-        "chat",
-        "@liveblocks/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@liveblocks/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "LIVEBLOCKS_SECRET_KEY": "",
         "LIVEBLOCKS_WEBHOOK_SECRET": ""
@@ -1307,11 +1172,7 @@
       "type": "registry:item",
       "title": "Linq",
       "description": "iMessage and SMS conversations, media, and tapbacks through Linq.",
-      "dependencies": [
-        "chat",
-        "@linqapp/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@linqapp/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "LINQ_API_KEY": "",
         "LINQ_WEBHOOK_SECRET": ""
@@ -1329,11 +1190,7 @@
       "type": "registry:item",
       "title": "Kapso",
       "description": "Managed WhatsApp conversations, media, buttons, and history through Kapso.",
-      "dependencies": [
-        "chat",
-        "@kapso/chat-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@kapso/chat-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "KAPSO_API_KEY": "",
         "KAPSO_PHONE_NUMBER_ID": "",
@@ -1352,11 +1209,7 @@
       "type": "registry:item",
       "title": "Photon",
       "description": "Cloud, self-hosted, and local iMessage messaging through Photon.",
-      "dependencies": [
-        "chat",
-        "@photon-ai/chat-adapter-imessage",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@photon-ai/chat-adapter-imessage", "@chat-adapter/state-memory"],
       "envVars": {
         "IMESSAGE_PROJECT_ID": "",
         "IMESSAGE_PROJECT_SECRET": ""
@@ -1374,11 +1227,7 @@
       "type": "registry:item",
       "title": "Dial",
       "description": "Give your agent a phone number for SMS, MMS, iMessage, and voice transcripts.",
-      "dependencies": [
-        "chat",
-        "@getdial/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@getdial/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "DIAL_API_KEY": "",
         "DIAL_FROM_NUMBER_ID": "",
@@ -1397,11 +1246,7 @@
       "type": "registry:item",
       "title": "AgentPhone",
       "description": "SMS, MMS, iMessage, and voice conversations through AgentPhone.",
-      "dependencies": [
-        "chat",
-        "@agentphone/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@agentphone/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "AGENTPHONE_API_KEY": "",
         "AGENTPHONE_AGENT_ID": "",
@@ -1420,11 +1265,7 @@
       "type": "registry:item",
       "title": "Lark / Feishu",
       "description": "Lark and Feishu chats with native card streaming via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@larksuite/vercel-chat-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@larksuite/vercel-chat-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "LARK_APP_ID": "",
         "LARK_APP_SECRET": ""
@@ -1442,11 +1283,7 @@
       "type": "registry:item",
       "title": "Beeper",
       "description": "Matrix rooms and bridged messaging networks through Beeper.",
-      "dependencies": [
-        "chat",
-        "@beeper/chat-adapter-matrix",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@beeper/chat-adapter-matrix", "@chat-adapter/state-memory"],
       "files": [
         {
           "path": "registry/channels/chat-sdk-beeper.ts",
@@ -1464,11 +1301,7 @@
       "type": "registry:item",
       "title": "Resend",
       "description": "Send and receive threaded email through Resend via the Chat SDK.",
-      "dependencies": [
-        "chat",
-        "@resend/chat-sdk-adapter",
-        "@chat-adapter/state-memory"
-      ],
+      "dependencies": ["chat", "@resend/chat-sdk-adapter", "@chat-adapter/state-memory"],
       "envVars": {
         "RESEND_API_KEY": "",
         "RESEND_WEBHOOK_SECRET": "",
@@ -1486,11 +1319,8 @@
       "name": "instrumentation/braintrust",
       "type": "registry:item",
       "title": "Braintrust",
-      "description": "Export AI SDK spans to Braintrust for tracing, evals, and monitoring.",
-      "dependencies": [
-        "@braintrust/otel",
-        "@vercel/otel"
-      ],
+      "description": "Trace eve agent sessions in Braintrust, including turns, steps, tool calls, and subagent interactions.",
+      "dependencies": ["braintrust"],
       "envVars": {
         "BRAINTRUST_API_KEY": ""
       },
@@ -1499,6 +1329,11 @@
           "path": "registry/instrumentation/braintrust.ts",
           "type": "registry:file",
           "target": "agent/instrumentation.ts"
+        },
+        {
+          "path": "registry/instrumentation/braintrust-hook.ts",
+          "type": "registry:file",
+          "target": "agent/hooks/braintrust.ts"
         }
       ]
     },
@@ -1507,9 +1342,7 @@
       "type": "registry:item",
       "title": "Sentry",
       "description": "Send agent traces to Sentry's OTLP endpoint for tracing and debugging.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "envVars": {
         "SENTRY_OTLP_TRACES_ENDPOINT": "",
         "SENTRY_PUBLIC_KEY": ""
@@ -1527,9 +1360,7 @@
       "type": "registry:item",
       "title": "Datadog",
       "description": "Export agent traces to Datadog APM alongside the rest of your stack.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "envVars": {
         "DATADOG_OTLP_TRACES_ENDPOINT": "",
         "DD_API_KEY": ""
@@ -1547,9 +1378,7 @@
       "type": "registry:item",
       "title": "Honeycomb",
       "description": "Send OpenTelemetry traces to Honeycomb and query every agent turn.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "envVars": {
         "HONEYCOMB_API_KEY": ""
       },
@@ -1566,9 +1395,7 @@
       "type": "registry:item",
       "title": "Arize",
       "description": "Export traces to Arize AX for LLM observability and evaluation.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "envVars": {
         "ARIZE_SPACE_ID": "",
         "ARIZE_API_KEY": ""
@@ -1586,9 +1413,7 @@
       "type": "registry:item",
       "title": "Raindrop",
       "description": "Send agent traces to Raindrop to detect and debug AI product issues.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "envVars": {
         "RAINDROP_WRITE_KEY": ""
       },
@@ -1605,9 +1430,7 @@
       "type": "registry:item",
       "title": "Jaeger",
       "description": "Trace your agent with a local or self-hosted Jaeger OTLP backend.",
-      "dependencies": [
-        "@vercel/otel"
-      ],
+      "dependencies": ["@vercel/otel"],
       "files": [
         {
           "path": "registry/instrumentation/jaeger.ts",
