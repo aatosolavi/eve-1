@@ -26,7 +26,7 @@ import type { HarnessSession } from "#harness/types.js";
 import {
   createSubagentCalledEvent,
   encodeMessageStreamEvent,
-  timestampHandleMessageStreamEvent,
+  stampMessageStreamEvent,
 } from "#protocol/message.js";
 import type {
   RuntimeActionRequest,
@@ -286,7 +286,7 @@ export async function dispatchRuntimeActionsStep(input: {
         }),
         adapterCtx,
       );
-      await writer.write(encodeMessageStreamEvent(timestampHandleMessageStreamEvent(parentEvent)));
+      await writer.write(encodeMessageStreamEvent(stampMessageStreamEvent(parentEvent)));
     }
   } finally {
     writer.releaseLock();

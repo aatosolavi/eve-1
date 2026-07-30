@@ -6,9 +6,11 @@ import {
   MessageResponse,
   type AgentInfoResult,
   type ClientSession,
-  type HandleMessageStreamEvent,
+  type MessageStreamEvent,
 } from "#client/index.js";
+import { stampTestEvent } from "#internal/testing/events.js";
 import { resolveTestVercelTarget } from "#internal/testing/verified-vercel-target.js";
+import type { UnstampedMessageStreamEvent } from "#protocol/message.js";
 import { createDevelopmentCredentialGate } from "#services/dev-client/credential-gate.js";
 import type { VercelDeploymentResolution } from "#setup/vercel-deployment.js";
 
@@ -54,15 +56,26 @@ function stubSession(): ClientSession {
   return stubClient().session();
 }
 
-/** Wraps literal stream events in a real `MessageResponse`. */
+/**
+ * Wraps literal stream events in a real `MessageResponse`. Each literal is
+ * stamped as its own emission; pass the same stamped event twice to model a
+ * re-delivery.
+ */
 function messageResponseOf(events: readonly unknown[]): MessageResponse {
+  const stamped = events.map((event, index) =>
+    isStamped(event) ? event : stampTestEvent(event as UnstampedMessageStreamEvent, index),
+  );
   return new MessageResponse({
     continuationToken: "eve:test",
     createStream: async function* () {
-      for (const event of events) yield event as HandleMessageStreamEvent;
+      for (const event of stamped) yield event;
     },
     sessionId: "session_test",
   });
+}
+
+function isStamped(event: unknown): event is MessageStreamEvent {
+  return typeof (event as MessageStreamEvent).meta?.id === "string";
 }
 
 const AGENT_INFO: AgentInfoResult = {
@@ -558,7 +571,15 @@ describe("EveTUIRunner development session continuity", () => {
             start(controller) {
               controller.enqueue(
                 encoder.encode(
-                  '{"type":"session.waiting","data":{"continuationToken":"token-session-1","wait":"next-user-message"}}\n',
+                  `${JSON.stringify(
+                    stampTestEvent({
+                      type: "session.waiting",
+                      data: {
+                        continuationToken: "token-session-1",
+                        wait: "next-user-message",
+                      },
+                    } as UnstampedMessageStreamEvent),
+                  )}\n`,
                 ),
               );
               controller.close();
@@ -903,6 +924,7 @@ describe("EveTUIRunner native continuation state", () => {
                   toolName: "get_weather",
                 },
                 display: "confirmation",
+                kind: "tool-approval",
                 options: [
                   { id: "approve", label: "Approve" },
                   { id: "deny", label: "Deny" },
@@ -945,6 +967,82 @@ describe("EveTUIRunner native continuation state", () => {
       signal: expect.any(AbortSignal),
     });
   });
+
+  it.each([{ chosenOptionId: "continue" }, { chosenOptionId: "stop" }])(
+    "renders a session-limit continuation as a question and submits $chosenOptionId",
+    async ({ chosenOptionId }) => {
+      const prompts: Array<string | undefined> = ["keep going", undefined];
+      const session = sessionYieldingTurns([
+        [
+          {
+            type: "input.requested",
+            data: {
+              requests: [
+                {
+                  action: {
+                    callId: "wrun_1:limit:input:19093",
+                    input: { kind: "input", limit: 10_000, usedTokens: 19_093 },
+                    kind: "tool-call",
+                    toolName: "session_limit_continuation",
+                  },
+                  allowFreeform: false,
+                  display: "confirmation",
+                  kind: "session-limit",
+                  options: [
+                    { id: "continue", label: "Approve" },
+                    { id: "stop", label: "Stop" },
+                  ],
+                  prompt: "This session has hit the input-token limit (10K) per session.",
+                  requestId: "wrun_1:limit:input:19093",
+                },
+              ],
+            },
+          },
+          { type: "session.waiting", data: { wait: "next-user-message" } },
+        ],
+        [{ type: "session.waiting", data: { wait: "next-user-message" } }],
+      ]);
+      const readToolApproval = vi.fn(async () => ({ approved: true }));
+      const readInputQuestion = vi.fn(async () => ({ optionId: chosenOptionId }));
+      const renderer: AgentTUIRenderer = {
+        readPrompt: vi.fn(async () => prompts.shift()),
+        readToolApproval,
+        readInputQuestion,
+        renderStream: vi.fn(async (result) => {
+          for await (const event of result.events as AsyncIterable<unknown>) {
+            void event;
+          }
+        }),
+      };
+
+      const runner = new EveTUIRunner({
+        session,
+        renderer,
+        name: "Limit Agent",
+      });
+
+      await runner.run();
+
+      // Renders in the question pane with the prompt copy and labeled
+      // options — never through the y/n tool-approval flow.
+      expect(readToolApproval).not.toHaveBeenCalled();
+      expect(readInputQuestion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          display: "select",
+          prompt: "This session has hit the input-token limit (10K) per session.",
+          options: [
+            expect.objectContaining({ id: "continue", label: "Approve" }),
+            expect.objectContaining({ id: "stop", label: "Stop" }),
+          ],
+        }),
+        expect.anything(),
+      );
+      expect(session.send).toHaveBeenNthCalledWith(2, {
+        inputResponses: [{ requestId: "wrun_1:limit:input:19093", optionId: chosenOptionId }],
+        signal: expect.any(AbortSignal),
+      });
+    },
+  );
 });
 
 describe("EveTUIRunner connection authorization", () => {
@@ -965,14 +1063,14 @@ describe("EveTUIRunner connection authorization", () => {
       { type: "session.waiting", data: { wait: "connection-authorization" } },
     ]);
     vi.spyOn(session, "stream").mockImplementation(async function* () {
-      yield {
+      yield stampTestEvent({
         type: "authorization.completed",
         data: { name: "linear", outcome: "authorized" },
-      } as HandleMessageStreamEvent;
-      yield {
+      } as UnstampedMessageStreamEvent);
+      yield stampTestEvent({
         type: "session.waiting",
         data: { wait: "next-user-message" },
-      } as HandleMessageStreamEvent;
+      } as UnstampedMessageStreamEvent);
     });
     const renderer: AgentTUIRenderer = {
       readPrompt: vi.fn(async () => prompts.shift()),
@@ -1159,6 +1257,57 @@ describe("EveTUIRunner reused step indexes", () => {
 });
 
 describe("EveTUIRunner replay guards", () => {
+  it("renders a re-delivered chunk once even after the next step reuses its key", async () => {
+    // Coordinates alone cannot tell a re-delivered chunk apart from a fresh
+    // model call reusing `stepIndex`; only the id can.
+    const appended = stampTestEvent(
+      {
+        type: "message.appended",
+        data: {
+          messageDelta: "Sunny.",
+          messageSoFar: "Sunny.",
+          sequence: 0,
+          stepIndex: 0,
+          turnId: "turn_0",
+        },
+      } as UnstampedMessageStreamEvent,
+      1,
+    );
+    const prompts: Array<string | undefined> = ["weather", undefined];
+    const emitted: AgentTUIStreamEvent[] = [];
+    const session = sessionYielding([
+      { type: "step.started", data: { sequence: 0, stepIndex: 0, turnId: "turn_0" } },
+      appended,
+      {
+        type: "message.completed",
+        data: {
+          finishReason: "stop",
+          message: "Sunny.",
+          sequence: 0,
+          stepIndex: 0,
+          turnId: "turn_0",
+        },
+      },
+      { type: "step.started", data: { sequence: 1, stepIndex: 0, turnId: "turn_0" } },
+      appended,
+      { type: "session.waiting", data: { wait: "next-user-message" } },
+    ]);
+    const renderer: AgentTUIRenderer = {
+      readPrompt: vi.fn(async () => prompts.shift()),
+      renderStream: vi.fn(async (result) => {
+        for await (const event of result.events as AsyncIterable<AgentTUIStreamEvent>) {
+          emitted.push(event);
+        }
+      }),
+    };
+
+    const runner = new EveTUIRunner({ session, renderer, name: "Weather Agent" });
+    await runner.run();
+
+    const deltas = emitted.filter((event) => event.type === "assistant-delta");
+    expect(deltas).toEqual([{ type: "assistant-delta", id: "text:turn_0:0", delta: "Sunny." }]);
+  });
+
   it("deduplicates repeated call IDs and divergent text attempts in one turn", async () => {
     const prompts: Array<string | undefined> = ["weather", undefined];
     const emitted: AgentTUIStreamEvent[] = [];
@@ -1907,20 +2056,26 @@ describe("EveTUIRunner renderer teardown", () => {
     vi.spyOn(client, "session").mockReturnValue(childSession);
     vi.spyOn(childSession, "stream").mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
-        yield {
-          type: "message.completed",
-          data: {
-            finishReason: "stop",
-            message: "final answer",
-            sequence: 0,
-            stepIndex: 0,
-            turnId: "turn-child",
-          },
-        } as HandleMessageStreamEvent;
-        yield {
-          type: "session.waiting",
-          data: { wait: "next-user-message" },
-        } as HandleMessageStreamEvent;
+        yield stampTestEvent(
+          {
+            type: "message.completed",
+            data: {
+              finishReason: "stop",
+              message: "final answer",
+              sequence: 0,
+              stepIndex: 0,
+              turnId: "turn-child",
+            },
+          } as UnstampedMessageStreamEvent,
+          0,
+        );
+        yield stampTestEvent(
+          {
+            type: "session.waiting",
+            data: { wait: "next-user-message" },
+          } as UnstampedMessageStreamEvent,
+          1,
+        );
       },
     }));
 
@@ -1997,10 +2152,13 @@ describe("EveTUIRunner renderer teardown", () => {
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
-          yield {
-            type: "session.waiting",
-            data: { wait: "next-user-message" },
-          } as HandleMessageStreamEvent;
+          yield stampTestEvent(
+            {
+              type: "session.waiting",
+              data: { wait: "next-user-message" },
+            } as UnstampedMessageStreamEvent,
+            1,
+          );
         },
       };
     });
@@ -2829,12 +2987,24 @@ describe("EveTUIRunner mid-turn message queue", () => {
         new MessageResponse({
           continuationToken: "eve:test",
           createStream: async function* () {
-            yield { type: "turn.started", data: { turnId: "turn-1", sequence: 1 } } as never;
+            yield stampTestEvent(
+              {
+                type: "turn.started",
+                data: { turnId: "turn-1", sequence: 1 },
+              } as UnstampedMessageStreamEvent,
+              0,
+            );
             // Hold the stream mid-turn until the retry loop has proven both
             // attempts, then settle the turn as cancelled.
             await gate.promise;
-            yield { type: "turn.cancelled", data: { turnId: "turn-1", sequence: 2 } } as never;
-            yield { type: "session.waiting" } as never;
+            yield stampTestEvent(
+              {
+                type: "turn.cancelled",
+                data: { turnId: "turn-1", sequence: 2 },
+              } as UnstampedMessageStreamEvent,
+              1,
+            );
+            yield stampTestEvent({ type: "session.waiting" } as UnstampedMessageStreamEvent, 2);
           },
           sessionId: "session_test",
         }),

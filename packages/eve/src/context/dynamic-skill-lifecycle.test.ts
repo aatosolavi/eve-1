@@ -14,7 +14,7 @@ import {
   SessionIdKey,
 } from "#context/keys.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { UnstampedMessageStreamEvent } from "#protocol/message.js";
 import { defineSkill } from "#public/definitions/skill.js";
 import { BundleKey, type CompiledBundle } from "#runtime/sessions/runtime-context-keys.js";
 import type { ResolvedDynamicSkillResolver } from "#runtime/types.js";
@@ -76,8 +76,8 @@ function createResolver(
   };
 }
 
-function makeEvent(): HandleMessageStreamEvent {
-  return { type: "session.started", data: {} } as HandleMessageStreamEvent;
+function makeEvent(): UnstampedMessageStreamEvent {
+  return { type: "session.started", data: {} } as UnstampedMessageStreamEvent;
 }
 
 function makeSkill(description: string, markdown = description): SkillPackageDefinition {

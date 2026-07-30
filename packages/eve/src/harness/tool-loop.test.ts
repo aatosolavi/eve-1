@@ -26,7 +26,7 @@ import {
 import { SCHEDULE_APP_AUTH } from "#channel/schedule-auth.js";
 import { decodeSandboxRef, isSandboxRefUrl } from "#internal/attachments/sandbox-refs.js";
 import { mockSandbox } from "#internal/testing/mocks/mock-sandbox.js";
-import type { HandleMessageStreamEvent } from "#protocol/message.js";
+import type { UnstampedMessageStreamEvent } from "#protocol/message.js";
 import type { InstrumentationStepStartedEventInput } from "#public/instrumentation/index.js";
 import type { RunMode } from "#shared/run-mode.js";
 import { compactMessages, shouldCompact } from "#harness/compaction.js";
@@ -197,16 +197,16 @@ function setDelegatedParent(ctx: ContextContainer): void {
 
 function createEventCollector(): {
   emit: HarnessEmitFn;
-  events: HandleMessageStreamEvent[];
+  events: UnstampedMessageStreamEvent[];
 } {
-  const events: HandleMessageStreamEvent[] = [];
+  const events: UnstampedMessageStreamEvent[] = [];
   const emit: HarnessEmitFn = async (event) => {
     events.push(event);
   };
   return { emit, events };
 }
 
-function getCompatibilityEventTypes(events: readonly HandleMessageStreamEvent[]): string[] {
+function getCompatibilityEventTypes(events: readonly UnstampedMessageStreamEvent[]): string[] {
   return events
     .filter((event) => event.type !== "message.appended" && event.type !== "reasoning.appended")
     .map((event) => event.type);
@@ -441,6 +441,7 @@ function createPendingBashApprovalSession(): HarnessSession {
         },
         allowFreeform: false,
         display: "confirmation",
+        kind: "tool-approval",
         options: [
           { id: "approve", label: "Yes" },
           { id: "deny", label: "No" },
@@ -491,6 +492,7 @@ function createPendingProtectedActionApprovalSession(): HarnessSession {
         },
         allowFreeform: false,
         display: "confirmation",
+        kind: "tool-approval",
         options: [
           { id: "approve", label: "Yes" },
           { id: "deny", label: "No" },
@@ -1222,6 +1224,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: false,
           display: "confirmation",
+          kind: "session-limit",
           options: [
             { id: "continue", label: "Approve", style: "primary" },
             { id: "stop", label: "Stop", style: "danger" },
@@ -1322,7 +1325,33 @@ describe("createToolLoopHarness", () => {
     expect(events.some((event) => event.type.endsWith(".failed"))).toBe(false);
   });
 
-  it("re-raises the limit prompt when the user replies without answering it", async () => {
+  it("fails a zero-budget task instead of raising a continuation that cannot grant tokens", async () => {
+    const { emit, events } = createEventCollector();
+    const runStep = createToolLoopHarness(
+      createTestConfig("task", emit, { capabilities: { requestInput: true } }),
+    );
+    const session = createTestSession({ limits: { maxInputTokensPerSession: 0 } });
+
+    const result = await runStep(session, { message: "Hi again" });
+
+    expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
+    expect(result.next).toEqual({
+      done: true,
+      isError: true,
+      output: "The session reached its configured input token limit.",
+    });
+    expect(events.some((event) => event.type === "input.requested")).toBe(false);
+  });
+
+  it("keeps one limit prompt pending when the user replies without answering it", async () => {
+    setupMockAgent({
+      finishReason: "stop",
+      response: { messages: [{ content: "Hello!", role: "assistant" }] },
+      text: "Hello!",
+      toolCalls: [],
+      toolResults: [],
+      usage: { inputTokens: 7, outputTokens: 3 },
+    });
     const { emit, events } = createEventCollector();
     const runStep = createToolLoopHarness(createTestConfig("conversation", emit));
 
@@ -1331,7 +1360,17 @@ describe("createToolLoopHarness", () => {
 
     expect(vi.mocked(ToolLoopAgent)).not.toHaveBeenCalled();
     expect(reparked.next).toBeNull();
-    expect(events.filter((event) => event.type === "input.requested")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "input.requested")).toHaveLength(1);
+
+    const resumed = await runStep(reparked.session, {
+      inputResponses: [{ optionId: "continue", requestId: LIMIT_REQUEST_ID }],
+    });
+
+    expect(vi.mocked(ToolLoopAgent)).toHaveBeenCalledTimes(1);
+    expect(resumed.session.history).toContainEqual({
+      content: "also do this other thing",
+      role: "user",
+    });
   });
 
   it("preserves approval gates on step-scoped dynamic tools", async () => {
@@ -2296,6 +2335,7 @@ describe("createToolLoopHarness", () => {
             },
             allowFreeform: false,
             display: "confirmation",
+            kind: "tool-approval",
             options: [
               { id: "approve", label: "Yes" },
               { id: "deny", label: "No" },
@@ -6481,6 +6521,7 @@ describe("createToolLoopHarness", () => {
             },
             allowFreeform: false,
             display: "confirmation",
+            kind: "tool-approval",
             options: [
               { id: "approve", label: "Yes" },
               { id: "deny", label: "No" },
@@ -6668,6 +6709,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: false,
           display: "confirmation",
+          kind: "tool-approval",
           options: [
             { id: "approve", label: "Yes" },
             { id: "deny", label: "No" },
@@ -6832,6 +6874,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: false,
           display: "confirmation",
+          kind: "tool-approval",
           options: [
             { id: "approve", label: "Yes" },
             { id: "deny", label: "No" },
@@ -7079,6 +7122,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: false,
           display: "confirmation",
+          kind: "tool-approval",
           options: [
             { id: "approve", label: "Yes" },
             { id: "deny", label: "No" },
@@ -7233,6 +7277,7 @@ describe("createToolLoopHarness", () => {
               toolName: "ask_question",
             },
             display: "select",
+            kind: "question",
             options: [{ id: "one", label: "One" }],
             prompt: "Choose one.",
             requestId: "question-1",
@@ -7323,6 +7368,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: true,
           display: "select",
+          kind: "question",
           options: questionInput.options,
           prompt: questionInput.prompt,
           requestId: "question-1",
@@ -7409,6 +7455,7 @@ describe("createToolLoopHarness", () => {
           },
           allowFreeform: true,
           display: "select",
+          kind: "question",
           options: questionInput.options,
           prompt: questionInput.prompt,
           requestId: "question-1",
@@ -9004,7 +9051,7 @@ describe("createToolLoopHarness", () => {
       });
 
       const order: string[] = [];
-      const events: HandleMessageStreamEvent[] = [];
+      const events: UnstampedMessageStreamEvent[] = [];
       const emit: HarnessEmitFn = async (event) => {
         order.push(event.type);
         events.push(event);

@@ -1,6 +1,6 @@
 import type { ModelMessage, ToolSet, TypedToolCall } from "ai";
 
-import { createActionResultEvent, type HandleMessageStreamEvent } from "#protocol/message.js";
+import { createActionResultEvent, type UnstampedMessageStreamEvent } from "#protocol/message.js";
 import { getRuntimeActionRequestKey, getRuntimeActionResultKey } from "#runtime/actions/keys.js";
 import type {
   RuntimeActionRequest,
@@ -272,7 +272,7 @@ export async function resolvePendingRuntimeActions(input: {
             subagentName: result.subagentName,
           },
           type: "subagent.completed",
-        } satisfies Extract<HandleMessageStreamEvent, { type: "subagent.completed" }>);
+        } satisfies Extract<UnstampedMessageStreamEvent, { type: "subagent.completed" }>);
       }
 
       await input.emit(

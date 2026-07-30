@@ -17,8 +17,8 @@ The `eve` binary (`bin: eve`) runs from your app root, and every command first l
 | `eve dev <url>`               | Connect the UI to an existing server URL (e.g. a remote deployment) instead of booting a local server                                                 |
 | `eve logs [logid]`            | Print an `eve dev` diagnostic log (the most recent when `logid` is omitted)                                                                           |
 | `eve logs ls`                 | List `eve dev` diagnostic logs, most recent first                                                                                                     |
-| `eve trace ls`                | List locally captured agent traces, most recent first                                                                                                 |
-| `eve trace [trace]`           | Show a local span tree (the most recent when omitted)                                                                                                 |
+| `eve traces ls`               | List locally captured agent traces, most recent first                                                                                                 |
+| `eve traces [trace]`          | Show a local span tree (the most recent when omitted)                                                                                                 |
 | `eve link`                    | Link the directory to a Vercel project and pull AI Gateway credentials                                                                                |
 | `eve deploy`                  | Deploy the agent to Vercel production (links first if needed)                                                                                         |
 | `eve eval`                    | Run evals against the local app or a remote target                                                                                                    |
@@ -87,6 +87,7 @@ Commands for installing and discovering [shadcn registry](https://ui.shadcn.com/
 
 ```bash
 eve add extension/agent-browser
+eve add channel/slack --skip-install
 eve add https://example.com/r/my-extension.json --overwrite
 eve registry add @acme=https://example.com/r/{name}.json
 eve registry search browser
@@ -94,6 +95,8 @@ eve registry search browser --registry @acme
 eve registry view @acme/my-extension
 eve add @acme/my-extension
 ```
+
+`eve add` asks before running setup declared by an official item and prints the matching `eve add <item> --skip-install` command when setup is skipped or cancelled. `--skip-install` reruns setup without reinstalling the item.
 
 `eve registry add` records configured sources in `package.json#registries`. `eve registry list` and `search` aggregate the official catalog and all configured sources by default, or browse one supplied URL or namespace. Official and other universal items with explicit file targets do not require shadcn project configuration.
 
@@ -241,16 +244,16 @@ A log id is the file name without `.log` (for example `dev-2026-07-15T12-00-00.0
 
 Each log has a same-named `.dump` sibling holding environment diagnostics and session stats as one JSON document. `eve logs --dump` (with or without a log id) prepends that document to the JSONL log body; the combined output is a valid JSON value stream (`eve logs --dump | jq -c .`), one self-contained report to attach to an issue. When a log has no dump, the flag is silently a no-op.
 
-## `eve trace`
+## `eve traces`
 
 ```bash
-eve trace ls              # list traces, most recent first
-eve trace ls --json       # emit machine-readable trace summaries
-eve trace                 # show the most recent span tree
-eve trace <trace>         # show one span tree
+eve traces ls              # list traces, most recent first
+eve traces ls --json       # emit machine-readable trace summaries
+eve traces                 # show the most recent span tree
+eve traces <trace>         # show one span tree
 ```
 
-`eve trace ls` reads the immutable OTLP/JSON segments captured under `.eve/traces/v1`; `eve dev` does not need to be running. `eve trace` accepts a full trace id, an `agent.session.id`, or an unambiguous prefix of either. Malformed or incomplete segments are skipped without hiding valid spans from the same trace.
+`eve traces ls` reads the immutable OTLP/JSON segments captured under `.eve/traces/v1`; `eve dev` does not need to be running. `eve traces` accepts a full trace id, an `agent.session.id`, or an unambiguous prefix of either. Malformed or incomplete segments are skipped without hiding valid spans from the same trace.
 
 ## `eve link`
 

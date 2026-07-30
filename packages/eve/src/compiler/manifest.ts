@@ -42,7 +42,7 @@ export const ROOT_COMPILED_AGENT_NODE_ID = "__root__";
 /**
  * Current compiled manifest schema version.
  */
-export const COMPILED_AGENT_MANIFEST_VERSION = 36;
+export const COMPILED_AGENT_MANIFEST_VERSION = 37;
 
 /**
  * Compiled channel entry preserved in the compiled manifest.
@@ -401,11 +401,13 @@ const compiledAgentCompactionDefinitionSchema: z.ZodType<CompiledAgentCompaction
   .strict();
 
 const sessionTokenLimitSchema = z.union([z.number().int().positive(), z.literal(false)]);
+const sessionTimeoutSchema = z.union([z.number().int().positive(), z.literal(false)]);
 
 const compiledAgentLimitsDefinitionSchema = z
   .object({
     maxInputTokensPerSession: sessionTokenLimitSchema.optional(),
     maxOutputTokensPerSession: sessionTokenLimitSchema.optional(),
+    sessionTimeoutMs: sessionTimeoutSchema.optional(),
   })
   .strict();
 
@@ -843,6 +845,7 @@ export function createCompiledAgentNodeManifest(input: {
           : {
               maxInputTokensPerSession: input.config.limits.maxInputTokensPerSession,
               maxOutputTokensPerSession: input.config.limits.maxOutputTokensPerSession,
+              sessionTimeoutMs: input.config.limits.sessionTimeoutMs,
             },
       source:
         input.config.source === undefined
