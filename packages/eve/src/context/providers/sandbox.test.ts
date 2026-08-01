@@ -99,6 +99,8 @@ function createBundle(input: {
   const adapterRegistry = { adaptersByKind: new Map() };
   const hookRegistry = { streamEventsByType: new Map(), streamEventsWildcard: [] };
   const subagentRegistry = {
+    dynamicNodeIds: new Set<string>(),
+    dynamicResolvers: [],
     preparedTools: [],
     subagentsByName: new Map(),
     subagentsByNodeId: new Map(),
@@ -163,6 +165,8 @@ function createRuntimeNode(input: {
     nodeId: input.nodeId,
     sandboxRegistry: input.registry,
     subagentRegistry: {
+      dynamicNodeIds: new Set<string>(),
+      dynamicResolvers: [],
       preparedTools: [],
       subagentsByName: new Map(),
       subagentsByNodeId: new Map(),

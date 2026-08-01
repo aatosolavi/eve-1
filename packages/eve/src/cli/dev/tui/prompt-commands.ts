@@ -1,19 +1,15 @@
-export type PromptCommandExtensionName =
-  | "model"
-  | "channels"
-  | "connect"
-  | "deploy"
-  | "vc:install"
-  | "vc:login";
+export type PromptCommandExtensionName = "model" | "add" | "deploy" | "vc:install" | "vc:login";
 
 type PromptCommandTarget = "local" | "remote";
 
 /** The slash commands the prompt accepts. */
 export type PromptCommand =
   | { type: "new" }
+  | { type: "compact" }
   | { type: "exit" }
   | { type: "help" }
   | { type: "loglevel"; argument: string }
+  | { type: "traces"; argument: string }
   | { type: "extension"; name: PromptCommandExtensionName; argument: string };
 
 /**
@@ -64,6 +60,14 @@ const PROMPT_COMMAND_DEFINITIONS = [
     targets: ["local", "remote"],
   },
   {
+    name: "compact",
+    aliases: [],
+    description: "Compact the current session context",
+    takesArgument: false,
+    build: () => ({ type: "compact" }),
+    targets: ["local", "remote"],
+  },
+  {
     name: "vc:install",
     aliases: [],
     description: "Install the Vercel CLI",
@@ -98,19 +102,20 @@ const PROMPT_COMMAND_DEFINITIONS = [
     targets: ["local", "remote"],
   },
   {
-    name: "channels",
+    name: "traces",
     aliases: [],
-    description: "Add chat channels to the agent",
-    takesArgument: false,
-    build: () => ({ type: "extension", name: "channels", argument: "" }),
+    description: "Open the local trace viewer",
+    argumentHint: "[trace]",
+    takesArgument: true,
+    build: (argument) => ({ type: "traces", argument }),
     targets: ["local"],
   },
   {
-    name: "connect",
+    name: "add",
     aliases: [],
-    description: "Add an MCP server through Vercel Connect",
+    description: "Add an integration from the registry",
     takesArgument: false,
-    build: () => ({ type: "extension", name: "connect", argument: "" }),
+    build: () => ({ type: "extension", name: "add", argument: "" }),
     targets: ["local"],
   },
   {
@@ -151,7 +156,7 @@ export function isPromptCommandAvailableFor(
 
 /**
  * Recognizes the slash commands the prompt accepts. `/new` clears the
- * session and transcript; `/exit` (and `/quit`) terminate the TUI like
+ * session and transcript; `/compact` queues context compaction; `/exit` (and `/quit`) terminate the TUI like
  * Ctrl+C; extension commands are dispatched outside the runner. Anything
  * else — including unknown `/text` — is a normal message.
  */

@@ -65,7 +65,7 @@ const schedule = entry.extend({
 });
 
 const subagent = entry.extend({
-  description: z.string(),
+  description: z.string().optional(),
   entryPath: z.string(),
   effective: z.object({
     connections: z.object({

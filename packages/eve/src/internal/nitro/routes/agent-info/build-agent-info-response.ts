@@ -3,12 +3,12 @@ import { projectSubagentCapabilities } from "#compiler/subagent-capabilities.js"
 import {
   getAllFrameworkToolDefinitions,
   getAllFrameworkToolNames,
+  getFrameworkDynamicToolResolvers,
 } from "#runtime/framework-tools/index.js";
 import {
   getAllFrameworkChannelNames,
   getFrameworkChannelDefinitions,
 } from "#runtime/framework-channels/index.js";
-import { createConnectionSearchResolver } from "#runtime/framework-tools/connection-search-dynamic.js";
 import type {
   AgentInfoData,
   CompiledAgentManifest,
@@ -96,7 +96,7 @@ export interface AgentInfoScheduleEntry extends AgentInfoSource {
 }
 
 export interface AgentInfoSubagentEntry extends AgentInfoSource {
-  readonly description: string;
+  readonly description?: string;
   readonly entryPath: string;
   readonly effective: {
     readonly connections: {
@@ -368,8 +368,7 @@ function buildToolInfo(
   const authoredToolNames = new Set(agent.tools.map((tool) => tool.name));
   const disabledFrameworkTools = new Set(agent.disabledFrameworkTools);
   const allFrameworkToolNames = getAllFrameworkToolNames();
-  const dynamicFrameworkResolvers =
-    agent.connections.length > 0 ? [createConnectionSearchResolver()] : [];
+  const dynamicFrameworkResolvers = getFrameworkDynamicToolResolvers();
   const authored = agent.tools.map((tool) =>
     renderTool(tool, {
       origin: "authored",

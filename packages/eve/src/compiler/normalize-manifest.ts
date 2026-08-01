@@ -76,12 +76,17 @@ async function compileAgentNodeManifest(
   manifest: AgentSourceManifest,
   context: ManifestCompileContext,
   options: {
+    readonly agentConfigDefinition?: unknown;
     readonly externalDependencies?: readonly string[];
     readonly allowInheritanceConfig?: boolean;
     readonly allowWorkflowConfig?: boolean;
   } = {},
 ): Promise<CompiledAgentNodeManifest> {
-  const rawConfig = await compileAgentConfig(manifest, context);
+  const rawConfig = Object.hasOwn(options, "agentConfigDefinition")
+    ? await compileAgentConfig(manifest, context, {
+        definition: options.agentConfigDefinition,
+      })
+    : await compileAgentConfig(manifest, context);
   if (options.allowInheritanceConfig !== true && rawConfig.inherit !== undefined) {
     throw new Error(
       `Capability inheritance is only supported on declared subagent configs. Remove "inherit" from "${manifest.agentId}".`,
