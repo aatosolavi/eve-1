@@ -15,6 +15,7 @@ export {
   type AgentWorkflowWorldDefinition,
   type DefinedAgent,
   type DynamicSubagentDefinition,
+  type DynamicLocalSubagentDefinition,
   defineAgent,
   defineDynamic,
 } from "#public/definitions/agent.js";

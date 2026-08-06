@@ -83,6 +83,13 @@ export function buildSubagentRunInput(input: {
   /** Hook token owned by the workflow currently waiting for this child. */
   readonly parentContinuationToken?: string;
   readonly parentTraceContext?: SessionTraceContext;
+  /**
+   * Whether the parent agent opted into
+   * `experimental.subagentPersistentSessions`. Persistent children run in
+   * conversation mode so their sessions survive the first answer; otherwise
+   * children run as one-shot task sessions.
+   */
+  readonly persistentSessions?: boolean;
   readonly session: HarnessSession;
   readonly source: SubagentInputSource;
 }): SubagentRunInputBuild {
@@ -139,11 +146,15 @@ export function buildSubagentRunInput(input: {
     continuationToken: childContinuationToken,
     initiatorAuth,
     input: {
-      message: formatSubagentCallInputMessage({ action, source }),
+      message: formatSubagentCallInputMessage({
+        action,
+        persistentSession: input.persistentSessions,
+        source,
+      }),
       outputSchema: requestedOutputSchema,
     },
     limits: inheritedLimits,
-    mode: "task",
+    mode: input.persistentSessions === true ? "conversation" : "task",
     parent: {
       callId: action.callId,
       rootSessionId,
@@ -230,6 +241,7 @@ function createSharedSandboxAdapterState(input: {
  */
 function formatSubagentCallInputMessage(input: {
   readonly action: Pick<RuntimeSubagentCallActionRequest, "input" | "subagentName">;
+  readonly persistentSession?: boolean;
   readonly source: SubagentInputSource;
 }): string {
   const { message } = input.action.input as { message: string };
@@ -240,12 +252,14 @@ function formatSubagentCallInputMessage(input: {
         description: input.source.description,
         message,
         name: input.action.subagentName,
+        persistentSession: input.persistentSession,
         type: "local",
       }).message;
     case "runtime":
       return formatSubagentInput({
         message,
         name: input.action.subagentName,
+        persistentSession: input.persistentSession,
         type: "runtime",
       }).message;
     default: {

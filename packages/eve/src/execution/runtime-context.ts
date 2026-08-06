@@ -43,7 +43,9 @@ export function buildRunContext(input: {
     });
   }
 
-  ctx.set(ContinuationTokenKey, run.continuationToken ?? "");
+  if (run.continuationToken !== undefined) {
+    ctx.set(ContinuationTokenKey, run.continuationToken);
+  }
   ctx.set(ModeKey, run.mode);
   ctx.set(AuthKey, auth);
   ctx.set(InitiatorAuthKey, run.initiatorAuth ?? auth);

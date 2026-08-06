@@ -41,7 +41,9 @@ Each command echoes as an invocation line, asks through a bordered panel that ta
 | `/vc:login`   | Logs in to Vercel locally. On a remote session, resolves the deployment's project, refreshes its OIDC token, and confirms any required Trusted Sources rule. |
 | `/loglevel`   | Switches which logs the transcript shows. See [Control what logs show](#control-what-logs-show).                                                             |
 | `/traces`     | Opens the full-screen local trace viewer. See [Inspect traces](#inspect-traces).                                                                             |
-| `/new`        | Starts a fresh session.                                                                                                                                      |
+| `/reset`      | Starts a fresh session.                                                                                                                                      |
+| `/cancel`     | Cooperatively cancels the running turn while preserving the session and settled context.                                                                     |
+| `/clear`      | Clears model-message history while preserving the current session and its durable resources. `/new` is an alias.                                             |
 | `/compact`    | Queues context compaction for the current session without sending a message.                                                                                 |
 | `/exit`       | Quits the TUI.                                                                                                                                               |
 | `/help`       | Lists the commands available for the current local or remote session.                                                                                        |
@@ -69,9 +71,9 @@ Chat and freeform `ask_question` inputs behave like a shell line editor.
 | Key                                            | Action                                                                                                            |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `Enter`                                        | Submit the message or question response. While a turn is running, queue the message for the next turn.            |
-| `Esc`                                          | While a turn runs: pop the oldest queued message and steer with it; with nothing queued, press twice to cancel.   |
+| `Esc`                                          | While a turn runs: pop the oldest queued message and steer with it; with nothing queued, cancel the turn.         |
 | `Shift+Enter`                                  | Insert a newline without sending (needs a terminal that reports modified keys).                                   |
-| `Ctrl+C`                                       | Interrupt a running turn. At the chat or freeform-question prompt, clear non-empty input; when empty, quit.       |
+| `Ctrl+C`                                       | While a turn runs, behave like Esc. At the idle chat prompt, clear input and arm exit; press again to quit.       |
 | `↑` / `↓`                                      | Move between input lines; at a chat-buffer edge, navigate messages you have sent this session.                    |
 | `←` / `→`, `Home` / `End`, `Ctrl+A` / `Ctrl+E` | Move the caret; Home/End stay within the current line.                                                            |
 | `Ctrl+U` / `Ctrl+K` / `Ctrl+W`                 | Delete to the start of the line, to its end, or through the previous word.                                        |
@@ -82,9 +84,9 @@ In terminals that support bracketed paste, pasting multi-line text into chat or 
 
 ### Queue and steer while the agent works
 
-Sending a message while a turn is still running does not interrupt it — the message joins a queue of up to five, pinned in a panel directly above the input with one line per message. When the turn ends, the queued messages coalesce into the next turn's message.
+Sending a message while a turn is still running does not interrupt it — the message joins a queue of up to five, pinned in a panel directly above the input with one line per message. When the turn ends, the queued messages coalesce into the next turn's message. Submit `/cancel` during a turn to cancel it immediately without queueing the command as model input; `/cancel` also works from the idle prompt when a prior stream disconnected while its server turn may still be running.
 
-`Esc` steers instead of waiting: it pops the oldest queued message, cancels the running turn cooperatively, and submits the popped message as the replacement turn. In the transcript, a steered message carries an accent `↑` on its own line above its gutter bar; a queued message that waited for the boundary carries it below. Any remaining messages stay queued behind it. With nothing queued, the first `Esc` arms cancellation and a second `Esc` cancels the turn. Unlike `Ctrl+C` — which drops the stream client-side — a cancelled turn ends cleanly on the server and the session keeps its context; the conversation picks up at the next prompt.
+`Esc` and `Ctrl+C` steer instead of waiting: either key pops the oldest queued message, cancels the running turn cooperatively, and submits the popped message as the replacement turn. In the transcript, a steered message carries an accent `↑` on its own line above its gutter bar; a queued message that waited for the boundary carries it below. Any remaining messages stay queued behind it. With nothing queued, either key cancels the turn immediately. A cancelled turn ends cleanly on the server and the session keeps its context; the conversation picks up at the next prompt.
 
 If a turn fails terminally (the server session dies or the connection drops), the TUI starts a fresh session and notes it inline so you can keep going. Server-side context resets with the old session. Messages still queued when a turn is interrupted or fails are restored into the next prompt's input instead of being sent blind.
 
@@ -110,7 +112,7 @@ Each log has a same-named `.dump` sibling — one JSON document with environment
 
 ## Inspect traces
 
-`/traces` opens a full-screen viewer over the local trace spool (`.eve/traces/v1`) that `eve dev` writes while you chat — see [Zero-config local traces](instrumentation#zero-config-local-traces). It reads the spool files directly and refreshes about once a second, so spans from the current session stream in live. The viewer takes over the terminal's alternate screen; closing it restores the transcript exactly where you left it.
+`/traces` opens a full-screen viewer over the local trace spool (`.eve/traces/v1`) that `eve dev` writes while you chat — see [Local traces](instrumentation#local-traces). It reads the spool files directly and refreshes about once a second, so spans from the current session stream in live. The viewer takes over the terminal's alternate screen; closing it restores the transcript exactly where you left it.
 
 The viewer opens on your current session's trace (or the most recent one). It re-tells the trace as a chat-like flow of cards: the system prompt sits at the top as a collapsed card, then user and assistant messages (assistant cards carry model, duration, token, and gateway cost metadata), and tool calls show their inputs and results inline. Work a subagent performed appears in the same flow, ordered by when it happened — between the parent's dispatch step and its resumed reply — with a dim `subagent` badge (`subagent:<name>` when the dispatch named one) on every card of the delegated turn; the delegated prompt renders as a `task` card rather than a `user` message. Error spans paint their whole card red. The header names the agent, session, span count, and duration, plus a `● live` badge while spans are still landing. `/traces <trace>` opens a specific trace by id prefix.
 
